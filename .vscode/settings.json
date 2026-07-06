@@ -1,0 +1,34 @@
+{
+  "files.exclude": {
+    "legacy/**": true,
+    "growatt2mqtt/**": true,
+    "octopus-ui/**": true,
+    "pyside6/**": true,
+    ".venv/**": true,
+    "venv/**": true,
+    "__pycache__/**": true,
+    "logs/**": true,
+    ".claude/**": true,
+    ".git/**": true
+  },
+  "search.exclude": {
+    "legacy/**": true,
+    "growatt2mqtt/**": true,
+    "octopus-ui/**": true,
+    "pyside6/**": true,
+    ".venv/**": true,
+    "venv/**": true,
+    "__pycache__/**": true,
+    "logs/**": true
+  },
+  "files.watcherExclude": {
+    "legacy/**": true,
+    "growatt2mqtt/**": true,
+    "octopus-ui/**": true,
+    "pyside6/**": true,
+    ".venv/**": true,
+    "venv/**": true,
+    "__pycache__/**": true,
+    "logs/**": true
+  }
+}

@@ -1,0 +1,48 @@
+---
+description: Focus workspace on Energy Dashboard — ignore legacy research scripts
+alwaysApply: true
+---
+
+# Energy Dashboard workspace
+
+This repository is organized around the **`energy_dashboard`** package, launched via `EnergyDashboard2.py`.
+
+## Active codebase
+
+Work only in these paths unless the user explicitly asks otherwise:
+
+- `EnergyDashboard2.py` — thin launcher (venv re-exec)
+- `energy_dashboard/` — modular application code
+  - `main_window.py` — `EnergyDashboard` QMainWindow
+  - `tabs/` — one module per tab (Growatt, Octopus, Optimiser, …)
+  - `fetch/` — API clients (Octopus REST/GraphQL, Tasmota, solar)
+  - `db/` — `DataLogger` and schema helpers
+  - `ui/` — styles, chart utilities, widgets, tab bar
+  - `planner/` — optimiser / maximiser pure logic
+  - `dialogs/` — About, Help, map picker
+  - `modbus/` — Command Sim tab helpers
+  - `config.py`, `common.py` — shared settings and re-exports for tabs
+- `services/` — sidecar services (e.g. `powermon_broker.py`)
+- `assets/`, `_ui_assets/` — UI images and SVG assets
+- `requirements.txt`, `setup.sh`, `postgres_reset_schema.sql`, `GROWATT_API.md`
+
+## Out of scope (do not edit or reference unless asked)
+
+- `legacy/` — archived research scripts
+- `growatt2mqtt/` — separate MQTT bridge project
+- `scripts/split_energy_dashboard.py` — one-time split tooling (unless re-splitting)
+- Virtual envs: `octopus-ui/`, `pyside6/`, `.venv/`, `venv/`
+
+## Running
+
+```bash
+./setup.sh
+python EnergyDashboard2.py    # or: python -m energy_dashboard
+```
+
+## Conventions
+
+- Default credentials in `energy_dashboard/config.py` (prefer env vars for secrets)
+- `QSettings("PowerModel", "EnergyDashboard2")` for persisted GUI preferences
+- Tab modules import shared symbols via `from energy_dashboard.common import *`
+- Foundation modules use explicit imports from `energy_dashboard.deps` and siblings

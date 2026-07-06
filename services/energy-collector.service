@@ -1,0 +1,18 @@
+[Unit]
+Description=PowerModel energy collector (Tasmota + Growatt → PostgreSQL)
+Documentation=file:///home/user/PowerModel/services/energy_collector.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/PowerModel
+EnvironmentFile=-/etc/default/energy-collector
+ExecStart=/home/user/PowerModel/services/energy-collector-run.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=Tasmota power-monitor broker (writes PostgreSQL, serves HTTP snapshot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust WorkingDirectory and ExecStart to match where PowerModel is installed.
+WorkingDirectory=/home/user/PowerModel
+EnvironmentFile=-/etc/default/powermon-broker
+# /etc/default/powermon-broker: POWERMON_PG_* , POWERMON_IP_* , POWERMON_LISTEN , etc.
+# Install: sudo ./services/install-powermon-broker.sh
+ExecStart=/home/user/PowerModel/services/powermon-broker-run.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

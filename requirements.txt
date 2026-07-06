@@ -1,0 +1,30 @@
+# EnergyDashboard2.py — install: pip install -r requirements.txt
+#
+# Database export (Parameters → Database Export)
+# - SQLite: uses the standard library module `sqlite3` (ships with Python). No PyPI package.
+# - MySQL: PyMySQL (pure Python; matches DataLogger in EnergyDashboard2.py)
+# - PostgreSQL: psycopg2-binary (pre-built wheels; avoids needing libpq dev headers)
+pymysql>=1.1.0
+psycopg2-binary>=2.9.9
+
+# GUI and data / charts
+PySide6>=6.5.0
+# Forecasts / Set location… map (QtWebEngineWidgets — ships in PySide6-Addons)
+PySide6-Addons>=6.5.0
+pandas>=2.0.0
+polars>=1.0.0
+pyarrow>=14.0.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+requests>=2.28.0
+pytz>=2023.3
+paho-mqtt>=2.0.0
+
+# Growatt API client
+growattServer>=1.0.0
+
+# Optional local Modbus probe (Connectivity Status → Growatt local)
+pymodbus>=3.6.0
+
+# Serial ports (USB RS485 adapters, UART bridges, etc.)
+pyserial>=3.5

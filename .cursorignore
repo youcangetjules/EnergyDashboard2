@@ -1,0 +1,9 @@
+legacy/
+growatt2mqtt/
+octopus-ui/
+pyside6/
+venv/
+.venv/
+__pycache__/
+logs/
+.claude/
