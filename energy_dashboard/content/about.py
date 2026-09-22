@@ -8,6 +8,8 @@ from energy_dashboard.version import APP_VERSION
 # Copy shown in the "About" dialog (Setup & Info tab → About button).
 # Authored by the project owner; rendered as rich HTML in a QTextBrowser
 # so the trailing mailto: link stays clickable.
+# The GitHub README.md opens with these same words (markdown, not HTML).
+# If this text changes, update README.md to match, including the version line.
 _APP_ABOUT_TEXT = (
     "<h2 style='margin:0 0 6px 0;'>PowerModel — Energy Dashboard</h2>"
     f"<p style='margin:0 0 14px 0; color:#a6adc8;'>Version {APP_VERSION}</p>"

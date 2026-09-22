@@ -129,6 +129,7 @@ When UK tariff or metering behaviour is ambiguous, say so and prefer meter/API f
 - Prefer fixing the real data path (fetch, register map, timezone, midnight reset) over chart cosmetics.
 - Matplotlib: prefer fixed `subplots_adjust` / explicit axes positions over `tight_layout` when panes are short (avoids noisy UserWarnings).
 - When shipping a user-visible fix: bump `energy_dashboard/version.py` patch and add a matching newest-first bullet in `energy_dashboard/content/about.py` changelog.
+- Root `README.md` opens with the same words as the in-app About popup (`energy_dashboard/content/about.py`). If that popup text or the version line changes, update `README.md` to match.
 - **Commit each patch to GitHub, then push it**, before starting the next patch. The human set this as standing practice on 2026-09-22 — do not wait for a separate “please commit”.
   - Remote: `git@github.com:youcangetjules/EnergyDashboard2.git`, branch `main`. Push with `git push origin main` (SSH is already authenticated; the `gh` CLI is not required).
   - This machine has no `user.name` / `user.email` in git config. Do **not** write git config. For the commit command only, pass the identity already used on `main`: `GIT_AUTHOR_NAME=user GIT_AUTHOR_EMAIL=user@localhost GIT_COMMITTER_NAME=user GIT_COMMITTER_EMAIL=user@localhost`.
