@@ -133,6 +133,7 @@ When UK tariff or metering behaviour is ambiguous, say so and prefer meter/API f
   - Remote: `git@github.com:youcangetjules/EnergyDashboard2.git`, branch `main`. Push with `git push origin main` (SSH is already authenticated; the `gh` CLI is not required).
   - This machine has no `user.name` / `user.email` in git config. Do **not** write git config. For the commit command only, pass the identity already used on `main`: `GIT_AUTHOR_NAME=user GIT_AUTHOR_EMAIL=user@localhost GIT_COMMITTER_NAME=user GIT_COMMITTER_EMAIL=user@localhost`.
   - One shipped patch = one commit. Subject line: `2.9.400: short plain-English line from the changelog.`
+  - Body: one brief line per change in that patch, plain English, newest or most important first. One sentence each — what changed for the person using the app, not a file list or a diff. If the patch did one thing, still say that thing in the body. Match the About changelog bullets, shortened if they are long.
   - Stage only the files that patch touched (code, help, `about.py`, `version.py`, `worklog.md`, and a bug-tracker line when there is one). Leave unrelated dirt unstaged.
   - Prefer env vars over hard-coded secrets. Never commit `.env`, `~/.config/PowerModel/secrets.env`, live API keys, MQTT passwords, or database passwords. `energy_dashboard/secrets.py` only loads those files; the values stay on this machine.
 

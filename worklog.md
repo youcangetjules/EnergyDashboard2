@@ -12,6 +12,8 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-22
 
+- Commit messages on GitHub now include a short line for each change in that patch, in everyday language, so the history says what changed without opening the code.
+- Octopus Live can now show money as well as power. A Power / Cost switch sits in the live monitor panel. Cost is the energy in each slot times the Agile spot price (import and export tariffs, VAT included). For earlier days that Octopus has already metered, the chart uses that half-hour meter — what Octopus will actually bill from — instead of the live stream. The gap between those settled days and the live stream is used as a scale on today’s running estimate, and the summary shows the factor and the days it came from. Today stays labelled as an estimate. The standing charge is not in the figure.
 - From the next change onward, each version patch is its own git commit and is pushed to GitHub (`youcangetjules/EnergyDashboard2`, branch `main`). GitHub was still on 2.9.245 while this machine was on 2.9.399, and those in-between versions were never saved one at a time, so they go up together as one catch-up. After that, a patch is committed and pushed before the next one starts.
 - Run Advisor now turns pale green when the run finishes cleanly, the same green a tab uses just after it refreshes. If the run fails, that button turns black so you can see the last attempt did not work.
 - Battery Expansion Simulator used to leave blank charts when there was nothing to simulate, with only a short note in the status bar. It now writes on the charts and in Simulation Results that it needs at least a day of half-hour history, and how many slots it actually found.
