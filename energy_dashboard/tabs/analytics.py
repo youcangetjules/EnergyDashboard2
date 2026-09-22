@@ -347,7 +347,8 @@ class AnalyticsTab(QWidget):
             growatt_hh = self._fetch_growatt_history(days)
             data_source = None
 
-            if growatt_hh is not None and len(growatt_hh) >= 48:
+            growatt_slots = 0 if growatt_hh is None else len(growatt_hh)
+            if growatt_hh is not None and growatt_slots >= 48:
                 merged = growatt_hh
                 data_source = "Growatt DB"
                 _log.info("Analytics", f"Using Growatt DB: {len(merged)} half-hour slots, "
@@ -366,7 +367,9 @@ class AnalyticsTab(QWidget):
                 df_import = get_meter_data(api_key, import_mpan, import_serial, start_date, end_date)
                 df_export = get_meter_data(api_key, export_mpan, export_serial, start_date, end_date)
                 if df_import.empty:
-                    self._inv.invoke(lambda: self._sim_error("No data. Enable database logging or fetch Octopus data."))
+                    self._inv.invoke(lambda n=growatt_slots, d=days: self._sim_error(
+                        self._not_enough_data_message(n, 0, d)
+                    ))
                     return
                 df_import['interval_start'] = pd.to_datetime(df_import['interval_start'], utc=True)
                 df_import = df_import.set_index('interval_start').sort_index().rename(columns={'consumption': 'import_kWh'})
@@ -384,6 +387,12 @@ class AnalyticsTab(QWidget):
                 octopus_merged['load_kWh'] = octopus_merged['import_kWh'] + octopus_merged['export_kWh']
                 octopus_merged['solar_kWh'] = octopus_merged['export_kWh']
                 merged = octopus_merged[['load_kWh', 'solar_kWh']]
+                if len(merged) < 48:
+                    octopus_slots = len(merged)
+                    self._inv.invoke(lambda n=growatt_slots, o=octopus_slots, d=days: self._sim_error(
+                        self._not_enough_data_message(n, o, d)
+                    ))
+                    return
                 data_source = "Octopus (approximate)"
 
             self._data_source_label = data_source
@@ -494,10 +503,13 @@ class AnalyticsTab(QWidget):
                 finally:
                     conn.close()
             elif logger.mysql_enabled:
-                import pymysql
-                conn = pymysql.connect(host=logger.mysql_host, port=int(logger.mysql_port),
-                                       user=logger.mysql_user, password=logger.mysql_pass,
-                                       database=logger.mysql_db, charset='utf8mb4')
+                if not logger.backend_ready("mysql"):
+                    return None
+                from energy_dashboard.db.connect_probe import mysql_connect
+                conn = mysql_connect(
+                    logger.mysql_host, logger.mysql_port,
+                    logger.mysql_user, logger.mysql_pass, logger.mysql_db,
+                )
                 try:
                     with conn.cursor() as cur:
                         cur.execute(q, (cutoff,))
@@ -505,10 +517,13 @@ class AnalyticsTab(QWidget):
                 finally:
                     conn.close()
             elif logger.pg_enabled:
-                import psycopg2
-                conn = psycopg2.connect(host=logger.pg_host, port=int(logger.pg_port),
-                                         dbname=logger.pg_db, user=logger.pg_user,
-                                         password=logger.pg_pass)
+                if not logger.backend_ready("pg"):
+                    return None
+                from energy_dashboard.db.connect_probe import postgresql_connect
+                conn = postgresql_connect(
+                    logger.pg_host, logger.pg_port,
+                    logger.pg_user, logger.pg_pass, logger.pg_db,
+                )
                 try:
                     with conn.cursor() as cur:
                         cur.execute(q, (cutoff,))
@@ -776,12 +791,69 @@ class AnalyticsTab(QWidget):
             'label': 'No Battery', 'capacity': 0, 'color': '#9E9E9E',
         }
 
+    def _not_enough_data_message(self, growatt_slots, octopus_slots, days):
+        """Plain-English reason the simulator refused to annualise a thin history."""
+        lines = ["Not enough data to run this simulation.", ""]
+        lines.append(
+            "A useful run needs at least one full day of half-hour slots (48). "
+            f"The window you asked for is {days} days."
+        )
+        lines.append("")
+        if growatt_slots <= 0:
+            lines.append("Growatt database: no load and solar history in that window.")
+        else:
+            lines.append(
+                f"Growatt database: {growatt_slots} half-hour slots "
+                "(need 48 or more)."
+            )
+        if octopus_slots <= 0:
+            lines.append("Octopus import meter: no readings came back for that window.")
+        else:
+            lines.append(
+                f"Octopus import meter: {octopus_slots} half-hour slots "
+                "(need 48 or more)."
+            )
+        lines.append("")
+        lines.append(
+            "Enable database logging so Growatt load and solar are stored, "
+            "or fetch Octopus data, then run the simulation again."
+        )
+        return "\n".join(lines)
+
+    def _clear_chart_notice(self):
+        notice = getattr(self, "_chart_notice", None)
+        if notice is not None:
+            try:
+                notice.remove()
+            except Exception:
+                pass
+            self._chart_notice = None
+
+    def _show_chart_notice(self, message):
+        """Replace the four plots with one centred explanation."""
+        self._clear_chart_notice()
+        self.fig.set_facecolor(_DARK_BG)
+        for ax in (self.ax_bill, self.ax_self, self.ax_soc, self.ax_payback):
+            ax.clear()
+            ax.set_facecolor(_DARK_BG)
+            ax.set_axis_off()
+        self._chart_notice = self.fig.text(
+            0.5, 0.5, message,
+            ha="center", va="center",
+            color=_DARK_TEXT,
+            fontsize=12,
+            multialignment="center",
+        )
+        self.canvas.draw_idle()
+
     def _sim_error(self, msg):
         self._chart_shimmer.stop()
         self.fetching = False
         self.run_btn.setEnabled(True)
         self.progress_label.setText("")
-        self.set_status(msg)
+        self.results_text.setPlainText(msg)
+        self._show_chart_notice(msg)
+        self.set_status("Not enough data to run the battery expansion simulation.")
 
     def _update_display(self):
         self._chart_shimmer.stop()
@@ -806,8 +878,10 @@ class AnalyticsTab(QWidget):
     def _plot_charts(self):
         import matplotlib.dates as mdates
         results = self.sim_results
+        self._clear_chart_notice()
         for ax in [self.ax_bill, self.ax_self, self.ax_soc, self.ax_payback]:
             ax.clear()
+            ax.set_axis_on()
         scenarios = ['No Battery', 'Current (2x)', '3 Batteries', '4 Batteries']
         colors = ['#9E9E9E', '#2196F3', '#FF9800', '#4CAF50']
         present = [(s, c) for s, c in zip(scenarios, colors) if s in results]
@@ -912,7 +986,11 @@ class AnalyticsTab(QWidget):
             f"Horizontal (x): years after purchase  |  "
             f"{_fmt_toolbar_y(yv, '£', 'cumulative saving vs extra battery cost (upgrades)')}"
         )
-        self.fig.tight_layout(pad=2.5)
+        # GridSpec already owns spacing; tight_layout warns and can mis-pad.
+        self.fig.subplots_adjust(
+            left=0.07, right=0.98, top=0.93, bottom=0.08,
+            hspace=0.35, wspace=0.30,
+        )
         self.canvas.draw()
 
     def _write_results(self):

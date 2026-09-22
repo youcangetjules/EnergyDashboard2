@@ -51,6 +51,862 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.399", "2026-09-22", [
+        "<b>Run Advisor</b> turns pale green after a run that finishes, "
+        "the same green as a tab that has just refreshed. A failed run "
+        "turns that button black.",
+        "<b>Battery Expansion Simulator</b> says so on the charts and in "
+        "Simulation Results when there is not at least one day of half-hour "
+        "history to work from, instead of leaving blank axes.",
+    ]),
+    ("2.9.398", "2026-09-22", [
+        "Launch no longer prints “Failed to query DRM render node” or "
+        "“GPUInfo not initialized”. Those lines were the old software-GPU "
+        "workaround talking. Charts still use software drawing. "
+        "Hardware GPU remains <code>POWERMODEL_WEBENGINE_GPU=1</code>.",
+    ]),
+    ("2.9.397", "2026-09-22", [
+        "Maximise no longer shortens the window. Height is the full screen "
+        "(above the taskbar). Width still cannot grow past that monitor.",
+    ]),
+    ("2.9.396", "2026-09-22", [
+        "Maximise snaps the main window to the screen it is on — that "
+        "monitor’s resolution, and no wider or taller.",
+    ]),
+    ("2.9.395", "2026-09-22", [
+        "<b>PV String Charge</b> and <b>Potential Issues</b> (renamed from "
+        "Pot. Issues) joined <b>Battery Analysis</b> in Physical Plant Tools.",
+    ]),
+    ("2.9.394", "2026-09-22", [
+        "<b>Battery Analysis</b> moved out of Dashboards into a new group, "
+        "<b>Physical Plant Tools</b>.",
+    ]),
+    ("2.9.393", "2026-09-22", [
+        "The tab group that was <b>Energy Usage</b> is now <b>Dashboards</b>, "
+        "first on the left. The app always opens on that group.",
+    ]),
+    ("2.9.392", "2026-09-22", [
+        "The main window cannot be resized larger than the screen it is on. "
+        "The limit follows that monitor, and still stops above the taskbar.",
+    ]),
+    ("2.9.391", "2026-09-22", [
+        "The dashboard keeps <b>one</b> MQTT connection to EMQX, named "
+        "<code>energy_dashboard</code>. Grott and the Tasmota tab share it. "
+        "A second dashboard window does not open another session.",
+    ]),
+    ("2.9.390", "2026-09-22", [
+        "Growatt Physical → Manual packs is one line: Auto, Apply, and "
+        "Probe packs sit side by side.",
+    ]),
+    ("2.9.389", "2026-09-22", [
+        "Tasmota Power History title no longer adds the “earlier gap” note "
+        "(when stored samples start, or a reminder to check the collector). "
+        "It stays the window, the source, and the Y-axis cap.",
+    ]),
+    ("2.9.388", "2026-09-22", [
+        "Octopus Live now leads with connectivity: green <b>Connectivity — OK</b> "
+        "when GraphQL answered, amber <b>REST only</b> or <b>stale</b>, red "
+        "<b>failed</b>. The same state sits on the bottom strip as "
+        "<b>Octopus</b>, beside the database. How old the newest meter slot is "
+        "stays on that line as “latest … ago”.",
+    ]),
+    ("2.9.387", "2026-09-22", [
+        "The main window no longer sizes itself underneath the taskbar. "
+        "It fills the usable screen and stays above the panel, including "
+        "when maximise would otherwise cover the bar.",
+        "A message box that you must OK or Cancel before the rest of the "
+        "app will respond stays on top. It can no longer slip behind the "
+        "main window and leave the dashboard stuck.",
+    ]),
+    ("2.9.386", "2026-09-22", [
+        "Connectivity login panels keep a test result in the bottom-right: "
+        "green <b>Connectivity — OK</b> after a pass, red when it failed. "
+        "A pass older than an hour turns amber: "
+        "<b>Connectivity - last OK (Stale &gt;1hr since last test)</b>. "
+        "Closing the window does not clear it.",
+    ]),
+    ("2.9.385", "2026-09-22", [
+        "Agile Year stores daily high / low / average in "
+        "<code>agile_year_daily</code> (half-hour slots still go in "
+        "<code>agile_price_snapshots</code>). The spike at the right of the "
+        "chart is gone — leftover twin axes and 1–2 slot phantom days are "
+        "dropped so the line matches the table. Trend checkboxes: Monthly, "
+        "YTD, Yearly, Since start. Table columns are resizable, with "
+        "<b>% above/below LT trend</b> and <b>std. deviation from trend</b>.",
+    ]),
+    ("2.9.384", "2026-09-22", [
+        "Growatt Live Status: the <b>Physical — inverter &amp; battery</b> panel "
+        "is now four tidy columns (dashboard model + today, battery equipage, "
+        "grid &amp; PV, pack &amp; status). Field names sit in their own fixed "
+        "column with dividers between groups, so long names no longer run into "
+        "the value next to them and wrapped values are no longer clipped.",
+        "Forecasts: the Agile price and solar charts use the tab height "
+        "properly — the dead bands above, between, and below the panes are "
+        "gone (plot area up from roughly 64% to 80% of the canvas). Day labels "
+        "and per-day kWh totals now get headroom inside the chart instead of "
+        "shrinking it.",
+    ]),
+    ("2.9.383", "2026-09-22", [
+        "Growatt API (and other Connectivity login) popups open ~1200&nbsp;px "
+        "wide with roomy Username / Password / API key / Serial fields. "
+        "<b>Test connection</b> on that dialog (and Setup &amp; Info) checks "
+        "Growatt cloud login and a live read.",
+    ]),
+    ("2.9.382", "2026-09-22", [
+        "Controls gains a <b>Bug Tracker</b> tab that shows the project’s "
+        "standing defect log (<code>bug_tracker.md</code>). Reload re-reads "
+        "the file from disk; the tab does not edit it.",
+    ]),
+    ("2.9.381", "2026-09-22", [
+        "Connectivity architecture boxes are a little taller so titles, "
+        "ALARM/WARN labels, and subtitles are not clipped against the bottom "
+        "edge.",
+    ]),
+    ("2.9.380", "2026-09-22", [
+        "Hardened background→GUI callbacks so worker threads always queue "
+        "onto the main window thread (avoids a rare mid-session crash when "
+        "the UI was painting at the same time).",
+    ]),
+    ("2.9.379", "2026-09-21", [
+        "Grott “missing registers” amber was mostly a false alarm: Shine "
+        "sends full status frames and short heartbeats (SOC + grid V/Hz). "
+        "The heartbeat used to wipe the “Grott published this” set, so the "
+        "app re-patched those fields from the cloud. Recent Grott registers "
+        "now stay present across heartbeats (until the fresh window expires), "
+        "and the Connectivity banner names which fields are still cloud-filled.",
+    ]),
+    ("2.9.378", "2026-09-21", [
+        "The PostgreSQL script on Setup & Info now also grants the dashboard "
+        "login access to the logger tables, named for the user in the field "
+        "beside it. Creating a table does not grant access to it, so "
+        "“Tables not readable” persisted after the tables existed. Run the "
+        "whole script by hand as the database owner.",
+    ]),
+    ("2.9.377", "2026-09-21", [
+        "Battery Analysis no longer pops a blocking error box when history "
+        "cannot be loaded. That box froze every tab and the Close button "
+        "until it was dismissed. The message stays on the status line.",
+    ]),
+    ("2.9.376", "2026-09-21", [
+        "PostgreSQL logger tables are created by the Setup SQL, run by hand "
+        "as the database owner. That script creates every logger table. The "
+        "dashboard login (including EMQX) no longer issues CREATE TABLE, so a "
+        "refused create is not reported as the database being down. “Tables "
+        "not readable (0/11)” means this login can connect but cannot use "
+        "those tables.",
+    ]),
+    ("2.9.375", "2026-09-21", [
+        "Connectivity diagram popups now include the login for that box: "
+        "Growatt cloud, Grott MQTT, EMQX, Tasmota (the EMQX broker), inverter "
+        "web UI, Modbus access, Octopus API key and meters, PVOutput, and "
+        "database usernames. Save and Test update the same fields as Setup "
+        "& Info. Wonderwatt still uses its share link. Battery, forecast, "
+        "AI, and the dashboard box have no separate login.",
+    ]),
+    ("2.9.374", "2026-09-21", [
+        "Octopus Live “No Growatt PV” and footer ingest of 0 were hiding a "
+        "PostgreSQL permission problem: the app can connect while the login "
+        "cannot read growatt_readings. Setup now marks tables not readable "
+        "(not connected); ingest says no table access; the chart names the "
+        "denied table instead of looking like a quiet solar day.",
+    ]),
+    ("2.9.373", "2026-09-21", [
+        "Live alarms now cover the logging database and devices as well as "
+        "the battery: database unreachable, no new Growatt/Tasmota rows "
+        "while kit is live, inverter reported offline, Tasmota MQTT down, "
+        "or named plugs silent. Same banner, tray, and Connectivity diagram "
+        "as Grott-lost / low SOC. Setup group renamed Live alarms.",
+    ]),
+    ("2.9.372", "2026-09-21", [
+        "Two-line strip across the bottom of the window: database "
+        "connected/disconnected plus ingest (last 15 minutes / hour / "
+        "London today), and whole-machine CPU and RAM with a rolling "
+        "one-hour average. Polls off the UI thread; hover CPU/RAM for "
+        "this-process usage.",
+    ]),
+    ("2.9.371", "2026-09-21", [
+        "Energy Forecasts: new <b>Agile Year</b> tab — about 12 months of "
+        "Octopus Agile daily highest / lowest / average p/kWh (inc. VAT), "
+        "and how many hours each day the rate was below 0p. "
+        "Import or export; Fetch year pulls the public unit-rate history.",
+    ]),
+    ("2.9.370", "2026-09-21", [
+        "Setup &amp; Info database status is three explicit lines: "
+        "<b>PostgreSQL DB seen</b>, <b>Database connected</b>, and "
+        "<b>Tables connected</b> (with a count). A wrong password no longer "
+        "reads as “database not found”.",
+    ]),
+    ("2.9.369", "2026-09-21", [
+        "Disconnected MySQL/PostgreSQL no longer freezes the dashboard. "
+        "Connect waits cap at 3 seconds, then the app backs off and keeps "
+        "the UI live until the server is reachable again.",
+    ]),
+    ("2.9.368", "2026-09-21", [
+        "Setup &amp; Info: each database engine now shows the full CREATE script "
+        "(every logger table) on the right, with Copy SQL. "
+        "<b>Setup Database</b> runs that same script. "
+        "Connected / Disabled / not-found status sits left of the SQL, not centred.",
+    ]),
+    ("2.9.367", "2026-09-17", [
+        "Launch: Linux software-GL path now skips EGL/DRM GPU probes so "
+        "<code>./run-dashboard.sh</code> no longer prints "
+        "“Failed to query DRM render node” / “GPUInfo not initialized”. "
+        "Hardware GPU still opt-in via <code>POWERMODEL_WEBENGINE_GPU=1</code>.",
+    ]),
+    ("2.9.366", "2026-09-17", [
+        "PV String Charge: dropped the empty lifetime pane so the instantaneous "
+        "kW and today’s cumulative kWh charts fill the remaining height.",
+    ]),
+    ("2.9.365", "2026-09-17", [
+        "Battery Analysis: <b>AC charge stop %</b> is a full spin (was clipped). "
+        "<b>Save</b> keeps capacity, low-SOC threshold, and stop %. Capacity "
+        "defaults from Growatt Live Status. Set on inverter still writes the "
+        "MIX and now reads back to confirm.",
+    ]),
+    ("2.9.364", "2026-09-17", [
+        "Battery Analysis: <b>Refresh every: … min</b> next to Fetch Battery "
+        "History auto-reloads SOC/power on that interval (Off at 0). Remembered.",
+    ]),
+    ("2.9.363", "2026-09-17", [
+        "PV String Charge: <b>Scan every (min)</b> next to Refresh now / Reload "
+        "charts auto-reads live string power on that interval (Off at 0). The "
+        "choice is remembered.",
+    ]),
+    ("2.9.362", "2026-09-17", [
+        "PV String Charge is two charts: instantaneous kW (last 6 hours — "
+        "each string, charge, solar forecast) on top, and kWh accumulating "
+        "from midnight underneath (each string, both together, and a "
+        "cumulative forecast). kW and kWh no longer share one mixed axis.",
+    ]),
+    ("2.9.361", "2026-09-17", [
+        "Octopus Energy Data → Daily Import / Export: a second row under the "
+        "daily charts shows <b>Monday–Sunday weeks</b> for import/export kWh "
+        "and net £, each with a dashed weekly trend. Incomplete weeks at the "
+        "ends of the fetch window are paler and not scaled up.",
+    ]),
+    ("2.9.360", "2026-09-17", [
+        "PV String Charge left axis is real kW again: Grott string power "
+        "(<code>pPv1</code>/<code>pPv2</code>) is converted from watts like "
+        "total PV, and stored lots that kept dawn 10–50 W as kW are corrected "
+        "on load so a ~40 kW spike cannot stretch the scale or today’s kWh.",
+    ]),
+    ("2.9.359", "2026-09-16", [
+        "PV String Charge cards show each string’s <b>now</b> PV power (kW) and "
+        "<b>today since 00:00</b> energy (kWh generated, plus estimated kWh into the "
+        "battery). Totals use stored 2-minute lots from London midnight — not a 6-hour "
+        "slice, and not estimated charge disguised as live output.",
+    ]),
+    ("2.9.358", "2026-09-16", [
+        "Roof Layout: <b>Use clearest image</b> scans Google, Esri Live, Esri Wayback "
+        "archives, and Sentinel-2 at the roof and switches to the sharpest tiles "
+        "(clearest panel edges). The choice is remembered.",
+    ]),
+    ("2.9.357", "2026-09-16", [
+        "PV String Charge: String 1 / String 2 are overlaid from zero (not stacked) "
+        "so the higher string is visibly higher; fills 50% opaque, 1 px solid lines. "
+        "Chart is a stored 6-hour window (<code>pv_string_charge</code> table) with a "
+        "cumulative kWh line and the solar forecast overlay.",
+    ]),
+    ("2.9.356", "2026-09-16", [
+        "Grott MQTT ignores Shine historical buffer dumps (<code>buffered: yes</code> "
+        "or an old frame time) so midnight SOC/power cannot overwrite live cards. "
+        "The Grott-lost tray alarm now says MQTT is still up and that the Shine "
+        "stick often goes quiet ~11 minutes after it reconnects (hourly handshake "
+        "with Growatt’s servers). Stale/recover edges are written to Connectivity "
+        "history.",
+    ]),
+    ("2.9.355", "2026-09-15", [
+        "Roof Layout map: hint, imagery date, and Leaflet attribution sit on one baseline 10 px above the bottom edge.",
+    ]),
+    ("2.9.354", "2026-09-15", [
+        "Roof Layout: faces table adds a String column (inverter MPPT / DC string number); saved with the layout.",
+    ]),
+    ("2.9.353", "2026-09-15", [
+        "Octopus Live / historic: Account, Import MPAN, and Export MPAN fields share one left edge (Import stacked above Export).",
+    ]),
+    ("2.9.352", "2026-09-15", [
+        "Growatt Physical: System status shows decoded hybrid work mode (e.g. 5 — PV charging the battery) with a tooltip legend; Help explains the codes.",
+    ]),
+    ("2.9.351", "2026-09-15", [
+        "Connectivity: Tasmota devices State menu adds “Go to Tasmota Tab” (opens the Tasmota Devices page).",
+    ]),
+    ("2.9.350", "2026-09-15", [
+        "Connectivity State menu is context-aware: Show Alarms; Test Connection + Show Downtime for Octopus / Forecast / PVOutput / Wonderwatt / Databases; no Disable on Databases.",
+    ]),
+    ("2.9.349", "2026-09-15", [
+        "Connectivity diagram: on degradation, a DEGRADED banner plus WARN badges explain what failed and what is carrying live (e.g. Hybrid → Growatt cloud when Grott is stale).",
+    ]),
+    ("2.9.348", "2026-09-15", [
+        "Connectivity diagram: stop flashing red on warn/alarm links — solid tint; ALARM badge only for live AlarmMonitor hits.",
+    ]),
+    ("2.9.347", "2026-09-15", [
+        "Connectivity diagram: live alarms and connectivity warn/bad show on boxes (badge + border) and related links; click a box for alarm text.",
+    ]),
+    ("2.9.346", "2026-09-15", [
+        "Connectivity: visible reverse lanes inverter↔Cloud/GROTT/Modbus; dedicated Grott→EMQX flow (no longer hidden under the amber return).",
+    ]),
+    ("2.9.345", "2026-09-15", [
+        "Grott MQTT: stop tearing down a live broker session when payloads are merely late; soft re-subscribe + reconnect watchdog; disconnect/reconnect history on Connectivity.",
+    ]),
+    ("2.9.344", "2026-09-15", [
+        "Fix: Connectivity Status launch crash — restore missing State right-click handler after highlight refactor.",
+    ]),
+    ("2.9.343", "2026-09-15", [
+        "Connectivity highlight: selecting a State row blinks only that service’s diagram edges (not every link touching the dashboard).",
+    ]),
+    ("2.9.342", "2026-09-15", [
+        "Inverter write via Modbus is opt-in: Setup checkbox + Connectivity State right-click Enable/Disable Modbus inverter writes (default off).",
+    ]),
+    ("2.9.341", "2026-09-15", [
+        "Connectivity Status: right-click State for Disable/Enable, Highlight on diagram (blink 2× thick), and Show history (connectivity_events + live alarms).",
+    ]),
+    ("2.9.340", "2026-09-15", [
+        "Connectivity diagram: add direct Modbus → Dashboard data lane (kept alongside Modbus → EMQX bridge).",
+    ]),
+    ("2.9.339", "2026-09-15", [
+        "Connectivity diagram: uncross Growatt API ↔ Dashboard and EMQX ↔ Dashboard (parallel nested lanes).",
+    ]),
+    ("2.9.338", "2026-09-15", [
+        "Connectivity diagram: Energy Dashboard left-edge connectors are equally spaced with 12 px inset from top and bottom.",
+    ]),
+    ("2.9.337", "2026-09-15", [
+        "Connectivity Wonderwatt dialog: render bold HTML correctly and edit/save/test the Advanced share link in-place.",
+    ]),
+    ("2.9.336", "2026-09-15", [
+        "Connectivity diagram: AI Controller ↔ Dashboard and Databases ↔ Dashboard are drawn as two-way links (parallel lanes).",
+    ]),
+    ("2.9.335", "2026-09-15", [
+        "Fix: PVOutput upload thread (and a few other log calls) passed one string to _log.info/warn which needs source + message — stopped the TypeError that could take the dashboard down after a successful upload.",
+    ]),
+    ("2.9.334", "2026-09-15", [
+        "Connectivity diagram: Modbus feeds EMQX from the broker’s left edge "
+        "(not the bottom).",
+    ]),
+    ("2.9.333", "2026-09-15", [
+        "Connectivity diagram: AI Controller and Databases are half-width on one row with a link between them; Energy Dashboard is 50 px wider.",
+    ]),
+    ("2.9.332", "2026-09-15", [
+        "Setup & Info: PVOutput / Wonderwatt / auto-refresh Save buttons left-align with the spin/field above; Test sits to the right of Save.",
+    ]),
+    ("2.9.331", "2026-09-15", [
+        "Connectivity diagram: Octopus, PV forecast, PVOutput, and Wonderwatt sit in an even bottom row.",
+    ]),
+    ("2.9.330", "2026-09-15", [
+        "Connectivity diagram: EMQX sits vertically between GROTT and Tasmota.",
+    ]),
+    ("2.9.329", "2026-09-15", [
+        "Connectivity diagram: Growatt Inverter is 50% taller and vertically "
+        "centred on the four source boxes (API / GROTT / Tasmota / Modbus); "
+        "battery packs shift with it and show full serial numbers.",
+    ]),
+    ("2.9.328", "2026-09-15", [
+        "Connectivity diagram: Tasmota ↔ EMQX is drawn as two-way Home LAN "
+        "(tele/stat up, cmnd down) — not a one-way sensor feed.",
+    ]),
+    ("2.9.327", "2026-09-15", [
+        "Community outputs: PVOutput.org live Add Status upload (Setup API "
+        "key + System Id; throttled from Growatt snapshots) and Wonderwatt.com "
+        "on the Connectivity diagram (share link — Wonderwatt reads Growatt "
+        "cloud itself; no public upload API).",
+    ]),
+    ("2.9.326", "2026-09-15", [
+        "Connectivity diagram redesigned as a planar layout: local sources "
+        "(Growatt API, GROTT, Tasmota, Modbus) stack in the middle column in "
+        "the same order their lines enter EMQX / the dashboard, so no data "
+        "flow line crosses another.",
+    ]),
+    ("2.9.325", "2026-09-15", [
+        "Connectivity diagram: Modbus now feeds EMQX (one-way into the "
+        "broker) and sits directly under it; connection routes retuned so "
+        "no line passes under a box.",
+    ]),
+    ("2.9.324", "2026-09-15", [
+        "Connectivity diagram: only three Growatt connection methods — "
+        "Growatt API, GROTT, and Modbus. Removed WiFi Direct and LAN Direct "
+        "boxes from the architecture view.",
+    ]),
+    ("2.9.323", "2026-09-15", [
+        "Connectivity architecture diagram: WiFi Direct and LAN/Modbus are "
+        "local stubs only — Growatt API and Grott are drawn as independent "
+        "peers from the inverter (no WiFi→API or LAN→Grott chain).",
+    ]),
+    ("2.9.322", "2026-09-15", [
+        "Startup SEGV hardening: Qt WebEngine Chromium flags "
+        "(disable-gpu / software GL) apply before any Qt import, and "
+        "run-dashboard.sh exports the same defaults — stops "
+        "“GPUInfo not initialized on GpuInfoUpdate” crashes. "
+        "Set POWERMODEL_WEBENGINE_GPU=1 to use the GPU again.",
+    ]),
+    ("2.9.321", "2026-09-15", [
+        "All radio buttons (every tab): white 1 px solid halo on the round "
+        "indicator so they stay visible on the dark theme.",
+    ]),
+    ("2.9.320", "2026-09-15", [
+        "Tasmota: Pin chart 2 max is still a lock, but the watts ceiling is "
+        "editable (default 500 W) and remembered; drag / presets retune the pin.",
+    ]),
+    ("2.9.319", "2026-09-15", [
+        "Status bar: centred CPU and memory for this dashboard process "
+        "(one-core CPU %, resident RAM), updated every second.",
+    ]),
+    ("2.9.318", "2026-09-15", [
+        "Roof Layout: imagery date chip sits bottom-centre so it no longer "
+        "covers the map attribution (Esri / Google / Sentinel credits).",
+    ]),
+    ("2.9.317", "2026-09-15", [
+        "Octopus Live cumulative chart: end-of-day Imp / PV / Cons totals sit "
+        "below the lines (stacking downward when values collide); today's "
+        "running tally is unchanged.",
+    ]),
+    ("2.9.316", "2026-09-15", [
+        "Tasmota charts: drop fig.tight_layout in favour of fixed "
+        "subplots_adjust margins so short panes no longer emit "
+        "“Tight layout not applied” UserWarnings during redraw.",
+    ]),
+    ("2.9.315", "2026-09-15", [
+        "Octopus Live cumulative labels: when Imp / Cons / PV values are close "
+        "(far-right running tally), stack them vertically with Cons above Imp "
+        "above PV so the text does not overlap.",
+    ]),
+    ("2.9.314", "2026-09-15", [
+        "Battery Analysis: “Battery State of Charge” title is black with 5 px "
+        "pad above the plot.",
+    ]),
+    ("2.9.313", "2026-09-15", [
+        "Battery Analysis ΔSOC %/h: rolling ~15 min wall-clock slope (not "
+        "1-sample ΔSOC/Δt spikes), physical bound by pack capacity, and a fixed "
+        "right-hand axis of −100…+100 %/h.",
+    ]),
+    ("2.9.312", "2026-09-15", [
+        "Pot. Issues chart: x-axis dates include weekday (e.g. Tue 09-15).",
+    ]),
+    ("2.9.311", "2026-09-15", [
+        "Pot. Issues chart title: “Estimated vs Actual consumption — last N days "
+        "in &lt;locale&gt;” (e.g. Chinnor).",
+    ]),
+    ("2.9.310", "2026-09-15", [
+        "Octopus Live cumulative chart: labels end-of-day Imp / PV / Cons under "
+        "each completed day's last point, plus running tallies for today at the "
+        "latest sample.",
+    ]),
+    ("2.9.309", "2026-09-15", [
+        "Octopus Live bottom chart: cumulative import / PV / consumption now "
+        "resets at each London calendar midnight (was a single running total "
+        "from the left edge of the window).",
+    ]),
+    ("2.9.308", "2026-09-14", [
+        "Connectivity <b>Inverter write</b>: clearer status when Hybrid/Grott "
+        "has an SN but no cloud API session — schedule writeback needs Growatt "
+        "Live cloud Connect; local Modbus stays read-only.",
+    ]),
+    ("2.9.307", "2026-09-14", [
+        "Growatt Physical: when Setup Local Modbus TCP is enabled, pack serials "
+        "and module count are polled automatically in the background (Grott MQTT "
+        "never publishes packs 2/3). Probe packs still forces an immediate read; "
+        "Modbus TCP access is serialised so Setup/Connectivity probes do not "
+        "collide with Growatt.",
+    ]),
+    ("2.9.306", "2026-09-14", [
+        "Setup → Local Modbus: shows <b>Connected</b> / <b>Disconnected</b> "
+        "beside the mode (updated by Test Modbus, Save, and a quiet probe after "
+        "loading saved settings).",
+    ]),
+    ("2.9.305", "2026-09-14", [
+        "Setup → Growatt inverter: LAN/Wi‑Fi, Modbus, EMQX and related params "
+        "are loaded from disk on startup again (Save already wrote them; the "
+        "form was stuck on empty/Disabled defaults after restart).",
+    ]),
+    ("2.9.304", "2026-09-14", [
+        "Startup crash hardening: Saved toast and status bar updates always "
+        "run on the GUI thread (deferred off the paint path); locale "
+        "Nominatim workers no longer touch QSettings; Linux Qt WebEngine "
+        "defaults to <code>--disable-gpu</code> (set "
+        "<code>POWERMODEL_WEBENGINE_GPU=1</code> to opt back in); Connectivity "
+        "architecture paint errors are caught instead of segfaulting.",
+    ]),
+    ("2.9.303", "2026-09-14", [
+        "Connectivity architecture: battery pack cards top-align with the "
+        "Growatt inverter top, bottom pack with the inverter bottom, and "
+        "packs in between are equi-spaced.",
+    ]),
+    ("2.9.302", "2026-09-14", [
+        "Growatt Physical: Battery pack serials height capped to at most 4 lines "
+        "(one SN per line, no soft-wrap inflation that stretched the row).",
+    ]),
+    ("2.9.301", "2026-09-14", [
+        "Banner Locale: reverse-geocode no longer sticks on “—” (failed lookups "
+        "are not cached; dash is used as soon as it exists; Setup load and a "
+        "startup retry refresh the place name; successful results persist).",
+    ]),
+    ("2.9.300", "2026-09-14", [
+        "Setup → Solar installation: Latitude and Longitude always use 5 decimal "
+        "places (display, edit, and Save), matching Forecasts / map picker.",
+    ]),
+    ("2.9.299", "2026-09-14", [
+        "Green on-screen <b>Saved</b> flash whenever a status message reports a "
+        "successful save (Setup / Growatt / Modbus / EMQX and other Save actions).",
+    ]),
+    ("2.9.298", "2026-09-14", [
+        "Pot. Issues locale title prefers Setup solar Lat/Lon (QSettings) over a "
+        "stale banner label, so the chart names the settlement for your saved "
+        "installation coords — not an unrelated nearby town.",
+    ]),
+    ("2.9.297", "2026-09-14", [
+        "Pot. Issues chart title uses the banner/Setup locale place name "
+        "from your solar Lat/Lon instead of hardcoded “London”.",
+    ]),
+    ("2.9.296", "2026-09-14", [
+        "Grott MQTT: empty <code>grott_mqtt_host</code> is healed from EMQX / "
+        "Tasmota MQTT (including <code>mqadmin</code> auth), persisted, and "
+        "re-applied after Setup loads so Hybrid no longer stays "
+        "“MQTT disconnected”.",
+    ]),
+    ("2.9.295", "2026-09-14", [
+        "Growatt Physical: Battery pack serials show one SN per line and the "
+        "row expands so wrapped serials no longer crowd Faults / warnings.",
+    ]),
+    ("2.9.294", "2026-09-14", [
+        "Setup → Growatt inverter: Local Modbus has its own Save; "
+        "Save / Test Modbus align with the HTTP Open/Save/Test row above.",
+    ]),
+    ("2.9.293", "2026-09-14", [
+        "Setup → Growatt inverter Save: EMQX Save now also applies the broker to "
+        "Grott + Tasmota (no more empty <code>grott_mqtt_host</code> while EMQX "
+        "is set). Empty EMQX user/pass fall back to Tasmota MQTT auth. Modbus TCP "
+        "no longer rewrites port 8899 → 502 on mode select.",
+    ]),
+    ("2.9.292", "2026-09-14", [
+        "Console logger: background threads no longer crash with "
+        "<code>Signal source has been deleted</code> when logging during "
+        "app exit/restart (Octopus Live GraphQL/REST fetch).",
+    ]),
+    ("2.9.291", "2026-09-14", [
+        "Growatt Physical Probe packs: when pack-count registers are 0, count "
+        "parallel modules from holding 1125+ pack serials (SPH via Modbus TCP "
+        "8899) so the 3rd GBLI pack is visible — same SNs the inverter stores.",
+    ]),
+    ("2.9.290", "2026-09-14", [
+        "Console: <b>RS485 heartbeat</b> pings the Setup Modbus target on a timer "
+        "(default 30&nbsp;s): gateway TCP connect plus one holding-register read. "
+        "One log line per beat (OK / gateway DOWN / inverter silent). Shares a "
+        "lock with Test Modbus so the USR single-session port is not contended.",
+    ]),
+    ("2.9.289", "2026-09-14", [
+        "Console: Auto-scroll now reliably follows new lines (deferred scrollbar "
+        "update after HTML insert). Setup / Connectivity Modbus probes log under "
+        "source <b>RS485</b> — INFO for connect/result, DEBUG for each register try.",
+    ]),
+    ("2.9.288", "2026-09-14", [
+        "Setup → Test Modbus: the button no longer overlays the Serial device "
+        "field. The probe is time-bounded (fails within ~18s) and always shows "
+        "pass or fail instead of hanging on a silent RS485 gateway.",
+    ]),
+    ("2.9.287", "2026-09-14", [
+        "Setup → Growatt Modbus: added <b>RTU over TCP</b> for USR/Waveshare "
+        "RS485–Ethernet boxes in Transparent Mode (typically port 8899). Native "
+        "<b>Modbus TCP</b> remains the path when the box is set to "
+        "Modbus TCP&lt;=&gt;Modbus RTU on port 502. Probe packs follows the same "
+        "LAN framing. USB RTU is only for a serial adapter on this PC.",
+    ]),
+    ("2.9.286", "2026-09-14", [
+        "Octopus Energy Data → Daily Net Charge: the y-axis now grows to the "
+        "tallest day’s spend instead of clipping at the £10/day budget. The "
+        "dotted £10/day line stays as a reference; over-budget bars are drawn "
+        "in full (red) with the true £ label on the tip.",
+    ]),
+    ("2.9.285", "2026-09-01", [
+        "Forecasts: <b>Chart days</b> now clips both Agile and Solar axes to that "
+        "many calendar days (today + previous N−1). The 16-day Forecast.Solar / "
+        "Open-Meteo tail no longer stretches the chart past the selected window.",
+    ]),
+    ("2.9.284", "2026-09-01", [
+        "Roof layout: <b>Flip all</b> reverses azimuth on every enabled face "
+        "(+180°). Use when imported faces show NE/NW but the arrays face SE/SW.",
+    ]),
+    ("2.9.283", "2026-09-01", [
+        "Roof layout: satellite map defaults to <b>Esri Live</b> (Google tiles "
+        "often stay blank in Qt WebEngine). Choosing Google still works when "
+        "tiles load; after repeated tile errors the view falls back to Esri.",
+    ]),
+    ("2.9.282", "2026-09-01", [
+        "Grott / API Align: automatic interval is now configurable (default "
+        "<b>120</b> min). Compare now reports clearly when the Growatt cloud "
+        "API is <b>not contactable</b> (network/TLS) instead of looking like a "
+        "quiet pause; scheduled runs still skip during rate-limit pauses.",
+    ]),
+    ("2.9.281", "2026-09-01", [
+        "Alarms: system-tray re-notifications now back off while an alarm stays "
+        "active — immediate, then 4× every 5&nbsp;min, 4× every 10&nbsp;min, "
+        "4× every 30&nbsp;min, then hourly. Clearing the alarm resets the schedule.",
+    ]),
+    ("2.9.280", "2026-08-24", [
+        "Growatt Live (Grott): a persistent display cache now keeps the last "
+        "good load/PV/grid readings across Grott MQTT reconnects and session "
+        "resets, so a sparse SOC-only frame can no longer blank the banner "
+        "when the Open API fill-missing patch is rate-limited.",
+    ]),
+    ("2.9.279", "2026-08-24", [
+        "Growatt Live (Grott): partial MQTT frames no longer wipe load, PV, grid, "
+        "and other fields that were already shown or filled from the cloud API. "
+        "Incoming Grott snapshots merge into the live bundle instead of "
+        "replacing it, and API-fill markers are kept until Grott publishes "
+        "those registers itself.",
+    ]),
+    ("2.9.278", "2026-08-24", [
+        "Tasmota Devices: both device columns now keep all <b>8</b> rows visible "
+        "with fully formed action buttons. Row height is computed per tree from "
+        "actual widget geometry (not a stale viewport), action cell widgets are "
+        "pinned to the row height, and size hints apply on every column so Qt "
+        "cannot inflate rows to ~54&nbsp;px and show only four.",
+    ]),
+    ("2.9.277", "2026-08-24", [
+        "Tasmota Devices: action buttons can no longer be squashed below their "
+        "natural size, so <b>Probe / Web UI / Diagnose / Toggle</b> labels stay "
+        "fully formed. Row height now derives from that button size, and each "
+        "device table reserves space for a full column of <b>8</b> rows "
+        "(previously only 4), so all 16 devices show without scrolling.",
+    ]),
+    ("2.9.276", "2026-08-24", [
+        "Tasmota Devices: action buttons are sized to the row height "
+        "(height − 2&nbsp;px) immediately on creation instead of overflowing "
+        "until the next resize.",
+    ]),
+    ("2.9.275", "2026-08-23", [
+        "Battery Analysis: removed misleading SOC chart rescaling. Added "
+        "<b>AC charge stop %</b> + <b>Set on inverter</b> to write real "
+        "<code>wchargeSOCLowLimit</code> to the Growatt MIX via cloud.",
+    ]),
+    ("2.9.274", "2026-08-23", [
+        "Battery Analysis: <b>BMS SOC ceiling %</b> rescales measured SOC so an "
+        "inverter plateau (e.g. 85&nbsp;%) displays as 100&nbsp;% on the chart. "
+        "Set on the tab or in Setup → Battery Analysis defaults.",
+    ]),
+    ("2.9.273", "2026-08-23", [
+        "Octopus Live: Live Demand zone label renamed from <b>output</b> to <b>Export</b>.",
+    ]),
+    ("2.9.272", "2026-08-23", [
+        "Octopus Live: <b>Import</b> / <b>output</b> zone labels on the Live Demand "
+        "chart are now visible at the left edge (light text at 20% opacity, above "
+        "the filled areas).",
+    ]),
+    ("2.9.271", "2026-08-23", [
+        "Octopus Live: Live Demand chart shows faint <b>Import</b> (at +2000&nbsp;W) "
+        "and <b>output</b> (at −2000&nbsp;W) zone labels inside the plot area.",
+    ]),
+    ("2.9.270", "2026-08-23", [
+        "Battery Analysis: fetches history automatically once on dashboard startup "
+        "(same as <b>Fetch Battery History</b>).",
+    ]),
+    ("2.9.269", "2026-08-23", [
+        "Tasmota Devices: action buttons (Probe, Web UI, Diagnose, Toggle) are "
+        "now row height minus 2&nbsp;px so rows are visually separated.",
+    ]),
+    ("2.9.268", "2026-08-23", [
+        "Growatt Live: when Grott MQTT is live and only the optional "
+        "<b>fill-missing</b> API patch is rate-limited, status now shows "
+        "<b>Data flowing / Connected</b> instead of incorrectly saying "
+        "<b>Inverter offline</b>.",
+    ]),
+    ("2.9.267", "2026-08-23", [
+        "Setup &amp; Info: Agile <b>Tariff code</b> and alarm <b>Sun-waste PV min</b> "
+        "line up with <b>Max charge kW</b>. Export tariff no longer spans the "
+        "grid (it was pushing pair-1 columns right); alarm checkboxes sit "
+        "above the field row.",
+    ]),
+    ("2.9.266", "2026-08-23", [
+        "Controls: <b>Connectivity Status</b> and <b>Grott Setup</b> are static "
+        "blue tabs (like Command Sim and Setup &amp; Info), not green "
+        "updateable tabs.",
+    ]),
+    ("2.9.265", "2026-08-23", [
+        "Setup &amp; Info: Battery alarm Hold / Sun-waste row and Save button "
+        "line up with Battery Analysis defaults above. Agile product/tariff "
+        "fields use the same electric-blue background as spin boxes; Tariff "
+        "code aligns with Max charge kW.",
+    ]),
+    ("2.9.264", "2026-08-23", [
+        "Controls: <b>Grott Setup</b> tab — configure Grott / Hybrid telemetry, "
+        "MQTT broker fields, Test and Save, plus a live feed status panel. "
+        "Same settings as Setup &amp; Info.",
+    ]),
+    ("2.9.263", "2026-08-23", [
+        "Battery Analysis Power Flows: fixed PV looking like it was drawn twice. "
+        "Only one PV trace is plotted; the shadow was Grott readings and "
+        "5-minute MIX slots interleaving when timestamps did not align. "
+        "MIX-only rows within 2½&nbsp;min of a local reading are dropped.",
+    ]),
+    ("2.9.262", "2026-08-23", [
+        "Grott / API Align: column widths are saved when you leave the tab or "
+        "close the dashboard, restored on open, and kept after each compare run.",
+    ]),
+    ("2.9.261", "2026-08-23", [
+        "Calculators: <b>Grott / API Align</b> compares the live Grott MQTT "
+        "snapshot with one Growatt cloud live read. Automatic every 30 minutes "
+        "(one Open API poll); <b>Compare now</b> is a one-shot. Rate-limit "
+        "pauses still show Grott.",
+    ]),
+    ("2.9.260", "2026-08-22", [
+        "Battery Analysis: overnight / unchanged Grott snapshots are drawn as "
+        "holds again instead of grey <b>No data</b> voids. MIX 5-minute power "
+        "is unioned onto the local SOC timeline; Low SOC event times show "
+        "properly; the events table fills its pane.",
+    ]),
+    ("2.9.259", "2026-08-22", [
+        "Tasmota device tables expand to fill the pane below the summary "
+        "banner. Rows share that height instead of leaving a blank strip "
+        "under the last device.",
+    ]),
+    ("2.9.258", "2026-08-22", [
+        "Growatt / Setup Grott MQTT Test: connecting to the broker in ~6&nbsp;s "
+        "is the pass. No JSON in that window is normal (Grott publishes on "
+        "Shine packets, ~1&nbsp;min heartbeat / ~5&nbsp;min full status) and "
+        "is no longer shown as a connection failure.",
+    ]),
+    ("2.9.257", "2026-08-22", [
+        "Live alarms: Grott is a continuous feed. When GROTT MQTT or Hybrid is "
+        "selected, MQTT disconnect (after ~20&nbsp;s) or stale inverter "
+        "payloads raise a system-tray alarm even if Hybrid is still serving "
+        "cloud data. A 15&nbsp;s watchdog checks this without waiting for the "
+        "next Growatt update.",
+    ]),
+    ("2.9.256", "2026-08-22", [
+        "Setup → Database Export: SQLite <b>Browse…</b> is back on the file "
+        "row beside the path field. <b>Disabled</b> / <b>Database found</b> / "
+        "<b>Database OK</b> indicators are centred horizontally again (SQLite, "
+        "MySQL, and PostgreSQL).",
+    ]),
+    ("2.9.255", "2026-08-22", [
+        "Setup → Database Export: SQLite <b>Browse…</b> is no longer parked at "
+        "the far right of the file row — it sits on its own line, left-aligned "
+        "with the <b>Ring buffers…</b> button. <b>Disabled</b>, <b>Database "
+        "found</b>, <b>Database OK</b>, and the shared PostgreSQL summary line "
+        "now share one left-aligned status column.",
+    ]),
+    ("2.9.254", "2026-08-22", [
+        "Setup → Background collector: <b>Start/Restart</b> no longer always "
+        "targets the boot (system) unit, which needs <code>sudo</code> and "
+        "failed with <i>Not authorized</i> when pkexec/sudo were unavailable. "
+        "When a user-session unit is installed it is preferred for UI control "
+        "(no root); privilege failures on the boot unit fall back to the user "
+        "copy automatically. Status hints and error dialogs now explain both "
+        "paths.",
+    ]),
+    ("2.9.253", "2026-08-22", [
+        "Roof Layout: the satellite map's QWebEngineView (a full Chromium "
+        "browser) was created at app startup and stayed alive for the whole "
+        "session — a two-day-old idle instance segfaulted inside "
+        "<code>libQt6WebEngineCore</code> on 22&nbsp;Aug and this is the "
+        "likely source of the startup <code>GPUInfo not initialized</code> "
+        "warning. Chromium now starts lazily on first view of the map page "
+        "(tab shown on the map, Satellite view button, Trace roof, edge "
+        "picking); rings/centre/draw state set before that are queued and "
+        "applied when the page loads.",
+    ]),
+    ("2.9.252", "2026-08-21", [
+        "Growatt Live: fixed the perpetual \u201cOpen API paused "
+        "(error_frequently_access)\u201d message. Root cause: in Cloud API mode "
+        "the tab polled Open API V1 every 30&nbsp;s while Growatt only allows "
+        "roughly one call per endpoint per 5&nbsp;min — and every rejected "
+        "call (10012) re-armed the local 30-min pause, so it never counted "
+        "down. All live V1 calls (cloud poll, Connect/Test probe, GROTT "
+        "fill-missing) now share a 5-minute minimum poll interval and stop "
+        "calling entirely while a pause is active, letting it expire for real.",
+        "Growatt Live: the countdown label shows the true time to the next "
+        "Open API poll instead of a 30&nbsp;s tick that silently failed; the "
+        "banner refresh pill expects the 5-min V1 cadence so the tab is not "
+        "flagged as late. Auth-result cache extended 3→10&nbsp;min (a fresh "
+        "authenticate costs 3+ V1 calls). Legacy password-login sessions and "
+        "GROTT MQTT are unaffected.",
+    ]),
+    ("2.9.251", "2026-08-21", [
+        "Battery Analysis: SOC colour fill no longer double-paints. The "
+        "below-threshold red shade used to sit on top of the red under-curve "
+        "band (0→threshold over 0→SOC), producing dark overlapping patches; "
+        "it now shades only the <i>deficit</i> between the SOC curve and the "
+        "threshold line.",
+        "Battery Analysis: windows where the database simply has no telemetry "
+        "(e.g. the frozen-feed outage 18&nbsp;Aug&nbsp;18:28 → "
+        "20&nbsp;Aug&nbsp;00:16) are now drawn as grey vertical bands labelled "
+        "\u201cNo data — interpolated between endpoints\u201d on both charts. "
+        "The traces inside a band are straight lines joining the last and "
+        "next real sample, not measurements.",
+        "Battery Analysis: interior NaN holes (masked frozen runs, impossible "
+        "SOC jumps) are interpolated for display so fills don't fragment, and "
+        "gap detection adapts to the actual sample cadence (6× median "
+        "spacing, ≥20 min).",
+    ]),
+    ("2.9.250", "2026-08-21", [
+        "Battery Analysis: the chart was still lying because frozen "
+        "<code>growatt_readings</code> SOC was overlaid onto varying MIX power "
+        "— the freeze mask never matched, so you got vertical SOC cliffs "
+        "(64%→37% in 3&nbsp;min) and multi-hour flat plateaus. History now "
+        "starts from cleaned readings (collapse exact duplicates, mask "
+        "≥12&nbsp;min freezes, blank physically impossible SOC jumps), then "
+        "optionally densifies power from MIX.",
+        "SOC chart fills are under the curve (not floating mid-air bands); "
+        "day-range radios re-fetch immediately; daily kWh totals use London "
+        "calendar days on UTC-naive timestamps.",
+    ]),
+    ("2.9.249", "2026-08-21", [
+        "PostgreSQL <code>growatt_readings</code>: auto-refresh was re-inserting "
+        "the same frozen GROTT snapshot under a new wall-clock timestamp every "
+        "tick — Aug&nbsp;19 alone has 472 bit-identical rows (SOC 10%, load "
+        "1.198&nbsp;kW, PV 0.007&nbsp;kW, grid −1.190&nbsp;kW). "
+        "<code>DataLogger.log_growatt</code> now skips unchanged payloads, and "
+        "live logging refuses stale GROTT snapshots.",
+        "Battery Analysis: mask frozen identical runs (≥20&nbsp;min) to NaN so "
+        "Power Flows / SOC show a gap instead of a fake flat day, and stop "
+        "interpolating SOC across those blanks.",
+    ]),
+    ("2.9.248", "2026-08-21", [
+        "Battery Analysis: measured-SOC chart draw crashed with "
+        "<code>None is not a valid value for color</code> — "
+        "<code>set_title(..., color=None)</code> when the trace was not "
+        "reconstructed. Use the theme text colour instead.",
+    ]),
+    ("2.9.247", "2026-08-21", [
+        "Battery Analysis: a Growatt cloud MIX-chart fetch used to skip "
+        "<code>growatt_readings</code> entirely, so the SOC chart was rebuilt "
+        "from charge/discharge only — it pinned at 0% for hours, painted a "
+        "full-height red \"low SOC\" band across half the plot, and invented "
+        "an 11&nbsp;h event while live GROTT on the banner still showed a real "
+        "SOC. The tab now always loads local readings, overlays measured SOC "
+        "onto MIX power (15&nbsp;min nearest match), and falls back to "
+        "readings alone when that is all that exists.",
+        "Reconstructed (coulomb-counted) SOC no longer feeds the Low SOC "
+        "Events table; the under-threshold highlight only shades 0→threshold "
+        "instead of the full plot height; reconstruction uses actual sample "
+        "spacing instead of a fixed 5&nbsp;min step.",
+    ]),
+    ("2.9.246", "2026-08-20", [
+        "Growatt GROTT: a <b>stale</b> snapshot no longer counts as a completed "
+        "refresh. <code>_apply_grott_snapshot_if_needed</code> returned True for "
+        "a cached-but-old payload, so <code>refresh_data</code> and "
+        "<code>_refresh_grott_data</code> both returned early and the "
+        "resubscribe path never ran — once the feed went quiet the tab sat on "
+        "frozen values indefinitely, even when the user pressed Refresh. Stale "
+        "snapshots are still displayed (with the age in the status line) but "
+        "now fall through to a resubscribe, rate-limited to one attempt per "
+        "60&nbsp;s, and no longer fire the downstream fresh-data callbacks that "
+        "kept the tab bar green.",
+        "Live tabs keep their own cadence again. The per-tab "
+        "<code>_auto_timer_interval_override_ms</code> hook was still honoured "
+        "by <code>apply_auto_refresh_from_params</code> but no tab set it any "
+        "more, so Octopus Live had silently dropped to the shared interval "
+        "(up to 600&nbsp;s) — it is back to 60&nbsp;s. Tasmota's poll interval "
+        "now comes from the Tasmota tab: the shared cycle no longer overwrites "
+        "<code>tasmota/poll_interval_seconds</code> and its spin box.",
+        "Banner refresh pill is honest about staleness: it reports the "
+        "<b>oldest</b> live source instead of the newest (a 1&nbsp;Hz MQTT feed "
+        "used to mask a tab that had not updated for hours), scores each source "
+        "against its own expected cadence via a new "
+        "<code>live_refresh_expectation()</code> hook, excludes sources that are "
+        "switched off from the completeness score, names late sources on line 2, "
+        "and lists per-source age / cadence / state in the tooltip.",
+        "Tab-freshness repaints are coalesced: <code>mark_tab_fresh</code> now "
+        "only records the timestamp and lets the 1&nbsp;Hz tick restyle the tab "
+        "bar, instead of restyling on every MQTT packet from every source.",
+    ]),
     ("2.9.245", "2026-07-03", [
         "Growatt fill-missing: reuse the live bundle from the auth probe instead "
         "of calling <code>sph_energy</code> a second time — the duplicate call "

@@ -4,12 +4,21 @@ Energy Dashboard — `main_window.py` (split from EnergyDashboard2.py).
 from __future__ import annotations
 
 from energy_dashboard.common import *
+from energy_dashboard.core.alarms import (
+    AlarmMonitor,
+    DEFAULT_HOLD_MINUTES,
+    DEFAULT_PV_MIN_KW,
+    DEFAULT_NOTIFY_COOLDOWN_S,
+)
+import re
 from energy_dashboard.dialogs.about_history import AboutDialog, HelpDialog, HistoryDialog
 from energy_dashboard.modbus.command_sim import CommandSimTab
 from energy_dashboard.planner.maximiser import MaximiserTab
 from energy_dashboard.tabs.agile_prices import AgileSpotPricesTab
+from energy_dashboard.tabs.agile_year import AgileYearTab
 from energy_dashboard.tabs.analytics import AnalyticsTab
 from energy_dashboard.tabs.battery_analysis import BatteryAnalysisTab
+from energy_dashboard.tabs.bug_tracker import BugTrackerTab
 from energy_dashboard.tabs.combined import CombinedTab
 from energy_dashboard.tabs.connectivity import ConnectivityStatusTab
 from energy_dashboard.tabs.console import ConsoleTab
@@ -18,15 +27,26 @@ from energy_dashboard.tabs.device_import_costs import DeviceImportCostsTab
 from energy_dashboard.tabs.export_tab import ExportTab
 from energy_dashboard.tabs.forecasts import ForecastsTab
 from energy_dashboard.tabs.growatt import GrowattTab, growatt_format_live_kw
+from energy_dashboard.tabs.grott_api_align import GrottApiAlignTab
+from energy_dashboard.tabs.grott_setup import GrottSetupTab
 from energy_dashboard.tabs.license import LicenseTab
 from energy_dashboard.tabs.octopus import OctopusTab
 from energy_dashboard.tabs.octopus_live import OctopusLiveTab
 from energy_dashboard.tabs.optimiser import OptimiserTab
+from energy_dashboard.tabs.pot_issues import PotIssuesTab
+from energy_dashboard.tabs.pv_string_charge import PvStringChargeTab
+from energy_dashboard.tabs.roof_layout import RoofLayoutTab
 from energy_dashboard.tabs.parameters import ParametersTab
 from energy_dashboard.tabs.shadow_trial import ShadowTrialTab
+from energy_dashboard.ui.work_area import client_cap, fit_window_to_work_area
 from energy_dashboard.tabs.smart_advisor import SmartAdvisorTab
 from energy_dashboard.tabs.tasmota import TasmotaTab
-from energy_dashboard.ui.tab_bar import BannerTabScrollHold, FreshnessTabBar
+from energy_dashboard.ui.tab_bar import (
+    BannerRefreshCyclePill,
+    BannerTabScrollHold,
+    FreshnessTabBar,
+    MainTabGroupStrip,
+)
 
 # (dashboard attribute, refresh method) for Refresh Page / Refresh All.
 _TAB_REFRESH_TARGETS = (
@@ -36,29 +56,155 @@ _TAB_REFRESH_TARGETS = (
     ('tasmota_tab', 'poll_all'),
     ('forecasts_tab', 'fetch_forecasts'),
     ('agile_prices_tab', 'refresh_now'),
+    ('agile_year_tab', 'refresh_now'),
     ('battery_tab', 'fetch_history'),
     ('combined_tab', 'refresh'),
     ('device_costs_tab', '_refresh'),
+    ('pv_string_charge_tab', 'refresh_now'),
+    ('pot_issues_tab', 'refresh_now'),
     ('analytics_tab', 'run_simulation'),
     ('advisor_tab', 'run_advisor'),
     ('optimiser_tab', 'run_planner'),
     ('shadow_trial_tab', 'refresh_now'),
     ('maximiser_tab', 'run_analysis'),
+    ('grott_align_tab', 'compare_now'),
     ('connectivity_tab', 'refresh_status'),
+    ('grott_setup_tab', 'refresh_status'),
 )
 
 
 class EnergyDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
+        self._work_area_filled = False
+        self._work_area_guard = False
+        self._work_area_clamp_pending = False
+        self._work_area_screen_hooked = False
         self.setWindowTitle(f"Energy Dashboard - Growatt + Octopus  v{APP_VERSION}")
         self.resize(1400, 850)
         self.app_params = AppParameters()
         self.data_logger = DataLogger(status_callback=lambda m: _log.debug("DataLogger", m))
+        self.alarm_monitor = AlarmMonitor()
+        self._alarm_tray = None
         self._load_saved_auto_refresh()
+        self._load_alarm_settings()
         self.build_ui()
+        self._init_alarm_tray()
+        self._alarm_watch = QTimer(self)
+        self._alarm_watch.setInterval(15_000)
+        self._alarm_watch.timeout.connect(self._evaluate_alarms)
+        self._alarm_watch.start()
         self.parameters_tab.load_db_config_from_settings()
+        try:
+            self.system_status.refresh_db_now()
+        except Exception:
+            pass
         QTimer.singleShot(100, self._auto_start_all)
+
+    def minimumSizeHint(self):
+        """Never ask the window manager for a size wider than this monitor."""
+        hint = super().minimumSizeHint()
+        cap_w, cap_h = client_cap(self)
+        return QSize(min(int(hint.width()), cap_w), min(int(hint.height()), cap_h))
+
+    def event(self, event):
+        result = super().event(event)
+        # A layout pass can raise the minimum above the screen. Put the cap
+        # back before the window manager maximises to that minimum.
+        if (
+            event.type() == QEvent.Type.LayoutRequest
+            and not self._work_area_guard
+            and self._work_area_filled
+        ):
+            self._work_area_guard = True
+            try:
+                cap_w, cap_h = client_cap(self)
+                if self.minimumWidth() > cap_w or self.minimumHeight() > cap_h:
+                    self.setMinimumSize(
+                        min(self.minimumWidth(), cap_w),
+                        min(self.minimumHeight(), cap_h),
+                    )
+                if self.maximumWidth() != cap_w or self.maximumHeight() != cap_h:
+                    self.setMaximumSize(cap_w, cap_h)
+            finally:
+                self._work_area_guard = False
+        return result
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        handle = self.windowHandle()
+        if handle is not None and not self._work_area_screen_hooked:
+            handle.screenChanged.connect(lambda *_: self._clamp_work_area())
+            self._work_area_screen_hooked = True
+        if not self._work_area_filled:
+            self._work_area_filled = True
+            # Twice: the first pass runs before the title-bar size is known.
+            QTimer.singleShot(0, self._fill_work_area)
+            QTimer.singleShot(300, self._fill_work_area)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if self._work_area_guard:
+            return
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.windowState() & Qt.WindowState.WindowMaximized:
+                # Snap to this monitor. A second pass catches the window
+                # manager if it applies a wider size after we have snapped.
+                QTimer.singleShot(0, self._fill_work_area)
+                QTimer.singleShot(80, self._refill_if_past_screen)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._schedule_work_area_clamp()
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._schedule_work_area_clamp()
+
+    def _schedule_work_area_clamp(self):
+        if self._work_area_guard or self._work_area_clamp_pending:
+            return
+        if not self._work_area_filled:
+            return
+        self._work_area_clamp_pending = True
+        QTimer.singleShot(0, self._clamp_work_area)
+
+    def _fill_work_area(self):
+        """Snap the window to this monitor's usable resolution."""
+        self._apply_work_area(fill=True)
+
+    def _refill_if_past_screen(self):
+        """Second chance after maximise, only if the frame is still too big."""
+        if self._work_area_guard:
+            return
+        screen = self.screen()
+        if screen is None:
+            return
+        monitor = screen.geometry()
+        frame = self.frameGeometry()
+        cap_w, cap_h = client_cap(self)
+        past = (
+            frame.width() > monitor.width()
+            or frame.height() > monitor.height()
+            or self.width() > cap_w
+        )
+        if past:
+            self._fill_work_area()
+
+    def _clamp_work_area(self):
+        self._work_area_clamp_pending = False
+        self._apply_work_area(fill=False)
+
+    def _apply_work_area(self, *, fill: bool):
+        if self._work_area_guard:
+            return
+        self._work_area_guard = True
+        try:
+            fit_window_to_work_area(self, fill=fill)
+        except Exception as exc:
+            _log.warn("App", f"Could not keep the window above the taskbar: {exc}")
+        finally:
+            self._work_area_guard = False
 
     def _load_saved_auto_refresh(self):
         s = QSettings("PowerModel", "EnergyDashboard2")
@@ -71,23 +217,9 @@ class EnergyDashboard(QMainWindow):
 
     def _auto_start_all(self):
         _log.info("App", f"Energy Dashboard v{APP_VERSION} starting up")
-        # #region agent log
-        from energy_dashboard.core.debug_trace import debug_trace
-        from energy_dashboard.config import read_growatt_telemetry_source, read_grott_fill_missing_api
-        qs = QSettings("PowerModel", "EnergyDashboard2")
-        debug_trace(
-            "main_window.py:_auto_start_all",
-            "auto_start begin",
-            data={
-                "version": APP_VERSION,
-                "telemetry_source": read_growatt_telemetry_source(qs, self.app_params),
-                "fill_missing_api": read_grott_fill_missing_api(qs, self.app_params),
-            },
-            hypothesis_id="H1",
-        )
-        # #endregion
         self.set_status("Starting up — connecting to all services...")
         self.growatt_tab.auto_start()
+        self.battery_tab.auto_start()
         self.octopus_tab.auto_start()
         self.forecasts_tab.auto_start()
         self.agile_prices_tab.auto_start()
@@ -96,27 +228,6 @@ class EnergyDashboard(QMainWindow):
         self.tasmota_tab.auto_start()
         self.apply_auto_refresh_from_params()
         _log.info("App", "All services started")
-        # #region agent log
-        gt = self.growatt_tab
-        gs = gt.grott_status() if hasattr(gt, "grott_status") else {}
-        st = getattr(gt, "mix_status_data", None) or {}
-        debug_trace(
-            "main_window.py:_auto_start_all",
-            "auto_start complete",
-            data={
-                "grott_fresh": bool(gs.get("fresh")),
-                "grott_connected": bool(gs.get("connected")),
-                "has_api": bool(gt.api),
-                "device_sn": gt.device_sn,
-                "status_keys": sorted(st.keys()) if isinstance(st, dict) else [],
-                "pLocalLoad": st.get("pLocalLoad") if isinstance(st, dict) else None,
-                "pactouser": st.get("pactouser") if isinstance(st, dict) else None,
-                "gridPowerEstimated": st.get("gridPowerEstimated") if isinstance(st, dict) else None,
-                "loadPowerEstimated": st.get("loadPowerEstimated") if isinstance(st, dict) else None,
-            },
-            hypothesis_id="H1",
-        )
-        # #endregion
 
     def _auto_refresh_timers(self):
         return (
@@ -156,18 +267,8 @@ class EnergyDashboard(QMainWindow):
                 t.start()
             else:
                 t.stop()
-        # Keep Tasmota HTTP poll cadence in sync with the shared interval.
-        sec = max(5, int(p.auto_refresh_seconds))
-        try:
-            s = QSettings("PowerModel", "EnergyDashboard2")
-            s.setValue("tasmota/poll_interval_seconds", sec)
-            tt = self.tasmota_tab
-            if hasattr(tt, "sp_poll_interval"):
-                tt.sp_poll_interval.blockSignals(True)
-                tt.sp_poll_interval.setValue(sec)
-                tt.sp_poll_interval.blockSignals(False)
-        except Exception:
-            pass
+        # Tasmota keeps whatever poll interval is saved on its own tab; the
+        # shared cycle only decides whether periodic polling runs at all.
         self.tasmota_tab.apply_poll_timer(kick=False)
         self._update_refresh_cycle_button()
         if kick and p.auto_refresh_enabled:
@@ -204,16 +305,96 @@ class EnergyDashboard(QMainWindow):
         self._preload_main_tab_before_switch(nxt)
         bar.setCurrentIndex(nxt)
 
+    def show_main_page(self, page_widget):
+        """Select a main page, switching group first if it lives in another group."""
+        if page_widget is None:
+            return False
+        target_group = None
+        for _key, attr, _title, gid, _upd in _MAIN_TAB_BAR_REGISTRY:
+            if getattr(self, attr, None) is page_widget:
+                target_group = gid
+                break
+        if target_group is None:
+            return False
+        if getattr(self, "_active_tab_group", None) != target_group:
+            if not hasattr(self, "_last_page_by_group"):
+                self._last_page_by_group = {}
+            self._last_page_by_group[target_group] = page_widget
+            self._active_tab_group = target_group
+            QSettings("PowerModel", "EnergyDashboard2").setValue(
+                "tabs/active_group", target_group,
+            )
+            strip = getattr(self, "_tab_group_strip", None)
+            if strip is not None:
+                strip.set_active_group(target_group)
+            self._rebuild_main_tab_bar()
+        elif self.tabs.indexOf(page_widget) < 0:
+            # Page was hidden via Setup visibility — rebuild won't include it.
+            return False
+        else:
+            self.tabs.setCurrentWidget(page_widget)
+        if self.tabs.indexOf(page_widget) >= 0:
+            self.tabs.setCurrentWidget(page_widget)
+            return True
+        return False
+
+    def _ensure_main_tab_group_strip(self):
+        """Amber group strip in the tab-bar corner (same row; no extra height)."""
+        strip = getattr(self, "_tab_group_strip", None)
+        if strip is not None:
+            return strip
+        strip = MainTabGroupStrip(_MAIN_TAB_GROUPS, self.tabs)
+        strip.groupSelected.connect(self._on_main_tab_group_selected)
+        self.tabs.setCornerWidget(strip, Qt.Corner.TopLeftCorner)
+        self._tab_group_strip = strip
+        # Always open on Dashboards. A saved group is only for switches
+        # during this session, not for the next launch.
+        self._active_tab_group = strip.set_active_group("usage")
+        QSettings("PowerModel", "EnergyDashboard2").setValue(
+            "tabs/active_group", "usage",
+        )
+        return strip
+
+    def _on_main_tab_group_selected(self, group_id):
+        """Switch group: show that group's pages on the right of the strip."""
+        if not group_id or group_id == getattr(self, "_active_tab_group", None):
+            return
+        # Remember the page left behind in the previous group.
+        prev_w = self.tabs.currentWidget()
+        prev_g = getattr(self, "_active_tab_group", None)
+        if prev_g and prev_w is not None:
+            if not hasattr(self, "_last_page_by_group"):
+                self._last_page_by_group = {}
+            self._last_page_by_group[prev_g] = prev_w
+        self._active_tab_group = group_id
+        QSettings("PowerModel", "EnergyDashboard2").setValue(
+            "tabs/active_group", group_id,
+        )
+        strip = getattr(self, "_tab_group_strip", None)
+        if strip is not None:
+            strip.set_active_group(group_id)
+        self._rebuild_main_tab_bar()
+
     def _rebuild_main_tab_bar(self):
-        """Rebuild the main QTabWidget from `_MAIN_TAB_BAR_REGISTRY` and QSettings."""
+        """Rebuild page tabs for the active group from registry + QSettings."""
+        self._ensure_main_tab_group_strip()
         s = QSettings("PowerModel", "EnergyDashboard2")
+        group_id = getattr(self, "_active_tab_group", None)
+        if not group_id:
+            group_id = _MAIN_TAB_GROUPS[0][0]
+            self._active_tab_group = group_id
         bar = self.tabs
         prev = bar.currentWidget()
+        prefer = None
+        by_group = getattr(self, "_last_page_by_group", None) or {}
+        prefer = by_group.get(group_id)
         bar.blockSignals(True)
         try:
             while bar.count() > 0:
                 bar.removeTab(0)
-            for key, attr, title in _MAIN_TAB_BAR_REGISTRY:
+            for key, attr, title, gid, updateable in _MAIN_TAB_BAR_REGISTRY:
+                if gid != group_id:
+                    continue
                 if key is None:
                     visible = True
                 else:
@@ -221,9 +402,12 @@ class EnergyDashboard(QMainWindow):
                 if visible:
                     w = getattr(self, attr)
                     bar.addTab(w, title)
+                    w.setProperty("_pm_tab_updateable", bool(updateable))
         finally:
             bar.blockSignals(False)
-        if prev is not None and bar.indexOf(prev) >= 0:
+        if prefer is not None and bar.indexOf(prefer) >= 0:
+            bar.setCurrentWidget(prefer)
+        elif prev is not None and bar.indexOf(prev) >= 0:
             bar.setCurrentWidget(prev)
         elif bar.count() > 0:
             bar.setCurrentIndex(0)
@@ -292,6 +476,19 @@ class EnergyDashboard(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred,
         )
         meta_row.addWidget(self._live_import_audit, 1)
+
+        self._alarm_banner = QLabel("")
+        self._alarm_banner.setWordWrap(False)
+        self._alarm_banner.setTextFormat(Qt.RichText)
+        self._alarm_banner.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._alarm_banner.setCursor(QCursor(Qt.PointingHandCursor))
+        self._alarm_banner.setToolTip("Click for alarm detail and recent history.")
+        self._alarm_banner.setStyleSheet(
+            "color: #6c7086; font-size: 11px; padding: 0 8px 0 0;"
+        )
+        self._alarm_banner.hide()
+        self._alarm_banner.installEventFilter(self)
+        meta_row.addWidget(self._alarm_banner, 0)
 
         locale_cluster = QWidget()
         locale_cluster.setStyleSheet("background: transparent;")
@@ -365,7 +562,12 @@ class EnergyDashboard(QMainWindow):
         self.tabs = QTabWidget()
         self._fresh_tab_bar = FreshnessTabBar(self.tabs)
         self.tabs.setTabBar(self._fresh_tab_bar)
-        main_layout.addWidget(self.tabs)
+        main_layout.addWidget(self.tabs, 1)
+
+        from energy_dashboard.ui.system_status_bar import SystemStatusBar
+
+        self.system_status = SystemStatusBar(self.data_logger, parent=central)
+        main_layout.addWidget(self.system_status, 0)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -373,8 +575,8 @@ class EnergyDashboard(QMainWindow):
 
         # ── Bottom-right action cluster ────────────────────────────────
         # addPermanentWidget appends to the right-hand group in
-        # left-to-right order:
-        #   [ Refresh Page ] [ Refresh All ] (gap) [ Help ] [ Close ]
+        # left-to-right order: [ Refresh Page ] [ Refresh All ] [ Help ] [ Close ]
+        # Machine CPU / RAM / DB ingest live in the two-line strip above this bar.
         _ACTION_BTN_WIDTH = 110
 
         refresh_page_btn = QPushButton("Refresh Page")
@@ -394,11 +596,6 @@ class EnergyDashboard(QMainWindow):
         refresh_all_btn.setFixedWidth(_ACTION_BTN_WIDTH)
         refresh_all_btn.clicked.connect(self._refresh_all_tabs)
         self.status_bar.addPermanentWidget(refresh_all_btn)
-
-        spacer = QWidget()
-        spacer.setFixedWidth(100)
-        spacer.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self.status_bar.addPermanentWidget(spacer)
 
         help_btn = QPushButton("Help")
         help_btn.setToolTip(
@@ -432,6 +629,13 @@ class EnergyDashboard(QMainWindow):
             lambda: self.mark_tab_fresh(self.device_costs_tab)
         )
 
+        self.pv_string_charge_tab = PvStringChargeTab(
+            self.growatt_tab, self.set_status, data_logger=self.data_logger,
+        )
+        self.pv_string_charge_tab.on_data_updated = (
+            lambda: self.mark_tab_fresh(self.pv_string_charge_tab)
+        )
+
         self.combined_tab = CombinedTab(self.growatt_tab, self.octopus_tab, self.set_status)
 
         self.battery_tab = BatteryAnalysisTab(
@@ -446,11 +650,33 @@ class EnergyDashboard(QMainWindow):
         self.analytics_tab.on_data_updated = lambda: self.mark_tab_fresh(self.analytics_tab)
 
         self.forecasts_tab = ForecastsTab(self.set_status, data_logger=self.data_logger)
+        self.pv_string_charge_tab.forecasts_tab = self.forecasts_tab
+
+        self.pot_issues_tab = PotIssuesTab(
+            self.forecasts_tab, self.data_logger, self.growatt_tab, self.set_status,
+        )
+        self.pot_issues_tab.on_data_updated = (
+            lambda: self.mark_tab_fresh(self.pot_issues_tab)
+        )
 
         self.agile_prices_tab = AgileSpotPricesTab(self.forecasts_tab, self.set_status)
         self.agile_prices_tab.on_data_updated = (
             lambda: self.mark_tab_fresh(self.agile_prices_tab)
         )
+
+        self.agile_year_tab = AgileYearTab(self.forecasts_tab, self.set_status)
+        self.agile_year_tab.on_data_updated = (
+            lambda: self.mark_tab_fresh(self.agile_year_tab)
+        )
+
+        self.roof_layout_tab = RoofLayoutTab(
+            self.forecasts_tab, self.set_status, dash=self,
+        )
+        self.roof_layout_tab.on_data_updated = (
+            lambda: self.mark_tab_fresh(self.roof_layout_tab)
+        )
+        # Let Forecasts resolve multi-plane roof faces via the dashboard.
+        self.forecasts_tab.dash = self
 
         def _on_forecasts_updated():
             self.mark_tab_fresh(self.forecasts_tab)
@@ -483,12 +709,21 @@ class EnergyDashboard(QMainWindow):
 
         self.maximiser_tab = MaximiserTab(self)
 
-        self.octopus_live_tab = OctopusLiveTab(self.set_status)
+        self.grott_align_tab = GrottApiAlignTab(self.growatt_tab, self.set_status)
+        self.grott_align_tab.on_data_updated = (
+            lambda: self.mark_tab_fresh(self.grott_align_tab)
+        )
+
+        self.octopus_live_tab = OctopusLiveTab(
+            self.set_status, data_logger=self.data_logger, app_params=self.app_params,
+        )
         self.octopus_live_tab.on_data_updated = (
             lambda: self.mark_tab_fresh(self.octopus_live_tab)
         )
 
         self.connectivity_tab = ConnectivityStatusTab(self)
+
+        self.grott_setup_tab = GrottSetupTab(self)
 
         self.command_sim_tab = CommandSimTab(self.set_status)
 
@@ -499,11 +734,21 @@ class EnergyDashboard(QMainWindow):
         )
         self.export_tab.on_data_updated = lambda: self.mark_tab_fresh(self.export_tab)
 
-        self.console_tab = ConsoleTab()
+        self.console_tab = ConsoleTab(self)
+
+        self.bug_tracker_tab = BugTrackerTab(self)
 
         self.parameters_tab = ParametersTab(self)
 
         self.license_tab = LicenseTab()
+
+        # GrottTab connects at construct time — re-apply after Setup has healed
+        # empty grott_mqtt_host from EMQX / Tasmota MQTT credentials.
+        try:
+            self.growatt_tab.apply_grott_settings()
+        except Exception:
+            pass
+        QTimer.singleShot(1500, self._reapply_grott_after_setup)
 
         # Tab bar: order and optional hiding come from `_MAIN_TAB_BAR_REGISTRY`
         # and QSettings (`tabs/visible/<key>`); see Setup && Info → tab bar.
@@ -518,12 +763,14 @@ class EnergyDashboard(QMainWindow):
         self.tabs.currentChanged.connect(self._on_main_tab_changed)
         self.tabs.currentChanged.connect(lambda _idx: self._refresh_tab_freshness())
 
-        # Tab-bar freshness tint (green → background over 10 min) + banner countdown.
-        # Timer ticks every second so the fade and countdown stay smooth.
+        # Banner countdown every 1s; tab-colour fade is slower (20 min) so
+        # repaint the hatch/colours only every ~15s (plus on mark_tab_fresh).
         self._tab_last_update = {}
+        self._tab_freshness_tick = 0
+        self._tab_freshness_dirty = False
         self._tab_color_timer = QTimer(self)
         self._tab_color_timer.setInterval(1000)
-        self._tab_color_timer.timeout.connect(self._refresh_tab_freshness)
+        self._tab_color_timer.timeout.connect(self._on_tab_freshness_tick)
         self._tab_color_timer.start()
         self._refresh_tab_freshness()
 
@@ -585,40 +832,194 @@ class EnergyDashboard(QMainWindow):
         self.sync_banner_locale_coords()
         ft = getattr(self, "forecasts_tab", None)
         if ft is not None:
-            ft._refresh_locale_label()
+            ft._refresh_locale_label(force=True)
+        # Second pass after Setup has finished pushing solar coords into Forecasts.
+        QTimer.singleShot(800, self._retry_banner_locale)
+
+    def _retry_banner_locale(self):
+        ft = getattr(self, "forecasts_tab", None)
+        if ft is not None:
+            try:
+                ft._refresh_locale_label(force=False)
+            except Exception:
+                pass
 
     # ── Tab freshness colour coding ────────────────────────────────────
 
     def mark_tab_fresh(self, tab_widget):
-        """Record that `tab_widget` has just received fresh data."""
+        """Record that `tab_widget` has just received fresh data.
+
+        Repainting is left to the freshness tick below: MQTT feeds call this
+        about once a second per source, and restyling the whole tab bar on
+        every call was a large slice of the UI jank.
+        """
         if tab_widget is None:
             return
         self._tab_last_update[tab_widget] = datetime.now()
-        self._refresh_tab_freshness()
+        self._tab_freshness_dirty = True
 
-    def _refresh_tab_freshness(self):
+    def _on_tab_freshness_tick(self):
+        """1 Hz: update banner countdown; only occasionally repaint tab colours."""
+        self._tab_freshness_tick = int(getattr(self, "_tab_freshness_tick", 0)) + 1
+        self._update_refresh_cycle_button()
+        dirty = bool(getattr(self, "_tab_freshness_dirty", False))
+        if self._tab_freshness_tick % 15 == 0 or (dirty and self._tab_freshness_tick % 5 == 0):
+            self._tab_freshness_dirty = False
+            self._refresh_tab_freshness(update_banner=False)
+
+    def _refresh_tab_freshness(self, *, update_banner=True):
+        """Page tabs: static=blue; updateable=green→black over 20 min (white on black when stale)."""
         bar = getattr(self, '_fresh_tab_bar', None) or self.tabs.tabBar()
         now = datetime.now()
-        cur = self.tabs.currentIndex()
         bgs = {}
+        flags = {}
+        fgs = {}
+        last_map = getattr(self, "_tab_last_update", None) or {}
         for i in range(self.tabs.count()):
             widget = self.tabs.widget(i)
-            last = self._tab_last_update.get(widget)
-            bgs[i] = _tab_freshness_background(last, now)
+            updateable = True
+            if widget is not None:
+                prop = widget.property("_pm_tab_updateable")
+                if prop is not None:
+                    updateable = bool(prop)
+                else:
+                    for _k, attr, _t, _g, upd in _MAIN_TAB_BAR_REGISTRY:
+                        if getattr(self, attr, None) is widget:
+                            updateable = bool(upd)
+                            break
+            flags[i] = updateable
+            if not updateable:
+                bgs[i] = _TAB_PAGE_STATIC
+                fgs[i] = _contrasting_tab_text(_TAB_PAGE_STATIC)
+            else:
+                last = last_map.get(widget)
+                bgs[i] = _tab_freshness_background(last, now)
+                fgs[i] = _tab_freshness_text_color(last, now)
+        if hasattr(bar, 'set_updateable_flags'):
+            bar.set_updateable_flags(flags)
         if hasattr(bar, 'set_freshness_backgrounds'):
             bar.set_freshness_backgrounds(bgs)
-        for i in range(self.tabs.count()):
-            widget = self.tabs.widget(i)
-            last = self._tab_last_update.get(widget)
-            fg = _tab_freshness_text_color(last, now, i == cur)
+        for i, fg in fgs.items():
             bar.setTabTextColor(i, QColor(fg))
+        bar.update()
 
-        self._update_refresh_cycle_button()
+        if update_banner:
+            self._update_refresh_cycle_button()
 
     # ── Refresh cycle button ───────────────────────────────────────────
 
+    _LIVE_REFRESH_TAB_ATTRS = (
+        ("growatt_tab", "Growatt"),
+        ("octopus_live_tab", "Octopus Live"),
+        ("tasmota_tab", "Tasmota"),
+    )
+
+    # Allowance on top of each source's own cadence before it counts as late.
+    _LIVE_REFRESH_GRACE_S = 15.0
+
+    @staticmethod
+    def _format_age_short(seconds):
+        """Compact age for the banner pill (e.g. 12s, 3m 05s, 1h 02m)."""
+        if seconds is None:
+            return "--"
+        s = max(0, int(seconds))
+        if s < 60:
+            return f"{s}s"
+        if s < 3600:
+            return f"{s // 60}m {s % 60:02d}s"
+        h = s // 3600
+        m = (s % 3600) // 60
+        return f"{h}h {m:02d}m"
+
+    def _live_source_states(self):
+        """Per-source freshness for the banner pill.
+
+        Each live tab declares its own cadence through
+        ``live_refresh_expectation()`` returning (active, seconds, detail), so
+        an MQTT-driven tab is judged against its push rate rather than the
+        shared auto-refresh interval, and a source that is switched off is
+        reported as inactive instead of permanently late.
+        """
+        now = datetime.now()
+        p = self.app_params
+        fallback = float(max(5, int(getattr(p, "auto_refresh_seconds", 60))))
+        enabled = bool(getattr(p, "auto_refresh_enabled", False))
+        last_map = getattr(self, "_tab_last_update", None) or {}
+        states = []
+        for attr, label in self._LIVE_REFRESH_TAB_ATTRS:
+            w = getattr(self, attr, None)
+            if w is None:
+                continue
+            active, window, detail = enabled, fallback, ""
+            fn = getattr(w, "live_refresh_expectation", None)
+            if callable(fn):
+                try:
+                    active, window, detail = fn()
+                except Exception:
+                    active, window, detail = enabled, fallback, ""
+            window = max(15.0, float(window)) + self._LIVE_REFRESH_GRACE_S
+            last = last_map.get(w)
+            age = None if last is None else (now - last).total_seconds()
+            states.append({
+                "label": label,
+                "age": age,
+                "window": window,
+                "active": bool(active),
+                "detail": str(detail or ""),
+            })
+        return states
+
+    def _live_refresh_age_and_completeness(self):
+        """Return (oldest active age, fresh_count, active_total, late_labels).
+
+        The age is the *oldest* active source, not the newest: taking the
+        newest let a 1 Hz MQTT feed report "Last 2s" while another live tab
+        had not updated for hours.
+        """
+        states = [s for s in self._live_source_states() if s["active"]]
+        ages = [s["age"] for s in states if s["age"] is not None]
+        fresh = 0
+        late = []
+        for s in states:
+            if s["age"] is not None and s["age"] <= s["window"]:
+                fresh += 1
+            else:
+                late.append(s["label"])
+        since = max(ages) if ages else None
+        return since, fresh, len(states), late
+
+    def _live_refresh_tooltip(self):
+        """Per-source breakdown so a 'late' pill can be diagnosed on hover."""
+        lines = [
+            "Click to cycle the shared auto-refresh interval:",
+            "Auto 10s → 30s → 60s → 180s → 300s → 600s → Manual only.",
+            "",
+            "Live sources (age · expected cadence):",
+        ]
+        for s in self._live_source_states():
+            detail = f" — {s['detail']}" if s["detail"] else ""
+            if not s["active"]:
+                lines.append(f"  {s['label']}: inactive{detail}")
+                continue
+            age_txt = "never" if s["age"] is None else self._format_age_short(s["age"])
+            state = (
+                "late"
+                if s["age"] is None or s["age"] > s["window"]
+                else "ok"
+            )
+            lines.append(
+                f"  {s['label']}: {age_txt} · expects ≤ "
+                f"{self._format_age_short(s['window'])} · {state}{detail}"
+            )
+        lines.append("")
+        lines.append(
+            "MQTT sources are push-driven, so the shared interval does not "
+            "change how often they arrive."
+        )
+        return "\n".join(lines)
+
     def _build_refresh_cycle_card(self, ban_layout):
-        """Build the right-most banner row: auto-refresh cycle button + tab scroll/hold strip."""
+        """Build the right-most banner row: two-line auto-refresh pill + tab › strip."""
         wrap = QWidget()
         wrap.setObjectName("liveBannerRefreshWrap")
         wrap.setStyleSheet(f"#liveBannerRefreshWrap {{ background-color: {_DARK_BG}; }}")
@@ -628,27 +1029,15 @@ class EnergyDashboard(QMainWindow):
         hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(2)
 
-        btn = QPushButton("Auto --s")
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setFixedHeight(42)
-        btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        btn.setFont(QFont('Helvetica', 13, QFont.Bold))
-        btn.setToolTip(
-            "Click to cycle the shared auto-refresh interval:\n"
-            "Auto 10s → 30s → 60s → 180s → 300s → 600s → Manual only.\n"
-            "Uses the same green button style as Refresh All.\n\n"
-            "The narrow › panel to the right: mouse wheel = previous/next main tab; "
-            "press-and-hold = advance tabs."
-        )
-        btn.setStyleSheet(_BANNER_REFRESH_CYCLE_QSS)
-        btn.clicked.connect(self._advance_refresh_cycle)
-        hl.addWidget(btn, 1)
+        pill = BannerRefreshCyclePill()
+        pill.clicked.connect(self._advance_refresh_cycle)
+        hl.addWidget(pill, 1)
 
         self._banner_tab_nav = BannerTabScrollHold()
         hl.addWidget(self._banner_tab_nav, 0)
 
         ban_layout.addWidget(wrap)
-        return btn
+        return pill
 
     def _current_refresh_cycle_index(self):
         """Find the cycle entry that matches the current app_params state.
@@ -704,23 +1093,47 @@ class EnergyDashboard(QMainWindow):
         self._update_refresh_cycle_button()
 
     def _update_refresh_cycle_button(self):
-        """Redraw the refresh button with the current mode + countdown."""
+        """Redraw the two-line refresh pill: mode, clock, last, next, completeness."""
         if not hasattr(self, '_ban_refresh'):
             return
         i = self._current_refresh_cycle_index()
         sec, _color, label = _REFRESH_CYCLE[i]
+        now_s = datetime.now().strftime("%H:%M:%S")
+        since_s, fresh_n, total_n, late = self._live_refresh_age_and_completeness()
+        last_txt = self._format_age_short(since_s)
+        if since_s is None and total_n > 0:
+            last_txt = "never"
         if sec == 0:
-            text = label
+            next_txt = "—"
+            mode_txt = "Manual"
         else:
             rem_s = self._soonest_auto_refresh_seconds()
             if rem_s is None:
                 rem_s = sec
-            text = f"{label} · Next {rem_s}s"
-        self._ban_refresh.setText(text)
-        self._ban_refresh.setStyleSheet(_BANNER_REFRESH_CYCLE_QSS)
+            next_txt = self._format_age_short(rem_s)
+            mode_txt = label  # e.g. Auto 30s
+        if total_n > 0:
+            pct = int(round(100.0 * fresh_n / total_n))
+            complete_detail = f"{fresh_n}/{total_n} ({pct}%)"
+        else:
+            complete_detail = "no live source active"
+        line1 = f"Mode {mode_txt}  ·  Now {now_s}  ·  Oldest {last_txt}"
+        line2 = f"Next {next_txt}  ·  Complete {complete_detail}"
+        if late:
+            line2 += "  ·  late: " + ", ".join(late)
+        self._ban_refresh.set_lines(line1, line2)
+        self._ban_refresh.set_detail_tooltip(self._live_refresh_tooltip())
+        # Do not re-apply setStyleSheet on every tick — that forces expensive
+        # style recalculation and was a major source of UI jank.
 
     def _on_main_tab_changed(self, index):
-        if self.tabs.widget(index) is self.combined_tab:
+        w = self.tabs.widget(index)
+        group_id = getattr(self, "_active_tab_group", None)
+        if group_id and w is not None:
+            if not hasattr(self, "_last_page_by_group"):
+                self._last_page_by_group = {}
+            self._last_page_by_group[group_id] = w
+        if w is self.combined_tab:
             self.combined_tab.refresh()
 
     def _apply_live_import_audit(self, audit):
@@ -750,20 +1163,335 @@ class EnergyDashboard(QMainWindow):
     def _on_growatt_data_updated(self):
         self._update_live_banner()
         self._update_live_import_audit()
+        self._evaluate_alarms()
         self._log_growatt_data()
+        self._maybe_upload_community_outputs()
         self.mark_tab_fresh(self.growatt_tab)
         # Combined Dashboard mirrors the live Growatt feed, so it's "fresh"
         # whenever Growatt is fresh.
         if hasattr(self, 'combined_tab'):
             self.mark_tab_fresh(self.combined_tab)
-        if hasattr(self, 'connectivity_tab'):
-            self.connectivity_tab.refresh_status(test_db=False)
+        pst = getattr(self, "pv_string_charge_tab", None)
+        if pst is not None:
+            try:
+                pst.on_growatt_live_update()
+            except Exception:
+                pass
+        bt = getattr(self, "battery_tab", None)
+        if bt is not None and hasattr(bt, "sync_capacity_from_live"):
+            try:
+                bt.sync_capacity_from_live()
+            except Exception:
+                pass
+        # Connectivity has its own 15s timer — do not rebuild that tab on every
+        # Growatt/Grott update (that was freezing the UI with sync DB work).
+
+    def _load_alarm_settings(self):
+        s = QSettings("PowerModel", "EnergyDashboard2")
+        self.alarm_monitor.configure(
+            enabled=s.value("alarms/enabled", True, type=bool),
+            desktop_enabled=s.value("alarms/desktop", True, type=bool),
+            hold_minutes=float(s.value("alarms/hold_minutes", DEFAULT_HOLD_MINUTES)),
+            pv_min_kw=float(s.value("alarms/pv_min_kw", DEFAULT_PV_MIN_KW)),
+            notify_cooldown_s=float(
+                s.value("alarms/notify_cooldown_s", DEFAULT_NOTIFY_COOLDOWN_S)
+            ),
+        )
+
+    def apply_alarm_settings_from_ui(
+        self,
+        *,
+        enabled: bool,
+        desktop: bool,
+        hold_minutes: float,
+        pv_min_kw: float,
+    ):
+        s = QSettings("PowerModel", "EnergyDashboard2")
+        s.setValue("alarms/enabled", bool(enabled))
+        s.setValue("alarms/desktop", bool(desktop))
+        s.setValue("alarms/hold_minutes", float(hold_minutes))
+        s.setValue("alarms/pv_min_kw", float(pv_min_kw))
+        s.sync()
+        self.alarm_monitor.configure(
+            enabled=enabled,
+            desktop_enabled=desktop,
+            hold_minutes=hold_minutes,
+            pv_min_kw=pv_min_kw,
+        )
+        if not enabled:
+            self.alarm_monitor.clear()
+            self._apply_alarm_banner([])
+
+    def _init_alarm_tray(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            self._alarm_tray = None
+            return
+        try:
+            tray = QSystemTrayIcon(self)
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
+            tray.setIcon(icon if not icon.isNull() else self.windowIcon())
+            tray.setToolTip("Energy Dashboard alarms")
+            tray.setVisible(True)
+            tray.messageClicked.connect(self._show_alarm_dialog)
+            self._alarm_tray = tray
+        except Exception as e:
+            _log.warn("Alarms", f"System tray unavailable: {e}")
+            self._alarm_tray = None
+
+    def _reapply_grott_after_setup(self):
+        """Second Grott connect after Setup has loaded/healed broker settings."""
+        gt = getattr(self, "growatt_tab", None)
+        if gt is None:
+            return
+        try:
+            gt.apply_grott_settings()
+        except Exception as exc:
+            try:
+                _log.warn("Grott", f"Re-apply after Setup failed: {exc}")
+            except Exception:
+                pass
+
+    def _evaluate_alarms(self):
+        gt = getattr(self, "growatt_tab", None)
+        if gt is None:
+            return
+        d = gt.mix_status_data or {}
+        live = {}
+        try:
+            live = gt.get_live_data_summary() or {}
+        except Exception:
+            live = {}
+        thr = float(getattr(self.app_params, "battery_low_soc_threshold_pct", 10) or 10)
+        grott_expected = False
+        grott_connected = False
+        grott_fresh = False
+        grott_age_s = None
+        grott_fresh_s = 120.0
+        try:
+            grott_expected = bool(gt._uses_grott())
+            gs = gt.grott_status() if grott_expected else {}
+            grott_connected = bool(gs.get("connected"))
+            grott_age_s = gs.get("age_s")
+            grott_fresh_s = max(15, int(gt._grott_config().get("fresh_s", 120) or 120))
+            try:
+                grott_fresh = (
+                    grott_age_s is not None
+                    and float(grott_age_s) <= float(grott_fresh_s)
+                )
+            except (TypeError, ValueError):
+                grott_fresh = False
+        except Exception:
+            grott_expected = bool(getattr(gt, "_uses_grott", lambda: False)())
+        comms_lost = False
+        comms_reason = ""
+        try:
+            comms_lost = bool(live.get("comms_lost"))
+            comms_reason = str(live.get("comms_reason") or "")
+        except Exception:
+            pass
+        db_logging = False
+        try:
+            db_logging = self.data_logger._primary_storage_backend() is not None
+        except Exception:
+            db_logging = False
+        db_st = getattr(getattr(self, "system_status", None), "last_status", None)
+        db_connected = None if db_st is None else bool(db_st.connected)
+        db_error = (getattr(db_st, "error", "") or "") if db_st is not None else ""
+        if db_st is not None and not db_error:
+            db_error = getattr(db_st, "ingest_error", "") or ""
+        db_engine = (getattr(db_st, "engine", "") or "") if db_st is not None else ""
+        db_rows_15m = None
+        if db_st is not None and db_st.connected:
+            try:
+                db_rows_15m = int(db_st.rows_15m or 0)
+            except (TypeError, ValueError):
+                db_rows_15m = 0
+        growatt_writing = False
+        if grott_expected:
+            growatt_writing = bool(grott_fresh)
+        elif live:
+            growatt_writing = not comms_lost
+        tas = {}
+        try:
+            tt = getattr(self, "tasmota_tab", None)
+            if tt is not None and hasattr(tt, "alarm_snapshot"):
+                tas = tt.alarm_snapshot() or {}
+        except Exception:
+            tas = {}
+        tas_offline = list(tas.get("offline") or [])
+        tas_mqtt = bool(tas.get("mqtt_mode"))
+        tas_mqtt_ok = bool(tas.get("mqtt_connected"))
+        tas_known = int(tas.get("known") or 0)
+        tasmota_writing = tas_known > 0 and (
+            (tas_mqtt and tas_mqtt_ok) or ((not tas_mqtt) and tas_known > len(tas_offline))
+        )
+        hits = self.alarm_monitor.evaluate(
+            soc_pct=live.get("soc", d.get("SOC")),
+            pv_kw=live.get("pv_power", d.get("ppv")),
+            charge_kw=d.get("chargePower"),
+            discharge_kw=d.get("pdisCharge1"),
+            load_kw=live.get("load_power", d.get("pLocalLoad")),
+            grid_import_kw=d.get("pactouser"),
+            soc_threshold_pct=thr,
+            grott_expected=grott_expected,
+            grott_connected=grott_connected,
+            grott_fresh=grott_fresh,
+            grott_age_s=grott_age_s,
+            grott_fresh_s=grott_fresh_s,
+            db_logging_enabled=db_logging,
+            db_connected=db_connected,
+            db_error=db_error,
+            db_engine=db_engine,
+            db_rows_15m=db_rows_15m,
+            growatt_writing=growatt_writing,
+            tasmota_writing=tasmota_writing,
+            inverter_comms_lost=comms_lost,
+            inverter_comms_reason=comms_reason,
+            tasmota_mqtt_expected=tas_mqtt,
+            tasmota_mqtt_connected=tas_mqtt_ok,
+            tasmota_offline=tas_offline,
+        )
+        self._log_grott_lost_edge(hits, grott_connected, grott_age_s)
+        self._apply_alarm_banner(hits)
+        try:
+            ct = getattr(self, "connectivity_tab", None)
+            if ct is not None and hasattr(ct, "set_diagram_alarms"):
+                ct.set_diagram_alarms(hits)
+        except Exception:
+            pass
+        for hit in hits:
+            if hit.should_notify:
+                self._desktop_alarm_notify(hit)
+
+    def _log_grott_lost_edge(self, hits, grott_connected, grott_age_s) -> None:
+        """Persist Grott stale / recover into connectivity_events (Show history)."""
+        active = any(getattr(h, "key", "") == "grott_lost" for h in (hits or []))
+        was = bool(getattr(self, "_grott_lost_event_active", False))
+        if active == was:
+            return
+        self._grott_lost_event_active = active
+        try:
+            from energy_dashboard.db.connectivity_events import log_connectivity_event
+            age = grott_age_s
+            try:
+                age_txt = f"{float(age):.0f}s since last live frame" if age is not None else "no live frame yet"
+            except (TypeError, ValueError):
+                age_txt = "age unknown"
+            mqtt = "MQTT connected" if grott_connected else "MQTT disconnected"
+            log_connectivity_event(
+                getattr(self, "data_logger", None),
+                service_key="grott_mqtt",
+                service_label="Growatt local (Grott MQTT)",
+                event_type="warn" if active else "recover",
+                state_key="warn" if active else "ok",
+                state_text="stale" if active else "fresh",
+                detail=(
+                    f"{mqtt}; {age_txt}. Shine often quiets ~11 min after reconnect."
+                    if active
+                    else f"{mqtt}; live Grott telemetry resumed ({age_txt})."
+                ),
+            )
+        except Exception:
+            pass
+
+    def _apply_alarm_banner(self, hits):
+        if not hasattr(self, "_alarm_banner"):
+            return
+        if not hits:
+            self._alarm_banner.hide()
+            self._alarm_banner.setText("")
+            return
+        summary = self.alarm_monitor.banner_summary(hits)
+        crit = any(h.severity == "critical" for h in hits)
+        col = "#f38ba8" if crit else "#fab387"
+        self._alarm_banner.setText(
+            f"<span style='color:{col}; font-weight:600;'>ALARM · {summary}</span>"
+        )
+        tip_lines = []
+        for h in hits:
+            tip_lines.append(h.title)
+            tip_lines.append(h.detail)
+            tip_lines.append("")
+        tip_lines.append("Click for full history.")
+        self._alarm_banner.setToolTip("\n".join(tip_lines).strip())
+        self._alarm_banner.show()
+
+    def _desktop_alarm_notify(self, hit):
+        tray = getattr(self, "_alarm_tray", None)
+        if tray is None or not self.alarm_monitor.desktop_enabled:
+            return
+        icon = (
+            QSystemTrayIcon.MessageIcon.Critical
+            if hit.severity == "critical"
+            else QSystemTrayIcon.MessageIcon.Warning
+        )
+        try:
+            tray.showMessage(hit.title, hit.detail, icon, 12000)
+        except Exception as e:
+            _log.warn("Alarms", f"Desktop notify failed: {e}")
+
+    def eventFilter(self, obj, event):
+        if (
+            obj is getattr(self, "_alarm_banner", None)
+            and event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.LeftButton
+        ):
+            self._show_alarm_dialog()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _show_alarm_dialog(self):
+        mon = self.alarm_monitor
+        active = list(mon._active.values())
+        lines = []
+        if active:
+            lines.append("Active now")
+            lines.append("─" * 40)
+            for h in active:
+                lines.append(h.title)
+                lines.append(h.detail)
+                lines.append("")
+        else:
+            lines.append("No active alarms.")
+            lines.append("")
+        if mon.history:
+            lines.append("Recent (this session)")
+            lines.append("─" * 40)
+            for row in mon.history[:12]:
+                ts = _time_mod.strftime("%Y-%m-%d %H:%M", _time_mod.localtime(row["wall"]))
+                lines.append(f"{ts}  [{row['severity']}]  {row['title']}")
+                lines.append(f"  {row['detail']}")
+                lines.append("")
+        else:
+            lines.append("No alarms have fired this session yet.")
+        lines.append(
+            f"Rules: Grott feed must stay live (~20s if MQTT drops, or after "
+            f"Fresh max — often Shine’s ~11 min handshake); inverter reported "
+            f"offline by Growatt; logging database unreachable, or no Growatt/"
+            f"Tasmota rows for 15 min while devices are live; Tasmota MQTT down "
+            f"or named plugs silent; SOC below Setup threshold for "
+            f"≥{mon.hold_minutes:.0f} min; or spare PV ≥ {mon.pv_min_kw:.1f} kW "
+            f"not charging (same hold). Tray repeats: immediate, then 4×/5 min, "
+            f"4×/10 min, 4×/30 min, then hourly. Configure under Setup → Live alarms."
+        )
+        QMessageBox.information(self, "Alarms", "\n".join(lines))
 
     def _log_growatt_data(self):
         gt = self.growatt_tab
         d = gt.mix_status_data
         if not d:
             return
+        # Never persist a stale GROTT snapshot — that is what filled Aug 19
+        # with hundreds of identical rows while the feed was frozen.
+        try:
+            if gt._uses_grott():
+                from energy_dashboard.fetch.grott_mqtt import grott_snapshot_fresh
+                snap = gt._grott.snapshot() if getattr(gt, '_grott', None) else None
+                fresh_s = max(15, int(gt._grott_config().get('fresh_s', 120) or 120))
+                if not grott_snapshot_fresh(snap, fresh_s):
+                    return
+        except Exception:
+            pass
         discharge = float(d.get('pdisCharge1', 0) or 0)
         charge = float(d.get('chargePower', 0) or 0)
         grid_import = float(d.get('pactouser', 0) or 0)
@@ -779,6 +1507,52 @@ class EnergyDashboard(QMainWindow):
             'discharge_today': totals.get('edischarge1Today'),
             'pv_today': totals.get('epvToday'),
         })
+
+    def _maybe_upload_community_outputs(self):
+        """Throttle PVOutput Add Status uploads from the latest Growatt snapshot.
+
+        Wonderwatt has no public upload API — it pulls Growatt cloud itself;
+        we only keep a share link for forecast compare (Potential Issues / Setup).
+        """
+        try:
+            from energy_dashboard.fetch.pvoutput import (
+                load_pvoutput_config,
+                should_upload_now,
+                upload_from_growatt,
+            )
+        except Exception:
+            return
+        cfg = load_pvoutput_config()
+        if not cfg.ready or not should_upload_now(cfg):
+            return
+        gt = self.growatt_tab
+        status = getattr(gt, "mix_status_data", None) or {}
+        totals = getattr(gt, "mix_totals_data", None) or {}
+        if not status:
+            return
+        # Respect the same Grott-freshness guard as local DB logging.
+        try:
+            if gt._uses_grott():
+                from energy_dashboard.fetch.grott_mqtt import grott_snapshot_fresh
+                snap = gt._grott.snapshot() if getattr(gt, "_grott", None) else None
+                fresh_s = max(15, int(gt._grott_config().get("fresh_s", 120) or 120))
+                if not grott_snapshot_fresh(snap, fresh_s):
+                    return
+        except Exception:
+            pass
+
+        def _run():
+            try:
+                ok, msg = upload_from_growatt(status, totals, force=False)
+                if ok:
+                    _log.info("PVOutput", f"upload OK: {msg}")
+                elif msg and not msg.startswith("Skipped"):
+                    _log.warn("PVOutput", f"upload: {msg}")
+            except Exception as exc:
+                _log.warn("PVOutput", f"upload failed: {exc}")
+
+        import threading
+        threading.Thread(target=_run, daemon=True).start()
 
     def _on_octopus_data_updated(self):
         hh = getattr(self.octopus_tab, 'hh_data', None)
@@ -809,15 +1583,12 @@ class EnergyDashboard(QMainWindow):
         # its own "Refresh chart" button — flagging it green just because
         # upstream Octopus data arrived would lie about the displayed
         # chart's age (it might still be empty / from a previous session).
-        if hasattr(self, 'connectivity_tab'):
-            self.connectivity_tab.refresh_status(test_db=False)
+        # Connectivity has its own 15s timer — do not rebuild on every feed update.
 
     def _on_tasmota_data_updated(self):
         _ts = QSettings("PowerModel", "EnergyDashboard2")
         if _ts.value("tasmota/use_powermon_broker", False, type=bool):
             self.mark_tab_fresh(self.tasmota_tab)
-            if hasattr(self, 'connectivity_tab'):
-                self.connectivity_tab.refresh_status(test_db=False)
             return
         records = []
         for ip, d in self.tasmota_tab.device_data.items():
@@ -839,8 +1610,7 @@ class EnergyDashboard(QMainWindow):
         # see the matching note in `_on_octopus_data_updated`. Its own
         # `_apply_plot` self-marks via `on_data_updated` once a chart has
         # actually been drawn from real data.
-        if hasattr(self, 'connectivity_tab'):
-            self.connectivity_tab.refresh_status(test_db=False)
+        # Connectivity has its own 15s timer — do not rebuild on every poll.
 
     def _update_live_banner(self):
         data = self.growatt_tab.get_live_data_summary()
@@ -918,23 +1688,6 @@ class EnergyDashboard(QMainWindow):
                 self._ban_grid.setStyleSheet("color: #6c7086;")
             else:
                 gp_txt = growatt_format_live_kw(gp_f)
-                # #region agent log
-                try:
-                    from energy_dashboard.core.debug_trace import debug_trace
-                    debug_trace(
-                        "main_window.py:_update_live_banner",
-                        "banner power values",
-                        data={
-                            "load_kw": lp_txt,
-                            "pv_kw": pv_txt,
-                            "grid_kw_signed": gp_txt,
-                            "grid_raw": gp_f,
-                        },
-                        hypothesis_id="H5",
-                    )
-                except Exception:
-                    pass
-                # #endregion
                 if gp_f > 0:
                     self._ban_grid.setText(f"Export {gp_txt} kW")
                     self._ban_grid.setStyleSheet("color: #a6e3a1;")
@@ -946,7 +1699,28 @@ class EnergyDashboard(QMainWindow):
                     self._ban_grid.setStyleSheet("color: #6c7086;")
 
     def set_status(self, text):
+        # Status bar + Saved toast must only touch widgets on the GUI thread.
+        app = QApplication.instance()
+        if app is not None and QThread.currentThread() is not app.thread():
+            QTimer.singleShot(0, self, lambda t=text: self.set_status(t))
+            return
         self.status_bar.showMessage(text)
+        # Any status that reports a successful save gets a green "Saved" flash.
+        try:
+            msg = str(text or "")
+            if re.search(r"\bsaved\b", msg, re.IGNORECASE):
+                self.flash_saved()
+        except Exception:
+            pass
+
+    def flash_saved(self, text: str = "Saved", *, ms: int = 1600):
+        """Brief green on-screen confirmation for Save actions."""
+        try:
+            from energy_dashboard.ui.toast import flash_saved as _flash
+            host = self.centralWidget() if self.centralWidget() is not None else self
+            _flash(host, text, ms=ms)
+        except Exception:
+            pass
 
     # ── Global Help / Refresh-All actions ──────────────────────────────
 
@@ -961,7 +1735,7 @@ class EnergyDashboard(QMainWindow):
             HelpDialog(cls_name, tab_title=tab_title, parent=self).exec()
         except Exception as e:
             try:
-                _log.warn(f"Dashboard: failed to show Help dialog: {e}")
+                _log.warn("Help", f"failed to show Help dialog: {e}")
             except Exception:
                 pass
             QMessageBox.warning(self, "Help", f"Couldn't open help:\n{e}")
@@ -992,13 +1766,13 @@ class EnergyDashboard(QMainWindow):
         try:
             fn()
             try:
-                _log.info(f"Dashboard: Refresh Page — {attr}.{method}")
+                _log.info("Refresh", f"Refresh Page — {attr}.{method}")
             except Exception:
                 pass
             self.set_status(f"Refresh Page: {title}")
         except Exception as e:
             try:
-                _log.warn(f"Dashboard: Refresh Page — {attr}.{method} failed: {e}")
+                _log.warn("Refresh", f"Refresh Page — {attr}.{method} failed: {e}")
             except Exception:
                 pass
             self.set_status(f"Refresh Page failed on {title}: {e}")

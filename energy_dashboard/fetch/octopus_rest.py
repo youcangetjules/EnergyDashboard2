@@ -356,6 +356,70 @@ def fetch_solar_forecast(lat, lon, declination, azimuth, kwp):
     return pd.DataFrame(), " | ".join(parts) if parts else "No solar forecast data"
 
 
+def fetch_solar_forecast_planes(lat, lon, planes):
+    """Sum PV curves for multiple roof faces (tilt/azimuth/kWp each).
+
+    ``planes`` is a list of dicts with keys ``tilt``, ``azimuth``, ``kwp``
+    (and optional ``name``). Empty/invalid faces are skipped.
+    """
+    frames = []
+    msgs = []
+    used = 0
+    for i, plane in enumerate(planes or []):
+        try:
+            tilt = plane.get("tilt")
+            az = plane.get("azimuth")
+            kwp = plane.get("kwp")
+            name = plane.get("name") or f"face {i + 1}"
+            kwp_f = float(kwp)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if kwp_f <= 0:
+            continue
+        df, msg = fetch_solar_forecast(lat, lon, tilt, az, kwp)
+        if df is None or df.empty:
+            msgs.append(f"{name}: no data ({msg})")
+            continue
+        part = df[["timestamp", "kW"]].copy()
+        if "watts" in df.columns:
+            part["watts"] = df["watts"]
+        else:
+            part["watts"] = part["kW"] * 1000.0
+        frames.append(part)
+        used += 1
+        msgs.append(f"{name}: {kwp_f:g} kWp @ tilt {tilt}° az {az}°")
+    if not frames:
+        detail = "; ".join(msgs) if msgs else "no enabled faces"
+        return pd.DataFrame(), f"Multi-plane solar: {detail}"
+
+    merged = frames[0]
+    for extra in frames[1:]:
+        merged = pd.merge(
+            merged, extra, on="timestamp", how="outer", suffixes=("", "_r")
+        )
+        merged["kW"] = merged["kW"].fillna(0.0) + merged["kW_r"].fillna(0.0)
+        if "watts_r" in merged.columns:
+            merged["watts"] = merged["watts"].fillna(0.0) + merged["watts_r"].fillna(0.0)
+            merged = merged.drop(columns=["watts_r"])
+        merged = merged.drop(columns=["kW_r"])
+    merged = merged.sort_values("timestamp").reset_index(drop=True)
+    total_kwp = 0.0
+    for p in planes or []:
+        try:
+            w = float(p.get("kwp") or 0)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if w > 0:
+            total_kwp += w
+
+    summary = (
+        f"Multi-plane solar: {used} face(s), {total_kwp:g} kWp total — "
+        + "; ".join(msgs[:4])
+        + ("…" if len(msgs) > 4 else "")
+    )
+    return merged, summary
+
+
 def poll_tasmota_device(ip, timeout=3):
     url = f"http://{ip}/cm?cmnd=Status%208"
     try:

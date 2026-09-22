@@ -658,7 +658,26 @@ class SmartAdvisorTab(QWidget):
         solar_df = getattr(self.forecasts_tab, 'solar_df', None)
         agile_p = None
         agile_df = getattr(self.forecasts_tab, 'agile_df', None)
-        if agile_df is not None and not agile_df.empty and 'price_pence' in agile_df.columns:
+        # Forecasts tab stores Agile as Polars; tolerate legacy Pandas too.
+        if isinstance(agile_df, pl.DataFrame) and not agile_df.is_empty() and 'price_pence' in agile_df.columns:
+            now = pd.Timestamp.now(tz='Europe/London')
+            try:
+                past = (
+                    agile_df
+                    .filter(pl.col('valid_from') <= now)
+                    .sort('valid_from')
+                )
+                if not past.is_empty():
+                    val = past['price_pence'][-1]
+                    if val is not None and np.isfinite(float(val)):
+                        agile_p = float(val)
+            except Exception:
+                agile_p = None
+        elif (
+            isinstance(agile_df, pd.DataFrame)
+            and not agile_df.empty
+            and 'price_pence' in agile_df.columns
+        ):
             now = pd.Timestamp.now(tz='Europe/London')
             s = agile_df.set_index('valid_from')['price_pence'].astype(float)
             if s.index.tz is None:
@@ -899,6 +918,7 @@ class SmartAdvisorTab(QWidget):
         """Reset UI after a worker-thread failure (always re-enable Run)."""
         self.running = False
         self.run_btn.setEnabled(True)
+        _apply_action_outcome_style(self.run_btn, False)
         short = (message or "Unknown error").replace("\n", " ")
         if len(short) > 160:
             short = short[:157] + "..."
@@ -1039,6 +1059,7 @@ class SmartAdvisorTab(QWidget):
     def _display_results(self, r):
         self.running = False
         self.run_btn.setEnabled(True)
+        _apply_action_outcome_style(self.run_btn, True)
         self.status_label.setText(f"Done | SOC {r['soc_source']}")
 
         best = r['best']

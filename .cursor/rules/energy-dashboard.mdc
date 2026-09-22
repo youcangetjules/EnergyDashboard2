@@ -5,6 +5,8 @@ alwaysApply: true
 
 # Energy Dashboard workspace
 
+**Also required:** follow the root [`AGENTS.md`](../../AGENTS.md) every session. It is the entry point to the **basic instructions for the development environment**: [`architecture.md`](../../architecture.md), [`worklog.md`](../../worklog.md), [`skills.md`](../../skills.md), [`MOTIFS.md`](../../MOTIFS.md), and [`bug_tracker.md`](../../bug_tracker.md). See `.cursor/rules/agents-md.mdc`.
+
 This repository is organized around the **`energy_dashboard`** package, launched via `EnergyDashboard2.py`.
 
 ## Active codebase
@@ -46,3 +48,15 @@ python EnergyDashboard2.py    # or: python -m energy_dashboard
 - `QSettings("PowerModel", "EnergyDashboard2")` for persisted GUI preferences
 - Tab modules import shared symbols via `from energy_dashboard.common import *`
 - Foundation modules use explicit imports from `energy_dashboard.deps` and siblings
+
+## Telemetry integrity (non‑negotiable)
+
+**Never fudge, rescale, or cosmetically adjust measured telemetry** to match user expectations or hide awkward readings (e.g. SOC plateauing at 85%). Charts, summaries, and insights must show **actual** data from devices/APIs/DB.
+
+When readings look wrong or capped:
+
+1. **Explain** what the source is reporting and why (inverter limits, BMS, rate limits, missing registers).
+2. **Fix parameters or hardware** — write real inverter settings, fix Grott/fetch paths, improve logging — not display tricks.
+3. **Label** reconstructed or estimated series clearly (as Battery Analysis already does for coulomb-counted SOC); never present estimates as measurements.
+
+Do not add “display overrides”, “full scale %” rescaling, or similar features unless the user explicitly asks for a clearly labelled **analysis-only** transform — and default is still: show truth, act on cause.

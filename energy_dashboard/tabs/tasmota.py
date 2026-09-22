@@ -42,6 +42,8 @@ _HISTORY_MAX_GAP_S = 90.0
 _DB_HIST_REFRESH_S = 60.0
 # Direct MQTT (no powermon broker): GUI DB write interval aligned with collector.
 _MQTT_DB_LOG_INTERVAL_S = 30.0
+# Heavy MQTT UI (table + charts). Banner/status can update every emit.
+_MQTT_HEAVY_UI_INTERVAL_S = 1.0
 _TASMOTA_DEVICE_TABLE_FONT_PT = 8
 _TASMOTA_DEVICE_ACTION_FONT_PT = 7
 # Inner padding for in-table action buttons (outer width is fixed separately).
@@ -54,6 +56,15 @@ _TASMOTA_ACTION_BTN_SIZING_HPAD = 7
 _TASMOTA_ACTION_BTN_SIZING_MARGIN = 6
 # Extra gap between Diagnose and Toggle (in addition to the 4 px inter-button spacing).
 _TASMOTA_TOGGLE_LEADING_GAP = 10
+# Total vertical inset so action buttons are row height minus this (1 px top + 1 px bottom).
+_TASMOTA_ACTION_ROW_GAP = 2
+# Devices are split across two trees, so each column must show this many rows
+# without scrolling. The trees reserve height for exactly this count.
+_TASMOTA_VISIBLE_ROWS = 8
+_TASMOTA_DEVICE_COL_KEY = "tasmota_devices"
+# Absolute floor for a legible action button; the real minimum comes from the
+# button's own sizeHint (see _init_tasmota_device_trees).
+_TASMOTA_ACTION_BTN_MIN_H = 20
 
 # Compact padding for the in-table action buttons. Uses an attribute selector
 # (QPushButton[tasmotaAction="true"]) so it has higher specificity than the
@@ -472,8 +483,10 @@ class TasmotaTab(QWidget):
         self._auto_refresh_pending = False
         self._mqtt_last_notify = 0.0
         self._mqtt_last_db_log = 0.0
+        self._mqtt_last_heavy_ui = 0.0
         self._last_db_hist_fetch = 0.0
         self._db_hist_fetch_inflight = False
+        self._broker_snap_cache = None  # (monotonic_ts, snapshot dict)
         self._bootstrap_then_mqtt = False
         self._mqtt = TasmotaMqttSubscriber(
             on_update=lambda: self._inv.invoke(self._apply_mqtt_snapshot),
@@ -684,16 +697,18 @@ class TasmotaTab(QWidget):
             vl.addWidget(v)
             return w, v
 
-        _, self.ban_kw = _stat_label("kW")
-        ban_row.addWidget(_)
-        _, self.ban_today = _stat_label("Today kWh")
-        ban_row.addWidget(_)
-        _, self.ban_total = _stat_label("All-time kWh")
-        ban_row.addWidget(_)
-        _, self.ban_devices = _stat_label("Devices")
-        ban_row.addWidget(_)
-        _, self.ban_top = _stat_label("Top Consumer")
-        ban_row.addWidget(_)
+        def _add_stat(title):
+            w, v = _stat_label(title)
+            w.setMinimumWidth(88)
+            ban_row.addWidget(w)
+            return v
+
+        self.total_power_big.setMinimumWidth(96)
+        self.ban_kw = _add_stat("kW")
+        self.ban_today = _add_stat("Today kWh")
+        self.ban_total = _add_stat("All-time kWh")
+        self.ban_devices = _add_stat("Devices")
+        self.ban_top = _add_stat("Top Consumer")
         ban_row.addStretch()
         main_layout.addWidget(self._summary_frame)
         self._load_saved_ip_range()
@@ -701,15 +716,21 @@ class TasmotaTab(QWidget):
         self._update_connection_widgets()
         # MQTT / poll timers start in auto_start() after one HTTP bootstrap read.
 
-        # Two device tables (first N IPs left, remainder right); auto-height rows.
-        tree_pair = QHBoxLayout()
+        # Two device tables (first N IPs left, remainder right). Stretch with
+        # the charts so the pane is filled instead of sitting in a top strip.
+        tree_host = QWidget()
+        tree_host.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
+        )
+        tree_pair = QHBoxLayout(tree_host)
+        tree_pair.setContentsMargins(0, 0, 0, 0)
         tree_pair.setSpacing(10)
         self.tree_left = QTreeWidget()
         self.tree_right = QTreeWidget()
         self._init_tasmota_device_trees()
-        tree_pair.addWidget(self.tree_left, 1, Qt.AlignmentFlag.AlignTop)
-        tree_pair.addWidget(self.tree_right, 1, Qt.AlignmentFlag.AlignTop)
-        main_layout.addLayout(tree_pair)
+        tree_pair.addWidget(self.tree_left, 1)
+        tree_pair.addWidget(self.tree_right, 1)
+        main_layout.addWidget(tree_host, 1)
 
         # Charts — full width; layout finalized in _finalize_tasmota_charts_layout
         # (50/50 split at figure midpoint, room for full y-axis names on bar chart).
@@ -736,21 +757,32 @@ class TasmotaTab(QWidget):
         self.lbl_hist_db_status.setWordWrap(True)
         self.lbl_hist_db_status.setStyleSheet("font-size: 10px; padding: 0 6px;")
         self.lbl_hist_db_status.hide()
-        self.cb_pin_hist_500 = QCheckBox("Pin chart 2 to max 500 W")
-        _apply_pin_chart_checkbox_halo(self.cb_pin_hist_500)
+        self.cb_pin_hist_500 = QCheckBox("Pin chart 2 max")
+        self.sp_pin_hist_w = QSpinBox()
+        self.sp_pin_hist_w.setRange(50, 100000)
+        self.sp_pin_hist_w.setSingleStep(50)
+        self.sp_pin_hist_w.setValue(500)
+        self.sp_pin_hist_w.setSuffix(" W")
+        self.sp_pin_hist_w.setToolTip(
+            "Y-axis ceiling (watts) used while Pin is on. Change anytime — "
+            "spikes above this are clipped from the scale so quieter devices stay readable."
+        )
+        _apply_pin_chart_checkbox_halo(self.cb_pin_hist_500, self.sp_pin_hist_w)
         self.cb_pin_hist_500.setToolTip(
-            "Lock the Power History (right) chart Y-axis to 0–500 W so spikes "
-            "do not compress the main device traces. Right-click the chart for "
-            "other Y caps; that clears the pin."
+            "Lock the Power History (right) chart Y-axis to 0…the watts box. "
+            "Stops a brief spike from squashing the other traces. "
+            "Right-click the chart for presets; drag the Y-axis to retune while pinned."
         )
         self.cb_pin_hist_500.toggled.connect(self._on_pin_hist_500_toggled)
+        self.sp_pin_hist_w.valueChanged.connect(self._on_pin_hist_w_changed)
         toolbar_row.addWidget(self.cb_pin_hist_500, 0, Qt.AlignRight | Qt.AlignVCenter)
+        toolbar_row.addWidget(self.sp_pin_hist_w, 0, Qt.AlignRight | Qt.AlignVCenter)
         toolbar_wrap = QWidget()
         toolbar_wrap.setLayout(toolbar_row)
         main_layout.addWidget(toolbar_wrap)
         self._tasmota_cursor_label = QLabel(
             "Power History: right-click for Y-axis zoom presets; hover a line for device + usage. "
-            "Use “Pin chart 2 to max 500 W” on the toolbar to hide spikes."
+            "Use “Pin chart 2 max” and set the watts to hide spikes."
         )
         self._tasmota_cursor_label.setStyleSheet(
             "color: #cdd6f4; padding: 6px 8px; background: transparent; "
@@ -789,6 +821,16 @@ class TasmotaTab(QWidget):
             self.sp_max_w.setValue(saved_cap)
             self.sp_max_w.blockSignals(False)
         try:
+            pin_w = int(self._tasmota_settings().value(
+                "tasmota/pin_hist_max_w", 500
+            ) or 500)
+        except (TypeError, ValueError):
+            pin_w = 500
+        pin_w = max(50, min(100000, pin_w))
+        self.sp_pin_hist_w.blockSignals(True)
+        self.sp_pin_hist_w.setValue(pin_w)
+        self.sp_pin_hist_w.blockSignals(False)
+        try:
             pin = self._tasmota_settings().value(
                 "tasmota/pin_hist_500", False, type=bool
             )
@@ -807,12 +849,23 @@ class TasmotaTab(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._probe_history_db_link_async(refetch_history=True)
+        QTimer.singleShot(0, self._relayout_tasmota_device_trees)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        try:
+            self._save_tasmota_column_widths()
+        except Exception:
+            pass
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, "tree_left") and hasattr(self, "tree_right"):
-            self._apply_tasmota_column_widths(self.tree_left)
-            self._apply_tasmota_column_widths(self.tree_right)
+        self._relayout_tasmota_device_trees()
+
+    def _relayout_tasmota_device_trees(self):
+        if not hasattr(self, "tree_left") or not hasattr(self, "tree_right"):
+            return
+        self._apply_tasmota_tree_heights()
 
     def _resolve_history_db_config(self):
         """First enabled backend from Setup & Info → Database Export (SQLite → MySQL → PG)."""
@@ -1010,33 +1063,72 @@ class TasmotaTab(QWidget):
         """Fill or refresh both device tables (safe to call before first poll)."""
         try:
             self._update_table()
-            self._resize_tree_to_content()
+            self._apply_tasmota_tree_heights()
         except Exception as e:
             _log.exception("Tasmota", f"Device table update failed: {e}")
 
     def _hist_y_cap_w(self):
         """Effective Power History Y max (W); 0 = matplotlib auto-scale."""
         if getattr(self, 'cb_pin_hist_500', None) and self.cb_pin_hist_500.isChecked():
+            if hasattr(self, 'sp_pin_hist_w'):
+                return max(50, int(self.sp_pin_hist_w.value()))
             return 500
         return int(self.sp_max_w.value()) if hasattr(self, 'sp_max_w') else 0
+
+    def _pin_hist_max_w(self):
+        if hasattr(self, 'sp_pin_hist_w'):
+            return max(50, int(self.sp_pin_hist_w.value()))
+        return 500
+
+    def _persist_pin_hist_settings(self, *, pinned=None):
+        try:
+            s = self._tasmota_settings()
+            if pinned is not None:
+                s.setValue("tasmota/pin_hist_500", bool(pinned))
+            if hasattr(self, 'sp_pin_hist_w'):
+                s.setValue("tasmota/pin_hist_max_w", int(self.sp_pin_hist_w.value()))
+            s.sync()
+        except Exception:
+            pass
 
     def _apply_pin_hist_500_state(self, pinned):
         if not hasattr(self, 'sp_max_w'):
             return
-        self.sp_max_w.setEnabled(not pinned)
         if pinned:
+            cap = self._pin_hist_max_w()
             self.sp_max_w.blockSignals(True)
-            self.sp_max_w.setValue(500)
+            self.sp_max_w.setValue(cap)
             self.sp_max_w.blockSignals(False)
+            try:
+                s = self._tasmota_settings()
+                s.setValue("tasmota/history_max_w", cap)
+                s.sync()
+            except Exception:
+                pass
 
     def _on_pin_hist_500_toggled(self, checked):
+        self._persist_pin_hist_settings(pinned=bool(checked))
+        self._apply_pin_hist_500_state(checked)
+        try:
+            self._plot_charts()
+        except Exception:
+            pass
+
+    def _on_pin_hist_w_changed(self, value):
+        self._persist_pin_hist_settings()
+        if not (getattr(self, 'cb_pin_hist_500', None) and self.cb_pin_hist_500.isChecked()):
+            return
+        cap = max(50, int(value))
+        if hasattr(self, 'sp_max_w'):
+            self.sp_max_w.blockSignals(True)
+            self.sp_max_w.setValue(cap)
+            self.sp_max_w.blockSignals(False)
         try:
             s = self._tasmota_settings()
-            s.setValue("tasmota/pin_hist_500", bool(checked))
+            s.setValue("tasmota/history_max_w", cap)
             s.sync()
         except Exception:
             pass
-        self._apply_pin_hist_500_state(checked)
         try:
             self._plot_charts()
         except Exception:
@@ -1044,19 +1136,20 @@ class TasmotaTab(QWidget):
 
     def _set_hist_y_cap(self, cap_w, *, from_context_menu=False):
         """Apply Y-axis cap to Power History and sync controls."""
-        if from_context_menu and getattr(self, 'cb_pin_hist_500', None):
-            if self.cb_pin_hist_500.isChecked():
-                self.cb_pin_hist_500.blockSignals(True)
-                self.cb_pin_hist_500.setChecked(False)
-                self.cb_pin_hist_500.blockSignals(False)
-                try:
-                    s = self._tasmota_settings()
-                    s.setValue("tasmota/pin_hist_500", False)
-                    s.sync()
-                except Exception:
-                    pass
-                self.sp_max_w.setEnabled(True)
         cap = max(0, int(cap_w))
+        pinned = getattr(self, 'cb_pin_hist_500', None) and self.cb_pin_hist_500.isChecked()
+        if pinned and cap > 0:
+            # Retune the pin ceiling instead of clearing the pin.
+            if hasattr(self, 'sp_pin_hist_w'):
+                self.sp_pin_hist_w.blockSignals(True)
+                self.sp_pin_hist_w.setValue(max(50, cap))
+                self.sp_pin_hist_w.blockSignals(False)
+            self._persist_pin_hist_settings(pinned=True)
+        elif from_context_menu and pinned and cap == 0:
+            self.cb_pin_hist_500.blockSignals(True)
+            self.cb_pin_hist_500.setChecked(False)
+            self.cb_pin_hist_500.blockSignals(False)
+            self._persist_pin_hist_settings(pinned=False)
         if hasattr(self, 'sp_max_w'):
             self.sp_max_w.blockSignals(True)
             self.sp_max_w.setValue(cap)
@@ -1089,33 +1182,36 @@ class TasmotaTab(QWidget):
             act = menu.addAction(f"Y max: {y_at} W (at cursor)")
             act.setData(y_at)
         menu.addSeparator()
-        pin_act = menu.addAction("Pin chart 2 to max 500 W")
-        pin_act.setData("pin500")
+        pin_w = self._pin_hist_max_w()
+        pin_act = menu.addAction(f"Pin chart 2 max at {pin_w} W")
+        pin_act.setData("pin_y")
         pos = QCursor.pos()
         chosen = menu.exec(pos)
         if chosen is None:
             return
         data = chosen.data()
-        if data == "pin500":
+        if data == "pin_y":
             self.cb_pin_hist_500.setChecked(True)
             return
         self._set_hist_y_cap(int(data), from_context_menu=True)
 
     def _on_max_w_changed(self, _v):
+        cap = int(self.sp_max_w.value()) if hasattr(self, 'sp_max_w') else 0
         if getattr(self, 'cb_pin_hist_500', None) and self.cb_pin_hist_500.isChecked():
-            self.cb_pin_hist_500.blockSignals(True)
-            self.cb_pin_hist_500.setChecked(False)
-            self.cb_pin_hist_500.blockSignals(False)
-            try:
-                s = self._tasmota_settings()
-                s.setValue("tasmota/pin_hist_500", False)
-                s.sync()
-            except Exception:
-                pass
-            self.sp_max_w.setEnabled(True)
+            if cap <= 0:
+                self.cb_pin_hist_500.blockSignals(True)
+                self.cb_pin_hist_500.setChecked(False)
+                self.cb_pin_hist_500.blockSignals(False)
+                self._persist_pin_hist_settings(pinned=False)
+            else:
+                if hasattr(self, 'sp_pin_hist_w'):
+                    self.sp_pin_hist_w.blockSignals(True)
+                    self.sp_pin_hist_w.setValue(max(50, cap))
+                    self.sp_pin_hist_w.blockSignals(False)
+                self._persist_pin_hist_settings(pinned=True)
         try:
             s = self._tasmota_settings()
-            s.setValue("tasmota/history_max_w", int(self.sp_max_w.value()))
+            s.setValue("tasmota/history_max_w", cap)
             s.sync()
         except Exception:
             pass
@@ -1141,15 +1237,6 @@ class TasmotaTab(QWidget):
         # not want here.
         if event.button != 1 or event.x is None or event.y is None:
             return
-        if getattr(self, 'cb_pin_hist_500', None) and self.cb_pin_hist_500.isChecked():
-            self.cb_pin_hist_500.setChecked(False)
-            self._apply_pin_hist_500_state(False)
-            try:
-                s = self._tasmota_settings()
-                s.setValue("tasmota/pin_hist_500", False)
-                s.sync()
-            except Exception:
-                pass
         bbox = self._hist_axes_pixel_bbox()
         if bbox is None:
             return
@@ -1165,6 +1252,10 @@ class TasmotaTab(QWidget):
             'start_ymin': float(ymin),
             'start_ymax': float(ymax),
             'height_px': max(1.0, float(bbox.height)),
+            'keep_pin': bool(
+                getattr(self, 'cb_pin_hist_500', None)
+                and self.cb_pin_hist_500.isChecked()
+            ),
         }
         # While we are dragging, suppress the default cursor change so the
         # user can see the rescale happening live.
@@ -1189,17 +1280,24 @@ class TasmotaTab(QWidget):
         else:
             new_ymax = round(new_ymax / 10.0) * 10
         new_ymax = max(10, int(new_ymax))
+        if drag.get('keep_pin'):
+            new_ymax = max(50, new_ymax)
         self.ax_hist.set_ylim(drag['start_ymin'], new_ymax)
         # Mirror to spinbox (without re-triggering replot/persist).
         if hasattr(self, 'sp_max_w'):
             self.sp_max_w.blockSignals(True)
             self.sp_max_w.setValue(new_ymax)
             self.sp_max_w.blockSignals(False)
+        if drag.get('keep_pin') and hasattr(self, 'sp_pin_hist_w'):
+            self.sp_pin_hist_w.blockSignals(True)
+            self.sp_pin_hist_w.setValue(new_ymax)
+            self.sp_pin_hist_w.blockSignals(False)
         self.canvas.draw_idle()
 
     def _on_yaxis_release(self, _event):
         if not self._yaxis_drag:
             return
+        keep_pin = bool(self._yaxis_drag.get('keep_pin'))
         self._yaxis_drag = None
         try:
             self.canvas.setCursor(Qt.ArrowCursor)
@@ -1210,6 +1308,9 @@ class TasmotaTab(QWidget):
         try:
             s = self._tasmota_settings()
             s.setValue("tasmota/history_max_w", int(self.sp_max_w.value()))
+            if keep_pin and hasattr(self, 'sp_pin_hist_w'):
+                s.setValue("tasmota/pin_hist_max_w", int(self.sp_pin_hist_w.value()))
+                s.setValue("tasmota/pin_hist_500", True)
             s.sync()
         except Exception:
             pass
@@ -1243,12 +1344,13 @@ class TasmotaTab(QWidget):
             + (_TASMOTA_ACTION_BTN_SIZING_HPAD * 2)
             + _TASMOTA_ACTION_BTN_SIZING_MARGIN
         )
+        self._tasmota_action_btn_h = self._measure_tasmota_action_btn_h()
         self._tasmota_tree_headers = [
             'State', 'Name', 'IP', 'Firmware', 'Power (W)', 'Voltage (V)',
             'Current (A)', 'Today (kWh)', 'Total (kWh)',
             'Actions',
         ]
-        # 2 px top/bottom around row contents; action buttons expand to fill.
+        # 2 px top/bottom around row text; action buttons are row_h - 2 px tall.
         _qss = (
             "QTreeWidget { alternate-background-color: #252536; }\n"
             "QTreeWidget::item {\n"
@@ -1262,90 +1364,169 @@ class TasmotaTab(QWidget):
             tr.setRootIsDecorated(False)
             tr.setAlternatingRowColors(True)
             tr.setUniformRowHeights(True)
-            tr.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            tr.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
+            )
+            tr.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             tr.setStyleSheet(_qss)
             tr.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
             tr.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             tr.header().setStretchLastSection(False)
-            tr.header().setMinimumSectionSize(24)
-            for c in range(10):
-                tr.header().setSectionResizeMode(c, QHeaderView.Fixed)
-            tr.header().setSectionResizeMode(9, QHeaderView.Fixed)
-            self._apply_tasmota_column_widths(tr)
-        qtree_set_column_width_key(self.tree_left, "tasmota_devices_left")
-        qtree_prepare_interactive_columns(self.tree_left)
-        qtree_restore_column_widths(self.tree_left, "tasmota_devices_left", resize_if_no_saved=True)
-        self._apply_tasmota_column_widths(self.tree_left)
-        qtree_attach_column_width_persistence(self.tree_left)
-        qtree_set_column_width_key(self.tree_right, "tasmota_devices_right")
-        qtree_prepare_interactive_columns(self.tree_right)
-        qtree_restore_column_widths(self.tree_right, "tasmota_devices_right", resize_if_no_saved=True)
-        self._apply_tasmota_column_widths(self.tree_right)
-        qtree_attach_column_width_persistence(self.tree_right)
+            tr.header().setMinimumSectionSize(36)
+            tr.header().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            tr.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            tr.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self._setup_tasmota_paired_columns()
+
+    def _setup_tasmota_paired_columns(self) -> None:
+        """Interactive column widths shared by both device tables."""
+        for tr in (self.tree_left, self.tree_right):
+            qtree_set_column_width_key(tr, _TASMOTA_DEVICE_COL_KEY)
+            qtree_prepare_interactive_columns(tr)
+        if not qtree_restore_column_widths(
+            self.tree_left, _TASMOTA_DEVICE_COL_KEY, resize_if_no_saved=False,
+        ):
+            widths = self._tasmota_compute_column_widths(self.tree_left)
+            if not widths:
+                widths = self._tasmota_column_min_widths()
+        else:
+            widths = [
+                self.tree_left.columnWidth(c)
+                for c in range(self.tree_left.columnCount())
+            ]
+        self._apply_tasmota_widths_to_both(widths)
+        self._tasmota_col_sync_guard = False
+        if not getattr(self, "_tasmota_col_width_timer", None):
+            self._tasmota_col_width_timer = QTimer(self)
+            self._tasmota_col_width_timer.setSingleShot(True)
+            self._tasmota_col_width_timer.setInterval(450)
+            self._tasmota_col_width_timer.timeout.connect(
+                self._save_tasmota_column_widths,
+            )
+        for tr in (self.tree_left, self.tree_right):
+            tr.header().sectionResized.connect(self._on_tasmota_column_resized)
+        app = QApplication.instance()
+        if app is not None and not getattr(self, "_tasmota_col_quit_hooked", False):
+            app.aboutToQuit.connect(self._save_tasmota_column_widths)
+            self._tasmota_col_quit_hooked = True
+
+    def _on_tasmota_column_resized(self, logical_index: int, _old_size: int, new_size: int):
+        if getattr(self, "_tasmota_col_sync_guard", False):
+            return
+        hdr = self.sender()
+        if hdr is self.tree_left.header():
+            source, other = self.tree_left, self.tree_right
+        elif hdr is self.tree_right.header():
+            source, other = self.tree_right, self.tree_left
+        else:
+            return
+        mins = self._tasmota_column_min_widths()
+        col = int(logical_index)
+        width = max(36, mins[col] if col < len(mins) else 36, int(new_size))
+        self._tasmota_col_sync_guard = True
+        try:
+            if source.columnWidth(col) != width:
+                source.header().blockSignals(True)
+                source.setColumnWidth(col, width)
+                source.header().blockSignals(False)
+            other.header().blockSignals(True)
+            other.setColumnWidth(col, width)
+            other.header().blockSignals(False)
+        finally:
+            self._tasmota_col_sync_guard = False
+        timer = getattr(self, "_tasmota_col_width_timer", None)
+        if timer is not None:
+            timer.start()
+
+    def _apply_tasmota_widths_to_both(self, widths) -> None:
+        if not widths:
+            return
+        self._tasmota_col_sync_guard = True
+        try:
+            for tr in (self.tree_left, self.tree_right):
+                hdr = tr.header()
+                hdr.blockSignals(True)
+                for c, w in enumerate(widths):
+                    if c < tr.columnCount():
+                        tr.setColumnWidth(c, max(36, int(w)))
+                hdr.blockSignals(False)
+        finally:
+            self._tasmota_col_sync_guard = False
+
+    def _save_tasmota_column_widths(self) -> None:
+        if hasattr(self, "tree_left"):
+            qtree_save_column_widths(self.tree_left, _TASMOTA_DEVICE_COL_KEY)
 
     def _actions_column_width(self):
         """Fixed width for Probe + Web UI + Diagnose + Toggle.
 
-        Four equal buttons with 4px gaps between them, plus a small end margin
+        Four equal buttons, 4px gaps, extra gap before Toggle, plus end margin
         so the last button never clips.
         """
         w = self._tasmota_btn_w
-        return w * 4 + (4 * 3) + 8
+        return w * 4 + (4 * 3) + _TASMOTA_TOGGLE_LEADING_GAP + 8
+
+    def _tasmota_header_font_metrics(self):
+        try:
+            return QFontMetrics(self._tasmota_table_font)
+        except Exception:
+            return QFontMetrics(self.font())
 
     def _name_column_width(self):
-        """Width that fits the longest device name actually displayed.
-
-        Keeps every name fully visible while reclaiming the surplus the Name
-        column used to hog, so it never wastes horizontal space.
-        """
-        try:
-            fm = QFontMetrics(self._tasmota_table_font)
-        except Exception:
-            return 130
+        """Width that fits the longest device name actually displayed."""
+        fm = self._tasmota_header_font_metrics()
         longest = fm.horizontalAdvance("Name")
-        for ip in self.device_ips:
+        for ip in getattr(self, "device_ips", []) or []:
             text = str(self.device_names.get(ip, ip) or ip)
             longest = max(longest, fm.horizontalAdvance(text))
-        # Tight padding for cell margins; clamp so it can shrink for short
-        # names but never balloon for unusually long ones.
-        return int(min(max(longest + 12, 78), 200))
+        return int(min(max(longest + 16, 90), 220))
+
+    def _tasmota_column_min_widths(self):
+        """Hard minima from header + typical cell text — never clip labels."""
+        fm = self._tasmota_header_font_metrics()
+        pad = 18
+        headers = getattr(self, "_tasmota_tree_headers", []) or [""] * 10
+        mins = [fm.horizontalAdvance(h) + pad for h in headers]
+        samples = {
+            0: "OFF",
+            2: "255.255.255.255",
+            3: "14.6.0",
+            4: "9999",
+            5: "240",
+            6: "9.99",
+            7: "99.99",
+            8: "999.9",
+        }
+        for col, sample in samples.items():
+            mins[col] = max(mins[col], fm.horizontalAdvance(sample) + pad)
+        mins[1] = self._name_column_width()
+        mins[9] = self._actions_column_width()
+        return mins
+
+    def _tasmota_compute_column_widths(self, tree):
+        """Default column widths from viewport size (first run only)."""
+        total_w = max(tree.width(), tree.viewport().width()) - 8
+        if total_w < 80:
+            return None
+        mins = self._tasmota_column_min_widths()
+        other_idx = [0, 2, 3, 4, 5, 6, 7, 8]
+        weights = {0: 0.4, 2: 1.4, 3: 1.0, 4: 0.8, 5: 0.8, 6: 0.8, 7: 0.9, 8: 0.9}
+        min_sum = sum(mins)
+        widths = list(mins)
+        if total_w > min_sum:
+            extra = total_w - min_sum
+            tw = sum(weights.values())
+            for c in other_idx:
+                widths[c] += int(extra * weights[c] / tw)
+            widths[2] += total_w - sum(widths)
+        return [max(36, w) for w in widths]
 
     def _apply_tasmota_column_widths(self, tree):
-        """Tight Name + roomy Actions; share the rest among data columns."""
-        total_w = max(1, tree.viewport().width() - 4)
-        action_w = self._actions_column_width()
-        name_w = self._name_column_width()
-
-        # Columns other than Name (1) and Actions (9): State, IP, Firmware,
-        # Power, Voltage, Current, Today, Total.
-        other_idx = [0, 2, 3, 4, 5, 6, 7, 8]
-        min_w = {0: 26, 2: 96, 3: 58, 4: 50, 5: 56, 6: 58, 7: 60, 8: 60}
-        weights = {0: 0.3, 2: 1.5, 3: 1.0, 4: 0.8, 5: 0.85, 6: 0.85, 7: 0.9, 8: 0.9}
-
-        # Make sure Name + Actions always fit; shrink Name first if truly tight.
-        if name_w + action_w + sum(min_w.values()) > total_w:
-            name_w = max(78, total_w - action_w - sum(min_w.values()))
-
-        available = max(1, total_w - action_w - name_w)
-        min_sum = sum(min_w.values())
-        if available <= min_sum:
-            scale = available / max(1, min_sum)
-            other = {c: max(20, int(min_w[c] * scale)) for c in other_idx}
-        else:
-            extra = available - min_sum
-            tw = sum(weights.values())
-            other = {c: int(min_w[c] + extra * weights[c] / tw) for c in other_idx}
-
-        widths = [0] * 10
-        widths[1] = name_w
-        widths[9] = action_w
-        for c in other_idx:
-            widths[c] = other[c]
-        # Absorb rounding drift into the IP column so totals line up cleanly.
-        widths[2] = max(40, widths[2] + (total_w - sum(widths)))
-
-        for col, width in enumerate(widths):
-            tree.setColumnWidth(col, max(20, width))
+        """Legacy helper — apply computed defaults to one tree."""
+        widths = self._tasmota_compute_column_widths(tree)
+        if widths:
+            for col, width in enumerate(widths):
+                tree.setColumnWidth(col, width)
 
     @staticmethod
     def _tasmota_settings():
@@ -1404,20 +1585,81 @@ class TasmotaTab(QWidget):
     def use_mqtt_mode(self) -> bool:
         return self._tasmota_settings().value("tasmota/use_mqtt", False, type=bool)
 
+    def alarm_snapshot(self, stale_s: float = 480.0) -> dict:
+        """Known Tasmota plugs/CTs that have gone quiet (not the whole IP range)."""
+        mqtt_mode = self.use_mqtt_mode()
+        mqtt_connected = False
+        if mqtt_mode:
+            try:
+                mqtt_connected = bool(getattr(self._mqtt, "connected", False))
+            except Exception:
+                mqtt_connected = False
+        known = set()
+        for ip, name in (self.device_names or {}).items():
+            if name:
+                known.add(str(ip))
+        for ip, data in (self.device_data or {}).items():
+            if data:
+                known.add(str(ip))
+        for ip in (self.history or {}):
+            known.add(str(ip))
+        now = datetime.now(timezone.utc)
+        offline = []
+        for ip in sorted(known):
+            last = None
+            hist = (self.history or {}).get(ip)
+            if hist:
+                try:
+                    last = self._history_ts_utc(hist[-1][0])
+                except Exception:
+                    last = None
+            live = bool((self.device_data or {}).get(ip))
+            if live and last is None:
+                continue
+            age_s = None
+            if last is not None:
+                try:
+                    age_s = (self._history_ts_utc(now) - last).total_seconds()
+                except Exception:
+                    age_s = None
+            silent = (not live) or (age_s is not None and age_s > float(stale_s))
+            if silent:
+                label = (self.device_names or {}).get(ip) or ip
+                if label != ip:
+                    offline.append(f"{label} ({ip})")
+                else:
+                    offline.append(str(ip))
+        return {
+            "mqtt_mode": mqtt_mode,
+            "mqtt_connected": mqtt_connected,
+            "known": len(known),
+            "offline": offline,
+        }
+
     def apply_poll_timer(self, *, kick: bool = False) -> None:
-        """Start/stop the tab poll timer from saved or current UI settings."""
+        """Start/stop the tab poll timer from saved or current UI settings.
+
+        The interval always comes from this tab (``poll_interval_seconds``,
+        which falls back to the shared cadence when nothing is saved here) so
+        cycling the banner pill can no longer overwrite the device poll rate.
+        """
         self._auto_timer.stop()
         if self.use_mqtt_mode():
             return
-        if self.dash is not None and self.dash.app_params.auto_refresh_enabled:
-            ms = max(5000, int(self.dash.app_params.auto_refresh_seconds) * 1000)
-        else:
-            ms = self.poll_interval_ms()
-        self._auto_timer.setInterval(ms)
+        self._auto_timer.setInterval(max(5000, self.poll_interval_ms()))
         if self.periodic_poll_enabled():
             self._auto_timer.start()
         if kick and self.periodic_poll_enabled():
             self.poll_all()
+
+    def live_refresh_expectation(self):
+        """(active, expected_seconds, detail) for the banner refresh pill."""
+        if self.use_mqtt_mode():
+            return True, 60.0, "Tasmota MQTT push"
+        sec = self.poll_interval_seconds()
+        if not self.periodic_poll_enabled():
+            return False, float(sec), "periodic poll disabled on this tab"
+        return True, float(sec), f"HTTP poll every {sec}s"
 
     def _on_broker_mode_toggled(self, checked: bool) -> None:
         if checked:
@@ -1470,19 +1712,31 @@ class TasmotaTab(QWidget):
 
     def _start_mqtt(self) -> None:
         cfg = self._mqtt_config_from_ui()
-        ok, msg = self._mqtt.start(
-            cfg["host"],
-            cfg["port"],
-            username=cfg["username"],
-            password=cfg["password"],
-            topic_prefix=cfg["topic_prefix"],
+        self._set_mqtt_status(
+            f"MQTT connecting to {cfg['host']}:{cfg['port']}…"
         )
+
+        def _worker():
+            ok, msg = self._mqtt.start(
+                cfg["host"],
+                cfg["port"],
+                username=cfg["username"],
+                password=cfg["password"],
+                topic_prefix=cfg["topic_prefix"],
+            )
+            self._inv.invoke(lambda: self._mqtt_start_done(ok, msg))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _mqtt_start_done(self, ok: bool, msg: str) -> None:
+        self._set_mqtt_status(msg)
         if not ok:
-            self._set_mqtt_status(msg)
             self.set_status(msg)
 
     def _stop_mqtt(self) -> None:
-        self._mqtt.stop()
+        def _worker():
+            self._mqtt.stop()
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _set_mqtt_status(self, msg: str) -> None:
         self.status_label.setText(msg)
@@ -1505,6 +1759,7 @@ class TasmotaTab(QWidget):
     def _apply_mqtt_snapshot(self) -> None:
         if not self.use_mqtt_mode():
             return
+        import time
         self.device_ips = ip_range(self.ip_start_edit.text(), self.ip_end_edit.text())
         allowed = set(self.device_ips)
         results, names, firmwares = self._mqtt.snapshot_for_ips(allowed)
@@ -1523,11 +1778,17 @@ class TasmotaTab(QWidget):
         self.status_label.setText(f"MQTT · {online}/{total} devices · {ts}")
         self.status_label.setStyleSheet(f"color: {_UI_BLUE}; font-size: 11px;")
         self._update_total_power_banner()
-        try:
-            self._refresh_device_table_ui()
-            self._plot_charts()
-        except Exception as e:
-            _log.exception("Tasmota", f"MQTT display update failed: {e}")
+        # Table + matplotlib are expensive — throttle and skip when tab hidden.
+        mono = time.monotonic()
+        tab_visible = self.isVisible()
+        heavy_due = (mono - self._mqtt_last_heavy_ui) >= _MQTT_HEAVY_UI_INTERVAL_S
+        if tab_visible and heavy_due:
+            self._mqtt_last_heavy_ui = mono
+            try:
+                self._refresh_device_table_ui()
+                self._plot_charts()
+            except Exception as e:
+                _log.exception("Tasmota", f"MQTT display update failed: {e}")
         self._maybe_log_mqtt_to_db()
         self._maybe_refresh_db_history()
         self._maybe_notify_data_updated()
@@ -1539,9 +1800,52 @@ class TasmotaTab(QWidget):
             "tasmota/use_powermon_broker", False, type=bool,
         )
 
+    def _broker_snapshot_cached(self, max_age_s: float = 30.0) -> dict | None:
+        """Recent GET /snapshot from the energy-collector (cached briefly)."""
+        if not self._uses_powermon_broker():
+            return None
+        import time
+        cached = self._broker_snap_cache
+        if cached and (time.monotonic() - cached[0]) < max_age_s:
+            return cached[1]
+        url = (
+            self._tasmota_settings().value("tasmota/powermon_broker_url") or ""
+        ).strip().rstrip("/")
+        if not url:
+            return None
+        try:
+            r = requests.get(f"{url}/snapshot", timeout=5)
+            r.raise_for_status()
+            snap = r.json()
+            self._broker_snap_cache = (time.monotonic(), snap)
+            return snap
+        except Exception as e:
+            _log.debug("Tasmota", f"Broker snapshot probe: {e}")
+            return None
+
+    def _broker_collector_logging_devices(self) -> bool:
+        """True when the background collector is polling at least one dashboard IP."""
+        snap = self._broker_snapshot_cached()
+        if not snap:
+            return False
+        if int(snap.get("online") or 0) <= 0:
+            return False
+        scan = set(snap.get("scan_ips") or [])
+        if not scan:
+            return False
+        wanted = set(self.device_ips or [])
+        if not wanted:
+            return True
+        return bool(scan & wanted)
+
     def _maybe_log_mqtt_to_db(self) -> None:
-        """Write MQTT samples to the DB on a fixed interval (direct MQTT only)."""
-        if self._uses_powermon_broker():
+        """Write MQTT samples to the DB on a fixed interval.
+
+        Skipped when the power-monitor broker is enabled *and* the collector is
+        successfully logging the dashboard IP range; otherwise the GUI writes so
+        Power History stays filled when the service is misconfigured or offline.
+        """
+        if self._uses_powermon_broker() and self._broker_collector_logging_devices():
             return
         import time
         now = time.monotonic()
@@ -1930,7 +2234,7 @@ class TasmotaTab(QWidget):
                     conn.close()
             elif backend == "mysql":
                 import pymysql
-                conn = pymysql.connect(**params, charset="utf8mb4")
+                conn = pymysql.connect(**params, charset="utf8mb4", connect_timeout=3)
                 try:
                     with conn.cursor() as cur:
                         cur.execute(q, (cutoff_str,))
@@ -1939,7 +2243,7 @@ class TasmotaTab(QWidget):
                     conn.close()
             else:
                 import psycopg2
-                conn = psycopg2.connect(**params)
+                conn = psycopg2.connect(**params, connect_timeout=3)
                 try:
                     with conn.cursor() as cur:
                         cur.execute(q, (cutoff_str,))
@@ -2229,7 +2533,63 @@ class TasmotaTab(QWidget):
         btn.setFixedWidth(w)
         btn.setMinimumWidth(w)
         btn.setMaximumWidth(w)
-        btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.MinimumExpanding)
+        btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    def _measure_tasmota_action_btn_h(self) -> int:
+        """Natural height of a fully-formed action button (no clipped labels).
+
+        Uses the real button's sizeHint under the display font and compact
+        padding, so shrinking rows can never squash the labels away.
+        """
+        probe = QPushButton("Diagnose")
+        try:
+            probe.setProperty("tasmotaAction", True)
+            probe.setFont(self._tasmota_action_font)
+            _apply_primary_button_style(probe)
+            probe.setStyleSheet(
+                probe.styleSheet()
+                + _tasmota_table_action_btn_qss(self._tasmota_btn_w)
+            )
+            probe.ensurePolished()
+            hint = int(probe.sizeHint().height())
+        except Exception:
+            hint = 0
+        finally:
+            probe.deleteLater()
+        return max(_TASMOTA_ACTION_BTN_MIN_H, hint)
+
+    def _tasmota_min_row_h(self) -> int:
+        """Row height that still leaves the action buttons fully formed."""
+        btn_h = int(
+            getattr(self, "_tasmota_action_btn_h", 0) or _TASMOTA_ACTION_BTN_MIN_H
+        )
+        return btn_h + _TASMOTA_ACTION_ROW_GAP
+
+    def _tasmota_sync_action_row_heights(self, wrap, row_h: int) -> None:
+        """In-table buttons: row height minus 2 px (1 px gap above/below).
+
+        Never goes below the button's natural height — a squashed button clips
+        its label, which is worse than a slightly tighter row gap.
+        """
+        if wrap is None:
+            return
+        row_h = max(1, int(row_h))
+        btn_min = int(
+            getattr(self, "_tasmota_action_btn_h", 0) or _TASMOTA_ACTION_BTN_MIN_H
+        )
+        btn_h = max(btn_min, row_h - _TASMOTA_ACTION_ROW_GAP)
+        lay = wrap.layout()
+        if lay is not None:
+            lay.setContentsMargins(0, 1, 0, 1)
+            lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        # Pin the cell widget to the row — otherwise Qt sizes the row from the
+        # widget's old height (~54 px) and only ~4 rows fit in the viewport.
+        wrap.setFixedHeight(row_h)
+        wrap.setMaximumHeight(row_h)
+        wrap.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        for btn in wrap.findChildren(QPushButton):
+            btn.setFixedHeight(btn_h)
+            btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
     def _tasmota_style_toggle_btn(self, toggle, relay_on, ip, *, reachable=True):
         """State-coloured Toggle — not the shared primary green."""
@@ -2266,10 +2626,10 @@ class TasmotaTab(QWidget):
         wrap = QWidget()
         wrap.setObjectName("tasmotaActionRow")
         # Minimum (not Expanding) so the cell does not stretch Toggle to fill.
-        wrap.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+        wrap.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
         wrap.setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
         lay = QHBoxLayout(wrap)
-        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setContentsMargins(0, 1, 0, 1)
         lay.setSpacing(4)
 
         b_probe = self._tasmota_make_action_btn(
@@ -2299,6 +2659,12 @@ class TasmotaTab(QWidget):
         lay.addSpacing(_TASMOTA_TOGGLE_LEADING_GAP)
         lay.addWidget(b_toggle, 0)
         lay.addStretch(1)
+        # Size buttons for the current row immediately — waiting for the next
+        # resize pass left fresh rows with buttons taller than the row.
+        row_h = int(getattr(self, "_tasmota_last_row_h", 0) or 0)
+        if row_h <= 0:
+            row_h = self._tasmota_min_row_h()
+        self._tasmota_sync_action_row_heights(wrap, row_h)
         return wrap
 
     def _tasmota_probe_one(self, ip):
@@ -2440,8 +2806,6 @@ class TasmotaTab(QWidget):
         left_ips, right_ips = self._tasmota_device_tree_ips(self.device_ips)
         self._sync_tasmota_device_tree(self.tree_left, left_ips)
         self._sync_tasmota_device_tree(self.tree_right, right_ips)
-        for tr in (self.tree_left, self.tree_right):
-            self._apply_tasmota_column_widths(tr)
 
     def _sync_tasmota_device_tree(self, tree, ips):
         """Update rows in place so action-button widgets are not recreated every poll."""
@@ -2753,7 +3117,6 @@ class TasmotaTab(QWidget):
         series = self._merge_history_for_chart(
             window_min, chart_ips, online_ips=set(active.keys()),
         )
-        earliest = None
         for ip, info in series.items():
             times = info['times']
             vals = info['vals']
@@ -2772,9 +3135,6 @@ class TasmotaTab(QWidget):
                 'vals': vals,
                 'xnum': np.asarray(xnums, dtype=float),
             })
-            if times:
-                t0 = times[0]
-                earliest = t0 if earliest is None or t0 < earliest else earliest
 
         if has_history:
             self.ax_hist.set_ylabel('Power (W)', fontsize=10)
@@ -2805,27 +3165,9 @@ class TasmotaTab(QWidget):
                 cap_tag = f' · max {cap_w} W' + (' · pinned' if pin else '')
             end_u = pd.Timestamp.now(tz='UTC')
             start_u = end_u - pd.Timedelta(minutes=window_min)
-            sparse_note = ''
-            if earliest is not None and earliest > start_u + pd.Timedelta(minutes=5):
-                span_h = (end_u - earliest).total_seconds() / 3600.0
-                if link.get("ok"):
-                    sparse_note = (
-                        f' · samples from last {span_h:.1f}h only '
-                        '(enable Database Export for older data)'
-                    )
-                elif db_backend:
-                    sparse_note = (
-                        f' · DB unavailable ({span_h:.1f}h live only) — '
-                        'fix connection in Setup & Info'
-                    )
-                else:
-                    sparse_note = (
-                        f' · samples from last {span_h:.1f}h only '
-                        '(configure Database Export in Setup & Info)'
-                    )
             self.ax_hist.set_title(
                 f'Power History ({self._format_window(window_min)}) '
-                f'[{src_tag}{db_state}]{cap_tag}{sparse_note}',
+                f'[{src_tag}{db_state}]{cap_tag}',
                 fontsize=12, fontweight='bold', pad=8,
             )
             self.ax_hist.legend(
@@ -2875,27 +3217,6 @@ class TasmotaTab(QWidget):
 
     def _finalize_tasmota_charts_layout(self, *, redraw_only=False):
         """Split charts at figure midpoint; bar chart uses left half with full y labels."""
-        if redraw_only:
-            pb = self.ax_bar.get_position()
-            y0, h = pb.y0, pb.height
-            mid = 0.5
-            gap = 0.022
-            fig_r = 0.98
-            label_pad = 0.01
-            min_bar_w = 0.12
-            bar_right = mid - gap / 2.0
-            hist_left = mid + gap / 2.0
-            bar_left = 0.02
-            self.ax_bar.set_position([bar_left, y0, max(min_bar_w, bar_right - bar_left), h])
-            self.ax_hist.set_position([hist_left, y0, max(0.08, fig_r - hist_left), h])
-            self.canvas.draw_idle()
-            return
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            self.fig.tight_layout(pad=0.9)
-        pb = self.ax_bar.get_position()
-        y0, h = pb.y0, pb.height
         mid = 0.5
         gap = 0.022
         fig_r = 0.98
@@ -2903,10 +3224,26 @@ class TasmotaTab(QWidget):
         min_bar_w = 0.12
         bar_right = mid - gap / 2.0
         hist_left = mid + gap / 2.0
-
         bar_left = 0.02
+
+        if redraw_only:
+            pb = self.ax_bar.get_position()
+            y0, h = pb.y0, pb.height
+        else:
+            # Fixed margins — do not use fig.tight_layout(). On a short chart
+            # pane it cannot grow top/bottom enough for titles + rotated x
+            # labels and emits UserWarning (often attributed to a later
+            # processEvents when the canvas redraw runs).
+            self.fig.subplots_adjust(left=0.02, right=0.98, top=0.90, bottom=0.16)
+            pb = self.ax_bar.get_position()
+            y0, h = pb.y0, pb.height
+
         self.ax_bar.set_position([bar_left, y0, max(min_bar_w, bar_right - bar_left), h])
         self.ax_hist.set_position([hist_left, y0, max(0.08, fig_r - hist_left), h])
+
+        if redraw_only:
+            self.canvas.draw_idle()
+            return
 
         self.fig.canvas.draw()
         renderer = self.fig.canvas.get_renderer()
@@ -2928,25 +3265,59 @@ class TasmotaTab(QWidget):
         pos = self.ax_bar.get_position()
         self.ax_bar.set_position([max(0.0, pos.x0 - dx_fig), pos.y0, pos.width, pos.height])
 
-    def _resize_tree_to_content(self):
-        """Set both device tables to the same height (tallest column, no v-scroll)."""
-        n_l = self.tree_left.topLevelItemCount()
-        n_r = self.tree_right.topLevelItemCount()
-        if n_l == 0 and n_r == 0:
+    def _apply_tasmota_tree_heights(self):
+        """Fill the table pane and stretch rows so they share the assigned height."""
+        if getattr(self, "_tasmota_row_fit_lock", False):
             return
-        # Action-column widgets need ~26 px; row-0 hint alone can under-read.
-        row_h = 26
-        for i in range(n_l):
-            row_h = max(row_h, self.tree_left.sizeHintForRow(i))
-        for i in range(n_r):
-            row_h = max(row_h, self.tree_right.sizeHintForRow(i))
-        header_h = self.tree_left.header().height()
-        rows = max(n_l, n_r, 1)
-        # Header + all rows + frame. Keep only a small safety pad so blank table
-        # area does not steal vertical space from the charts.
-        h = header_h + row_h * rows + 8
-        self.tree_left.setFixedHeight(h)
-        self.tree_right.setFixedHeight(h)
+        if not hasattr(self, "tree_left") or not hasattr(self, "tree_right"):
+            return
+        min_row = self._tasmota_min_row_h()
+        self._tasmota_row_fit_lock = True
+        try:
+            QApplication.processEvents()
+            for tr in (self.tree_left, self.tree_right):
+                tr.setMaximumHeight(16777215)
+                header_h = tr.header().height() if tr.header() is not None else 0
+                frame = tr.frameWidth() * 2
+                hsb = 0
+                if tr.horizontalScrollBar().isVisible():
+                    hsb = tr.horizontalScrollBar().sizeHint().height()
+                body = tr.viewport().height()
+                computed_body = max(0, tr.height() - header_h - frame - hsb)
+                if computed_body > 0:
+                    body = computed_body
+                if body <= 0:
+                    continue
+                tree_rows = max(tr.topLevelItemCount(), 1)
+                row_h = max(min_row, body // tree_rows)
+                if row_h * tree_rows > body:
+                    row_h = min_row
+                    tr.setVerticalScrollBarPolicy(
+                        Qt.ScrollBarPolicy.ScrollBarAsNeeded
+                    )
+                else:
+                    tr.setVerticalScrollBarPolicy(
+                        Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                    )
+                hint = QSize(0, row_h)
+                self._tasmota_last_row_h = row_h
+                for i in range(tr.topLevelItemCount()):
+                    item = tr.topLevelItem(i)
+                    for col in range(tr.columnCount()):
+                        item.setSizeHint(col, hint)
+                    wrap = tr.itemWidget(item, 9)
+                    if wrap is not None:
+                        self._tasmota_sync_action_row_heights(wrap, row_h)
+                tr.doItemsLayout()
+            floor = (
+                self.tree_left.header().height()
+                + min_row * _TASMOTA_VISIBLE_ROWS
+                + 8
+            )
+            self.tree_left.setMinimumHeight(floor)
+            self.tree_right.setMinimumHeight(floor)
+        finally:
+            self._tasmota_row_fit_lock = False
 
 
 __all__ = [n for n in globals() if not n.startswith('__')]

@@ -4,6 +4,52 @@ Energy Dashboard — `tabs/octopus.py` (split from EnergyDashboard2.py).
 from __future__ import annotations
 
 from energy_dashboard.common import *
+
+_TREND_COLOUR = "#f9e2af"  # Catppuccin yellow — daily/weekly slope, not a 7-day avg
+
+
+def _london_week_period(idx):
+    """Monday–Sunday calendar weeks in Europe/London (pandas ``W-SUN``)."""
+    s = pd.DatetimeIndex(idx)
+    if s.tz is not None:
+        s = s.tz_convert("Europe/London").tz_localize(None)
+    return s.normalize().to_period("W-SUN")
+
+
+def _weekly_from_daily(daily_totals, daily_gbp):
+    """Sum daily import / export / £ into Mon–Sun weeks. Partial weeks kept as-is."""
+    gbp = pd.Series(daily_gbp).reindex(daily_totals.index).fillna(0.0)
+    df = pd.DataFrame(
+        {
+            "imp": daily_totals["Import (kWh)"].to_numpy(dtype=float),
+            "exp": daily_totals["Export (kWh)"].to_numpy(dtype=float),
+            "gbp": gbp.to_numpy(dtype=float),
+            "week": _london_week_period(daily_totals.index),
+        }
+    )
+    g = df.groupby("week", sort=True)
+    out = g[["imp", "exp", "gbp"]].sum()
+    out["n_days"] = g.size()
+    out["net"] = out["imp"] - out["exp"]
+    return out
+
+
+def _fit_trend(values):
+    """Linear fit across points. Returns ``(y_line, slope_per_step)`` or ``(None, None)``."""
+    y = np.asarray(values, dtype=float)
+    mask = np.isfinite(y)
+    if int(mask.sum()) < 3:
+        return None, None
+    xs = np.arange(len(y), dtype=float)[mask]
+    ys = y[mask]
+    try:
+        slope, intercept = np.polyfit(xs, ys, 1)
+    except (np.linalg.LinAlgError, ValueError, TypeError):
+        return None, None
+    x_all = np.arange(len(y), dtype=float)
+    return slope * x_all + intercept, float(slope)
+
+
 class OctopusTab(QWidget):
     def __init__(self, status_callback, app_params=None):
         super().__init__()
@@ -80,12 +126,28 @@ class OctopusTab(QWidget):
         row0.addStretch()
         cred_vlayout.addLayout(row0)
 
+        # Fixed label column so Import/Export MPAN fields share one left edge.
+        _mpan_lbl_w = max(
+            QFontMetrics(self.font()).horizontalAdvance(t)
+            for t in ("Import MPAN:", "Export MPAN:")
+        ) + 8
+        _serial_lbl_w = max(
+            QFontMetrics(self.font()).horizontalAdvance(t)
+            for t in ("Import Serial:", "Export Serial:")
+        ) + 8
+
+        def _cred_label(text: str, width: int) -> QLabel:
+            lbl = QLabel(text)
+            lbl.setFixedWidth(width)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            return lbl
+
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("Import MPAN:"))
+        row1.addWidget(_cred_label("Import MPAN:", _mpan_lbl_w))
         self.import_mpan_edit = QLineEdit(DEFAULT_IMPORT_MPAN)
         self.import_mpan_edit.setFixedWidth(160)
         row1.addWidget(self.import_mpan_edit)
-        row1.addWidget(QLabel("Import Serial:"))
+        row1.addWidget(_cred_label("Import Serial:", _serial_lbl_w))
         self.import_serial_edit = QLineEdit(DEFAULT_IMPORT_SERIAL)
         self.import_serial_edit.setFixedWidth(130)
         row1.addWidget(self.import_serial_edit)
@@ -93,11 +155,11 @@ class OctopusTab(QWidget):
         cred_vlayout.addLayout(row1)
 
         row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Export MPAN:"))
+        row2.addWidget(_cred_label("Export MPAN:", _mpan_lbl_w))
         self.export_mpan_edit = QLineEdit(DEFAULT_EXPORT_MPAN)
         self.export_mpan_edit.setFixedWidth(160)
         row2.addWidget(self.export_mpan_edit)
-        row2.addWidget(QLabel("Export Serial:"))
+        row2.addWidget(_cred_label("Export Serial:", _serial_lbl_w))
         self.export_serial_edit = QLineEdit(DEFAULT_EXPORT_SERIAL)
         self.export_serial_edit.setFixedWidth(130)
         row2.addWidget(self.export_serial_edit)
@@ -335,24 +397,29 @@ class OctopusTab(QWidget):
 
         Layout:
           ┌──────────────────────┬──────────────────────┐
-          │ LHS: Import / Export │ RHS: Daily net cost  │
-          │  bars in kWh, with   │  bars in £, red for  │
-          │  7-day net avg line  │  cost / green for    │
-          │                      │  credit, with 7-day  │
-          │                      │  avg line            │
+          │ Daily import/export  │ Daily net cost (£)   │
+          ├──────────────────────┼──────────────────────┤
+          │ Weekly power (kWh)   │ Weekly net cost (£)  │
           └──────────────────────┴──────────────────────┘
+        Weeks are Monday–Sunday in Europe/London. Incomplete weeks at the
+        ends of the fetch window are real meter totals (not scaled up).
         """
         fig = self.fig_daily
         fig.clear()
-        gs = fig.add_gridspec(1, 2, wspace=0.16, left=0.05, right=0.985,
-                              top=0.90, bottom=0.18)
+        gs = fig.add_gridspec(
+            2, 2, wspace=0.16, hspace=0.42,
+            height_ratios=[1.55, 1.05],
+            left=0.055, right=0.985, top=0.95, bottom=0.08,
+        )
         ax_kwh = fig.add_subplot(gs[0, 0])
         ax_gbp = fig.add_subplot(gs[0, 1])
+        ax_wk_kwh = fig.add_subplot(gs[1, 0])
+        ax_wk_gbp = fig.add_subplot(gs[1, 1])
         # Keep ax_daily pointing at the kWh panel so anything that still
         # reaches for self.ax_daily (e.g. external code, hover handlers)
         # sees a sensible default rather than a stale axis.
         self.ax_daily = ax_kwh
-        for ax in (ax_kwh, ax_gbp):
+        for ax in (ax_kwh, ax_gbp, ax_wk_kwh, ax_wk_gbp):
             _style_ax_dark(ax, fig)
 
         dates = daily_totals.index
@@ -380,15 +447,11 @@ class OctopusTab(QWidget):
                       labelcolor=_DARK_TEXT)
         ax_kwh.grid(axis='y', color=_DARK_GRID, linewidth=0.4)
 
-        # ── RHS: Daily net charge in £, baselined at zero, capped at £10 ─
+        # ── RHS: Daily net charge in £, baselined at zero ───────────────
         # Bars are the absolute daily spend in £ (zero-baselined, growing
-        # upwards). The y-axis is hard-capped at £10/day so a typical UK
-        # household benchmark sits at the top of the visible range — any
-        # day that breaks above £10 is drawn red and clipped to the cap
-        # with a small "▲ £X.XX" overflow tag, so over-budget days are
-        # immediately obvious without warping the scale of the rest of
-        # the chart. Negative-cost days (export-credit) still go below
-        # zero and the lower y-limit auto-extends to fit them.
+        # upwards). The £10/day budget is a dotted reference line — the
+        # y-axis grows to the tallest bar (and never below the budget
+        # line) so over-budget days are shown in full, in red.
         BUDGET_PER_DAY_GBP = 10.0
         ip = self._flat_import_p()
         ep = self._flat_export_p()
@@ -433,15 +496,14 @@ class OctopusTab(QWidget):
                 slope, intercept = np.polyfit(xs, ys, 1)
                 trend_x = np.array([x[0], x[-1]], dtype=float) + 0.2
                 trend_y = slope * np.array([x[0], x[-1]], dtype=float) + intercept
-                trend_colour = '#f9e2af'  # Catppuccin yellow — distinct
                 ax_gbp.plot(
                     trend_x, trend_y,
-                    color=trend_colour, linewidth=1.8, linestyle='--',
+                    color=_TREND_COLOUR, linewidth=1.8, linestyle='--',
                     label=f'Trend ({slope * 7:+.2f} £/wk)', zorder=3,
                 )
         except (np.linalg.LinAlgError, ValueError, TypeError):
             pass
-        # £10/day budget line at the top of the visible range.
+        # £10/day budget reference (not a y-axis cap).
         ax_gbp.axhline(y=BUDGET_PER_DAY_GBP, color='#cdd6f4',
                        linewidth=1.0, linestyle=':', alpha=0.7, zorder=2)
         ax_gbp.text(
@@ -462,42 +524,37 @@ class OctopusTab(QWidget):
         ax_gbp.set_xticklabels(date_labels, rotation=45, ha='right', fontsize=fs)
         ax_gbp.set_ylabel('£', fontsize=10)
         ax_gbp.set_title(
-            f'Daily Net Charge (£) — {cost_basis} '
-            f'(capped at £{BUDGET_PER_DAY_GBP:.0f}/day)',
+            f'Daily Net Charge (£) — {cost_basis}',
             fontsize=12, fontweight='bold', pad=8,
         )
         ax_gbp.grid(axis='y', color=_DARK_GRID, linewidth=0.4)
-        # Hard-cap y-axis at £10. Lower bound auto-extends if any day
-        # goes negative (export credit), with a small headroom pad so
-        # the bar tip doesn't kiss the spine.
+        # Grow to the tallest bar; keep the budget line on-scale; pad so
+        # value labels aren't clipped. Lower bound auto-extends if any
+        # day is an export credit.
         finite_gbp = gbp_vals[np.isfinite(gbp_vals)]
         y_lo = min(0.0, float(finite_gbp.min()) - 0.5) if finite_gbp.size else 0.0
-        ax_gbp.set_ylim(y_lo, BUDGET_PER_DAY_GBP)
-        # Per-bar value labels. For days under budget the label sits on
-        # top of the bar in the normal way. For over-budget days the bar
-        # is clipped at £10 so we draw an overflow tag "▲ £X.XX" just
-        # below the cap so the user knows BOTH that the day broke budget
-        # AND by how much, without the bar warping the chart's scale.
+        y_peak = float(finite_gbp.max()) if finite_gbp.size else 0.0
+        y_hi = max(BUDGET_PER_DAY_GBP, y_peak)
+        y_span = max(y_hi - y_lo, 1.0)
+        ax_gbp.set_ylim(y_lo, y_hi + 0.10 * y_span)
         if len(gbp_vals) <= 60:  # bail on dense charts to avoid clutter
-            label_pad = 0.05 * (BUDGET_PER_DAY_GBP - y_lo) / 10.0
+            label_pad = 0.05 * y_span / 10.0
             for xi, v in zip(x, gbp_vals):
                 if not np.isfinite(v) or abs(v) < 0.005:
                     continue
-                if v > BUDGET_PER_DAY_GBP:
-                    ax_gbp.text(
-                        xi + 0.2, BUDGET_PER_DAY_GBP - label_pad,
-                        f"▲ £{v:.2f}",
-                        ha='center', va='top', fontsize=fs - 1,
-                        color='#f38ba8', fontweight='bold', zorder=4,
-                    )
-                else:
-                    va = 'bottom' if v >= 0 else 'top'
-                    offset = label_pad if v >= 0 else -label_pad
-                    ax_gbp.text(
-                        xi + 0.2, v + offset, f"£{v:.2f}",
-                        ha='center', va=va, fontsize=fs - 1,
-                        color=_DARK_TEXT, zorder=4,
-                    )
+                over = v > BUDGET_PER_DAY_GBP
+                va = 'bottom' if v >= 0 else 'top'
+                offset = label_pad if v >= 0 else -label_pad
+                ax_gbp.text(
+                    xi + 0.2, v + offset, f"£{v:.2f}",
+                    ha='center', va=va, fontsize=fs - 1,
+                    color='#f38ba8' if over else _DARK_TEXT,
+                    fontweight='bold' if over else 'normal',
+                    zorder=4,
+                )
+
+        # ── Bottom row: Monday–Sunday weeks (power + cost) ──────────────
+        self._draw_weekly_trends(ax_wk_kwh, ax_wk_gbp, daily_totals, daily_gbp, fs)
 
         # ── Rich cursor read-out (replaces matplotlib's "(x, y)" default)
         # Matplotlib's NavigationToolbar shows the format_coord() output of
@@ -559,11 +616,10 @@ class OctopusTab(QWidget):
                 ra_str = (f"  ·  7-day avg £{ra:.2f}"
                           if np.isfinite(ra) else "")
                 under_over = "under" if de < 0 else "over"
-                cap_note = "  ·  ▲ over £10/day cap" if ab > BUDGET_PER_DAY_GBP else ""
                 return (
                     f"Horizontal (x): bar ~{xv:.2f} = {d.strftime('%a %d %b %Y')}  |  "
                     f"That day est. cost £{ab:.2f} ({abs(de):.2f} {under_over} "
-                    f"£{BUDGET_PER_DAY_GBP:.0f}/day budget){ra_str}{cap_note}  |  "
+                    f"£{BUDGET_PER_DAY_GBP:.0f}/day budget){ra_str}  |  "
                     f"Vertical (y, £): {yv:.2f} — height on cost / net display"
                 )
             return (
@@ -574,6 +630,155 @@ class OctopusTab(QWidget):
         ax_gbp.format_coord = _fmt_gbp_coord
 
         self.canvas_daily.draw()
+
+    def _draw_weekly_trends(self, ax_kwh, ax_gbp, daily_totals, daily_gbp, fs):
+        """Monday–Sunday totals under the daily pair: kWh and £, plus weekly slope."""
+        weekly = _weekly_from_daily(daily_totals, daily_gbp)
+        if weekly.empty:
+            for ax, unit in ((ax_kwh, "kWh"), (ax_gbp, "£")):
+                ax.text(
+                    0.5, 0.5, "No weekly totals yet",
+                    transform=ax.transAxes, ha="center", va="center",
+                    fontsize=11, color="#6c7086",
+                )
+                ax.set_ylabel(unit, fontsize=10)
+            return
+
+        n = len(weekly)
+        x = np.arange(n)
+        labels = []
+        for period, n_days in zip(weekly.index, weekly["n_days"]):
+            start = period.start_time.to_pydatetime()
+            tag = start.strftime("w/c %d %b")
+            if int(n_days) < 6:
+                tag += "*"
+            labels.append(tag)
+        tick_fs = 7 if n > 10 else fs
+
+        # Power: import up, export down — same mapping as the daily kWh panel.
+        b_imp = ax_kwh.bar(
+            x, weekly["imp"].to_numpy(), 0.4, label="Import",
+            color="#f38ba8", alpha=0.75, align="edge", zorder=2,
+        )
+        b_exp = ax_kwh.bar(
+            x + 0.4, -weekly["exp"].to_numpy(), 0.4, label="Export",
+            color="#a6e3a1", alpha=0.75, align="edge", zorder=2,
+        )
+        n_days_arr = weekly["n_days"].to_numpy()
+        full_week = n_days_arr >= 6
+        net = weekly["net"].to_numpy(dtype=float)
+        for i, n_days in enumerate(n_days_arr):
+            if int(n_days) < 6:
+                b_imp[i].set_alpha(0.45)
+                b_exp[i].set_alpha(0.45)
+        net_fit = np.where(full_week, net, np.nan)
+        trend_y, slope = _fit_trend(net_fit)
+        if trend_y is not None:
+            ax_kwh.plot(
+                x + 0.4, trend_y, color=_TREND_COLOUR, linewidth=1.8,
+                linestyle="--", label=f"Trend ({slope:+.1f} kWh/wk)", zorder=3,
+            )
+        ax_kwh.axhline(y=0, color=_DARK_GRID, linewidth=0.6)
+        ax_kwh.set_xticks(x + 0.4)
+        ax_kwh.set_xticklabels(labels, rotation=30, ha="right", fontsize=tick_fs)
+        ax_kwh.set_ylabel("kWh / week", fontsize=10)
+        ax_kwh.set_title(
+            "Weekly power (Mon–Sun)",
+            fontsize=11, fontweight="bold", pad=6,
+        )
+        ax_kwh.legend(
+            fontsize=8, loc="upper right", framealpha=0.6,
+            facecolor=_DARK_FACE, edgecolor=_DARK_GRID, labelcolor=_DARK_TEXT,
+        )
+        ax_kwh.grid(axis="y", color=_DARK_GRID, linewidth=0.4)
+        if any(int(d) < 6 for d in weekly["n_days"].to_numpy()):
+            ax_kwh.text(
+                0.0, -0.22, "* incomplete week in this date range (not scaled up)",
+                transform=ax_kwh.transAxes, fontsize=8, color="#6c7086",
+                ha="left", va="top", clip_on=False,
+            )
+
+        gbp_w = weekly["gbp"].to_numpy(dtype=float)
+        cost_colours = ["#f38ba8" if v > 0 else "#a6e3a1" for v in gbp_w]
+        bars = ax_gbp.bar(
+            x + 0.2, gbp_w, 0.6, color=cost_colours, alpha=0.85,
+            edgecolor=_DARK_FACE, linewidth=0.5, zorder=2,
+        )
+        for bar, n_days in zip(bars, n_days_arr):
+            if int(n_days) < 6:
+                bar.set_alpha(0.45)
+        gbp_fit = np.where(full_week, gbp_w, np.nan)
+        trend_y, slope = _fit_trend(gbp_fit)
+        if trend_y is not None:
+            ax_gbp.plot(
+                x + 0.2, trend_y, color=_TREND_COLOUR, linewidth=1.8,
+                linestyle="--", label=f"Trend ({slope:+.2f} £/wk)", zorder=3,
+            )
+        ax_gbp.axhline(y=0, color=_DARK_GRID, linewidth=0.6, zorder=1)
+        if ax_gbp.get_legend_handles_labels()[1]:
+            ax_gbp.legend(
+                fontsize=8, loc="upper left", framealpha=0.6,
+                facecolor=_DARK_FACE, edgecolor=_DARK_GRID, labelcolor=_DARK_TEXT,
+            )
+        ax_gbp.set_xticks(x + 0.2)
+        ax_gbp.set_xticklabels(labels, rotation=30, ha="right", fontsize=tick_fs)
+        ax_gbp.set_ylabel("£ / week", fontsize=10)
+        ax_gbp.set_title(
+            "Weekly net charge (Mon–Sun)",
+            fontsize=11, fontweight="bold", pad=6,
+        )
+        ax_gbp.grid(axis="y", color=_DARK_GRID, linewidth=0.4)
+        finite = gbp_w[np.isfinite(gbp_w)]
+        if finite.size:
+            y_lo = min(0.0, float(finite.min()) - 0.5)
+            y_hi = max(0.5, float(finite.max()))
+            span = max(y_hi - y_lo, 1.0)
+            ax_gbp.set_ylim(y_lo, y_hi + 0.12 * span)
+            if n <= 16:
+                pad = 0.04 * span
+                for xi, v in zip(x, gbp_w):
+                    if not np.isfinite(v) or abs(v) < 0.005:
+                        continue
+                    ax_gbp.text(
+                        xi + 0.2, v + (pad if v >= 0 else -pad),
+                        f"£{v:.0f}",
+                        ha="center", va="bottom" if v >= 0 else "top",
+                        fontsize=tick_fs - 1, color=_DARK_TEXT, zorder=4,
+                    )
+
+        weeks = list(weekly.index)
+        n_days_arr = weekly["n_days"].to_numpy()
+        imp_arr = weekly["imp"].to_numpy(dtype=float)
+        exp_arr = weekly["exp"].to_numpy(dtype=float)
+        net_arr = weekly["net"].to_numpy(dtype=float)
+
+        def _fmt_wk_kwh(xv, yv):
+            idx = int(round(xv - 0.4))
+            if 0 <= idx < n:
+                start = weeks[idx].start_time.to_pydatetime()
+                partial = " (incomplete)" if int(n_days_arr[idx]) < 6 else ""
+                return (
+                    f"Week commencing {start.strftime('%a %d %b %Y')}{partial}  |  "
+                    f"{int(n_days_arr[idx])} day(s)  |  "
+                    f"import {imp_arr[idx]:.1f} kWh, export {exp_arr[idx]:.1f} kWh, "
+                    f"net {net_arr[idx]:+.1f} kWh  |  y={yv:.1f} kWh"
+                )
+            return f"x={xv:.2f}  |  y={yv:.1f} kWh"
+
+        def _fmt_wk_gbp(xv, yv):
+            idx = int(round(xv - 0.2))
+            if 0 <= idx < n:
+                start = weeks[idx].start_time.to_pydatetime()
+                partial = " (incomplete)" if int(n_days_arr[idx]) < 6 else ""
+                return (
+                    f"Week commencing {start.strftime('%a %d %b %Y')}{partial}  |  "
+                    f"{int(n_days_arr[idx])} day(s)  |  "
+                    f"net charge £{gbp_w[idx]:.2f}  |  y=£{yv:.2f}"
+                )
+            return f"x={xv:.2f}  |  y=£{yv:.2f}"
+
+        ax_kwh.format_coord = _fmt_wk_kwh
+        ax_gbp.format_coord = _fmt_wk_gbp
 
     def _draw_hourly(self):
         ax = self.ax_hourly

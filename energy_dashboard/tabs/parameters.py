@@ -6,11 +6,7 @@ from __future__ import annotations
 from energy_dashboard.common import *
 from energy_dashboard.dialogs.about_history import AboutDialog, HistoryDialog
 from energy_dashboard.db.connect_probe import (
-    check_mysql_database_exists,
-    check_postgresql_database_exists,
-    check_sqlite_file_exists,
-    format_probe_summary,
-    format_probe_tooltip,
+    probe_engine_stages,
 )
 from energy_dashboard.services.systemd_status import (
     broker_unreachable_hint,
@@ -22,6 +18,7 @@ from energy_dashboard.services.systemd_status import (
     resolve_broker_base,
 )
 from energy_dashboard.fetch.grott_mqtt import test_grott_mqtt_connection
+from energy_dashboard.fetch.tasmota_mqtt import test_tasmota_mqtt_connection
 from energy_dashboard.config import (
     GROWATT_TELEMETRY_API,
     GROWATT_TELEMETRY_GROTT,
@@ -60,7 +57,9 @@ _PARAMS_DB_GRID_VSPACE = 10
 _PARAMS_DB_ROW_MIN_H = _SETUP_INFO_SPIN_H + 8
 _PARAMS_DB_SQLITE_SEEN_PAD = 20
 _PARAMS_GRID_SPAN = _PARAMS_MAX_PAIRS * _PARAMS_PAIR_STRIDE
-_PARAMS_DB_STATUS_MIN_W = 300
+_PARAMS_DB_STATUS_MIN_W = 160
+_PARAMS_DB_STATUS_MAX_W = 300
+_PARAMS_DB_SCHEMA_MIN_W = 280
 _DB_RAG_GREEN = "#a6e3a1"
 _DB_RAG_AMBER = "#fab387"
 _DB_RAG_RED = "#f38ba8"
@@ -250,10 +249,9 @@ def _params_add_db_backend_grid(
     user_edit: QLineEdit,
     pass_edit: QLineEdit,
     status_panel: QWidget,
-    status_align_lbl: QLabel,
-    seen_alignments: list | None = None,
+    schema_panel: QWidget,
 ) -> None:
-    """Checkbox vertically centred beside host/port/db/user/pass grid."""
+    """Checkbox, fields, left-aligned status, then create-all SQL on the right."""
     section = QHBoxLayout()
     section.setContentsMargins(0, 0, 0, 0)
     section.setSpacing(8)
@@ -297,23 +295,12 @@ def _params_add_db_backend_grid(
     grid.addWidget(_params_left_inset(_params_field_label("Pass:"), c0, min_h=row_h), 2, _params_label_col(0), align)
     grid.addWidget(_params_left_inset(pass_edit, c0_field, min_h=row_h), 2, _params_field_col(0), 1, _PARAMS_PAIR_STRIDE, align)
     section.addLayout(grid, 0)
-    seen_wrap = QWidget()
-    seen_row = QHBoxLayout(seen_wrap)
-    seen_row.setContentsMargins(0, 0, 0, 0)
-    seen_row.setSpacing(0)
-    seen_spacer = QWidget()
-    seen_spacer.setFixedWidth(0)
-    seen_spacer.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
-    seen_row.addWidget(seen_spacer)
-    seen_row.addWidget(status_panel)
     section.addWidget(
-        seen_wrap,
+        status_panel,
         0,
-        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
     )
-    section.addStretch()
-    if seen_alignments is not None:
-        seen_alignments.append((seen_spacer, status_align_lbl, section))
+    section.addWidget(schema_panel, 1)
     parent_layout.addLayout(section)
 
 
@@ -335,6 +322,7 @@ class ParametersTab(QWidget):
         self.dash = dashboard
         self.p = dashboard.app_params
         self._inv = Invoker(self)
+        self._modbus_test_token = 0
         self.build_ui()
 
     def _set_growatt_local_status(self, connected, detail: str = ""):
@@ -352,6 +340,29 @@ class ParametersTab(QWidget):
         else:
             colour = "#f38ba8"
             text = "Not Connected"
+            prefix = "✗"
+        lbl.setText(
+            f"<span style='color:{colour}; font-weight:bold; font-size:12px;'>"
+            f"{prefix} {text}</span>"
+        )
+        lbl.setToolTip(detail or text)
+
+    def _set_growatt_modbus_status(self, connected, detail: str = ""):
+        """Connected / Disconnected indicator for the Local Modbus section."""
+        lbl = getattr(self, "lbl_growatt_modbus_status", None)
+        if lbl is None:
+            return
+        if connected is None:
+            colour = _UI_BLUE
+            text = "Testing..."
+            prefix = "..."
+        elif connected:
+            colour = "#a6e3a1"
+            text = "Connected"
+            prefix = "✓"
+        else:
+            colour = "#f38ba8"
+            text = "Disconnected"
             prefix = "✗"
         lbl.setText(
             f"<span style='color:{colour}; font-weight:bold; font-size:12px;'>"
@@ -396,18 +407,33 @@ class ParametersTab(QWidget):
         row.addWidget(test_btn)
 
         setup_btn = QPushButton("Setup Database")
-        setup_btn.setToolTip(
-            f"Create/upgrade the {label} database schema (CREATE IF NOT EXISTS)"
-        )
+        if backend == "pg":
+            setup_btn.setToolTip(
+                "Does not create tables. Copy CREATE SQL and run it by hand "
+                "as the database owner. This login is not allowed to create tables."
+            )
+        else:
+            setup_btn.setToolTip(
+                f"Create/upgrade the {label} database schema (CREATE IF NOT EXISTS). "
+                "The SQL on the right is the script that runs."
+            )
         setup_btn.clicked.connect(lambda _checked=False, b=backend: self._setup_database(b))
         row.addWidget(setup_btn)
         self._db_setup_buttons.append(setup_btn)
+
+        copy_sql_btn = QPushButton("Copy CREATE SQL")
+        copy_sql_btn.setToolTip(
+            f"Copy the full {label} CREATE script (all logger tables) to the clipboard"
+        )
+        copy_sql_btn.clicked.connect(
+            lambda _checked=False, b=backend: self._copy_db_schema_sql(b)
+        )
+        row.addWidget(copy_sql_btn)
 
         ring_btn = QPushButton("Ring buffers…")
         ring_btn.setToolTip(f"Open ring-buffer limits for {label} logged data")
         ring_btn.clicked.connect(lambda _checked=False, b=backend: self._open_ring_buffers_dialog(b))
         row.addWidget(ring_btn)
-
         row.addStretch(1)
         return row
 
@@ -537,8 +563,8 @@ class ParametersTab(QWidget):
         self.btn_svc_start.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.btn_svc_start.setFixedWidth(120)
         self.btn_svc_start.setToolTip(
-            "Start or restart the boot service (energy-collector). "
-            "Needs sudo/pkexec when installed system-wide."
+            "Start or restart the collector. Uses the user-session unit when "
+            "installed (no sudo). The boot service needs a terminal sudo."
         )
         self.btn_svc_start.clicked.connect(self._svc_start_restart)
         svc_ctrl.addWidget(self.btn_svc_start)
@@ -577,7 +603,8 @@ class ParametersTab(QWidget):
         g_tabs = add_group("Main window — tab bar")
         tab_hint = QLabel(
             "Uncheck tabs you rarely use to shorten the bar. "
-            "<b>Growatt Live Status</b>, <b>Octopus Energy Data</b>, and "
+            "Groups on the left of the tab bar are always visible. Within a "
+            "group, <b>Octopus Energy Data</b>, <b>Growatt Live Status</b>, and "
             "<b>Setup && Info</b> always stay visible. "
             "Click <b>Apply tab bar</b> to save and refresh immediately."
         )
@@ -594,7 +621,9 @@ class ParametersTab(QWidget):
         _tab_cols = 4
         for c in range(_tab_cols):
             tab_grid.setColumnStretch(c, 1)
-        _toggleable = [(k, t) for (k, _a, t) in _MAIN_TAB_BAR_REGISTRY if k is not None]
+        _toggleable = [
+            (k, t) for (k, _a, t, _g, _u) in _MAIN_TAB_BAR_REGISTRY if k is not None
+        ]
         n = len(_toggleable)
         rows_per_col = (n + _tab_cols - 1) // _tab_cols
         for idx, (key, title) in enumerate(_toggleable):
@@ -655,6 +684,7 @@ class ParametersTab(QWidget):
         self.sp_bat_cost.setDecimals(0)
         self.sp_bat_cost.setValue(self.p.analytics_battery_cost_gbp)
         g2_grid = _params_make_field_grid()
+        g2_grid.setProperty("_params_anchor_id", "analytics")
         _params_grid_add_pairs(g2_grid, 0, [
             ("Round-trip efficiency %:", self.sp_eff),
             ("Max charge kW:", self.sp_chg),
@@ -665,34 +695,24 @@ class ParametersTab(QWidget):
         # --- Agile product/tariff (historical price fetch in Analytics + Forecasts tab defaults) ---
         g3 = add_group("Agile product / tariff (Analytics historical prices + Forecasts)")
         self.ed_agile_prod = QLineEdit(self.p.agile_product)
-        self.ed_agile_prod.setMinimumWidth(200)
         self.ed_agile_tariff = QLineEdit(self.p.agile_tariff)
-        self.ed_agile_tariff.setMinimumWidth(260)
         self.ed_agile_export_tariff = QLineEdit(self.p.agile_export_tariff)
-        self.ed_agile_export_tariff.setMinimumWidth(280)
         self.ed_agile_export_tariff.setToolTip(
             "Octopus tariff code for half-hourly export (outgoing) rates — Forecasts chart"
         )
+        for ed in (self.ed_agile_prod, self.ed_agile_tariff):
+            ed.setProperty("_params_setup_line_field", True)
+        self.ed_agile_export_tariff.setProperty("_params_setup_line_field", True)
+        self.ed_agile_export_tariff.setProperty("_params_setup_line_wide", True)
         g3_grid = _params_make_field_grid()
+        g3_grid.setProperty("_params_anchor_parent", "analytics")
         _params_grid_add_pairs(g3_grid, 0, [
             ("Product code:", self.ed_agile_prod),
             ("Tariff code:", self.ed_agile_tariff),
         ])
-        _agile_align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        g3_grid.addWidget(
-            _params_field_label("Export Tariff:"),
-            1,
-            _params_label_col(0),
-            _agile_align,
-        )
-        g3_grid.addWidget(
-            self.ed_agile_export_tariff,
-            1,
-            _params_field_col(0),
-            1,
-            _PARAMS_GRID_SPAN - _params_field_col(0),
-            _agile_align,
-        )
+        _params_grid_add_pairs(g3_grid, 1, [
+            ("Export Tariff:", self.ed_agile_export_tariff),
+        ])
         _params_add_field_grid(g3, g3_grid)
 
         # --- Battery analysis tab defaults ---
@@ -710,6 +730,7 @@ class ParametersTab(QWidget):
         )
         save_bat_btn.clicked.connect(self._save_battery_defaults)
         g4_grid = _params_make_field_grid()
+        g4_grid.setProperty("_params_anchor_id", "battery")
         _params_grid_add_pairs(g4_grid, 0, [
             ("Capacity (kWh):", self.sp_cap),
             ("Low SOC threshold %:", self.sp_soc_thr),
@@ -719,9 +740,79 @@ class ParametersTab(QWidget):
         bat_btn_row.addSpacing(_SETUP_INFO_SPIN_BTN_GAP)
         bat_btn_row.addWidget(save_bat_btn)
         bat_btn_row.addStretch()
-        _bat_btn_col = _params_field_col(1) + 1
-        g4_grid.addLayout(bat_btn_row, 0, _bat_btn_col, 1, _PARAMS_GRID_SPAN + 1 - _bat_btn_col)
+        _save_btn_col = _params_field_col(1) + 1
+        g4_grid.addLayout(
+            bat_btn_row, 0, _save_btn_col, 1, _PARAMS_GRID_SPAN + 1 - _save_btn_col,
+        )
         _params_add_field_grid(g4, g4_grid)
+
+        # --- Live alarms (database, devices, battery) ---
+        g_alarm = add_group("Live alarms (database, devices, battery)")
+        s_al = self._settings()
+        self.chk_alarms = QCheckBox("Enable live alarms")
+        self.chk_alarms.setChecked(s_al.value("alarms/enabled", True, type=bool))
+        self.chk_alarms.setToolTip(
+            "Watch the logging database (connected + new Growatt/Tasmota rows), "
+            "Grott feed, Tasmota plugs, inverter offline, live SOC, PV, and charge. "
+            "Grott lost fires after ~20s; SOC/PV rules use the hold period below."
+        )
+        self.chk_alarm_desktop = QCheckBox("Desktop notifications")
+        self.chk_alarm_desktop.setChecked(s_al.value("alarms/desktop", True, type=bool))
+        self.chk_alarm_desktop.setToolTip(
+            "System-tray notifications while an alarm is active: first notify "
+            "immediately, then 4× every 5 min, 4× every 10 min, 4× every 30 min, "
+            "then hourly. Backoff resets when the alarm clears."
+        )
+        self.sp_alarm_hold = QDoubleSpinBox()
+        self.sp_alarm_hold.setRange(1, 180)
+        self.sp_alarm_hold.setDecimals(0)
+        self.sp_alarm_hold.setSuffix(" min")
+        self.sp_alarm_hold.setValue(float(s_al.value("alarms/hold_minutes", 10)))
+        self.sp_alarm_hold.setToolTip(
+            "How long SOC/PV conditions must persist before they fire. "
+            "Grott feed-lost is separate: ~20s if MQTT drops, or the Grott "
+            "fresh window if payloads stop."
+        )
+        self.sp_alarm_pv_min = QDoubleSpinBox()
+        self.sp_alarm_pv_min.setRange(0.2, 20)
+        self.sp_alarm_pv_min.setDecimals(1)
+        self.sp_alarm_pv_min.setSuffix(" kW")
+        self.sp_alarm_pv_min.setValue(float(s_al.value("alarms/pv_min_kw", 1.0)))
+        self.sp_alarm_pv_min.setToolTip(
+            "Minimum PV for the “low SOC with unused sun” alarm."
+        )
+        save_alarm_btn = QPushButton("Save")
+        save_alarm_btn.setToolTip("Save alarm settings and apply immediately")
+        save_alarm_btn.clicked.connect(self._save_alarm_settings)
+        alarm_chk_row = QHBoxLayout()
+        alarm_chk_row.setContentsMargins(0, 0, 0, 0)
+        alarm_chk_row.addWidget(self.chk_alarms)
+        alarm_chk_row.addWidget(self.chk_alarm_desktop)
+        alarm_chk_row.addStretch(1)
+        g_alarm.addLayout(alarm_chk_row)
+        alarm_grid = _params_make_field_grid()
+        alarm_grid.setProperty("_params_anchor_parent", "battery")
+        _params_grid_add_pairs(alarm_grid, 0, [
+            ("Hold time:", self.sp_alarm_hold),
+            ("Sun-waste PV min:", self.sp_alarm_pv_min),
+        ])
+        alarm_btn_row = QHBoxLayout()
+        alarm_btn_row.setContentsMargins(0, 0, 0, 0)
+        alarm_btn_row.addSpacing(_SETUP_INFO_SPIN_BTN_GAP)
+        alarm_btn_row.addWidget(save_alarm_btn)
+        alarm_btn_row.addStretch()
+        alarm_grid.addLayout(
+            alarm_btn_row, 0, _save_btn_col, 1, _PARAMS_GRID_SPAN + 1 - _save_btn_col,
+        )
+        _params_add_field_grid(g_alarm, alarm_grid)
+        alarm_help = QLabel(
+            "Alarms: (1) SOC below the low-SOC threshold for the hold time, "
+            "(2) same, while PV ≥ min and charge ≈ 0 (sun not refilling the pack). "
+            "Active alarms appear under the live banner — click for detail."
+        )
+        alarm_help.setWordWrap(True)
+        alarm_help.setStyleSheet("color: #6c7086; font-size: 11px;")
+        g_alarm.addWidget(alarm_help)
 
         # --- Load profile (base load + scheduled high-draw events) ---
         g_load = add_group("Load profile (base load + scheduled high-draw events)")
@@ -798,10 +889,20 @@ class ParametersTab(QWidget):
 
         # --- Solar installation (location + PV system) ---
         g_solar = add_group("Solar installation (location, PV size, orientation)")
-        self.ed_lat = QLineEdit(self.p.solar_lat)
-        self.ed_lat.setFixedWidth(80)
-        self.ed_lon = QLineEdit(self.p.solar_lon)
-        self.ed_lon.setFixedWidth(80)
+        self.ed_lat = QLineEdit(self._fmt_solar_coord(self.p.solar_lat))
+        self.ed_lat.setFixedWidth(100)
+        self.ed_lon = QLineEdit(self._fmt_solar_coord(self.p.solar_lon))
+        self.ed_lon.setFixedWidth(100)
+        from PySide6.QtGui import QDoubleValidator
+        for edit, lo, hi, tip in (
+            (self.ed_lat, -90.0, 90.0, "Decimal degrees latitude, 5 dp (~1.1 m). WGS84."),
+            (self.ed_lon, -180.0, 180.0, "Decimal degrees longitude, 5 dp (~1.1 m). WGS84."),
+        ):
+            v = QDoubleValidator(lo, hi, 5, edit)
+            v.setNotation(QDoubleValidator.Notation.StandardNotation)
+            edit.setValidator(v)
+            edit.setToolTip(tip)
+            edit.editingFinished.connect(lambda e=edit: self._normalize_solar_coord_edit(e))
         self.ed_kwp = QLineEdit(self.p.solar_kwp)
         self.ed_kwp.setFixedWidth(60)
         self.ed_tilt = QLineEdit(self.p.solar_tilt)
@@ -879,7 +980,7 @@ class ParametersTab(QWidget):
         self.ed_emqx_host.setPlaceholderText(_EMQX_ROUTE_DEFAULT_HOST)
         self.ed_emqx_host.setToolTip(
             "Shared MQTT broker host for local routes. "
-            "Apply writes this host/port into Growatt Grott MQTT and Tasmota MQTT settings."
+            "Apply writes host/port/user/password into Growatt Grott MQTT and Tasmota MQTT settings."
         )
         emqx_row.addWidget(self.ed_emqx_host)
         emqx_row.addWidget(QLabel("Port:"))
@@ -889,16 +990,57 @@ class ParametersTab(QWidget):
         self.sp_emqx_port.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.sp_emqx_port.setToolTip("EMQX MQTT port (usually 1883).")
         emqx_row.addWidget(self.sp_emqx_port)
+        emqx_row.addWidget(QLabel("Username:"))
+        self.ed_emqx_user = QLineEdit()
+        self.ed_emqx_user.setMinimumWidth(100)
+        self.ed_emqx_user.setMaximumWidth(140)
+        self.ed_emqx_user.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.ed_emqx_user.setPlaceholderText("MQTT username")
+        self.ed_emqx_user.setToolTip(
+            "EMQX MQTT username. Applied to Grott MQTT and Tasmota MQTT when you click Apply."
+        )
+        emqx_row.addWidget(self.ed_emqx_user)
+        emqx_row.addWidget(QLabel("Password:"))
+        self.ed_emqx_pass = QLineEdit()
+        self.ed_emqx_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ed_emqx_pass.setMinimumWidth(100)
+        self.ed_emqx_pass.setMaximumWidth(140)
+        self.ed_emqx_pass.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.ed_emqx_pass.setPlaceholderText("MQTT password")
+        self.ed_emqx_pass.setToolTip(
+            "EMQX MQTT password. Applied to Grott MQTT and Tasmota MQTT when you click Apply."
+        )
+        emqx_row.addWidget(self.ed_emqx_pass)
         self.btn_apply_emqx_route = QPushButton("Apply EMQX route")
         self.btn_apply_emqx_route.setStyleSheet(_SUBTLE_BTN_QSS)
         self.btn_apply_emqx_route.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.btn_apply_emqx_route.setFixedWidth(150)
         self.btn_apply_emqx_route.setToolTip(
-            "Copy EMQX host/port to Growatt Grott MQTT and Tasmota MQTT fields, "
+            "Copy EMQX host/port/username/password to Growatt Grott MQTT and Tasmota MQTT fields, "
             "persist to QSettings, and refresh connectivity status."
         )
         self.btn_apply_emqx_route.clicked.connect(self._apply_emqx_route)
         emqx_row.addWidget(self.btn_apply_emqx_route)
+        self.btn_save_emqx = QPushButton("Save")
+        self.btn_save_emqx.setStyleSheet(_SUBTLE_BTN_QSS)
+        self.btn_save_emqx.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.btn_save_emqx.setFixedWidth(72)
+        self.btn_save_emqx.setToolTip(
+            "Save EMQX host/port/username/password and apply the same broker "
+            "to Grott MQTT and Tasmota MQTT (same effect as Apply EMQX route)."
+        )
+        self.btn_save_emqx.clicked.connect(self._save_emqx_credentials)
+        emqx_row.addWidget(self.btn_save_emqx)
+        self.btn_test_emqx = QPushButton("Test")
+        self.btn_test_emqx.setStyleSheet(_SUBTLE_BTN_QSS)
+        self.btn_test_emqx.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.btn_test_emqx.setFixedWidth(72)
+        self.btn_test_emqx.setToolTip(
+            "Connect to the EMQX MQTT broker with the host/port/username/password shown above "
+            "(auth check only; does not wait for Grott or Tasmota payloads)."
+        )
+        self.btn_test_emqx.clicked.connect(self._test_emqx_connection)
+        emqx_row.addWidget(self.btn_test_emqx)
         emqx_row.addStretch(1)
         g_gw.addLayout(emqx_row)
 
@@ -979,7 +1121,8 @@ class ParametersTab(QWidget):
         open_gw_btn.clicked.connect(self._open_growatt_web_ui)
         save_gw_btn = QPushButton("Save")
         save_gw_btn.setToolTip(
-            "Save LAN/Wi‑Fi addresses, web UI logins, HTTP port, and Modbus probe settings to disk"
+            "Save LAN/Wi‑Fi addresses, web UI logins, and HTTP port to disk "
+            "(Modbus has its own Save below)"
         )
         save_gw_btn.clicked.connect(self._save_growatt_lan)
         self._btn_test_growatt_http = QPushButton("Test web UI")
@@ -1006,18 +1149,26 @@ class ParametersTab(QWidget):
 
         self.cb_growatt_modbus = QComboBox()
         self.cb_growatt_modbus.addItem("Disabled", "off")
-        self.cb_growatt_modbus.addItem("Modbus TCP (LAN)", "tcp")
-        self.cb_growatt_modbus.addItem("Modbus RTU (RS485 serial)", "serial")
+        self.cb_growatt_modbus.addItem("Modbus TCP (LAN / RS485 Ethernet)", "tcp")
+        self.cb_growatt_modbus.addItem(
+            "Modbus RTU over TCP (transparent gateway)", "tcp_rtu")
+        self.cb_growatt_modbus.addItem("Modbus RTU (USB–RS485)", "serial")
         self.cb_growatt_modbus.setToolTip(
-            "Optional health-check on Connectivity Status. TCP uses the LAN IP "
-            "(or Wi‑Fi IP if LAN is empty) + Modbus port (often 502). "
-            "RTU uses a USB–RS485 adapter device path. Requires: pip install pymodbus"
+            "Optional health-check on Connectivity Status. "
+            "Modbus TCP: native MBAP on the LAN IP (ShineWiFi or a gateway in "
+            "Modbus TCP<=>RTU mode), usually port 502. "
+            "RTU over TCP: USR/Waveshare Transparent Mode, typically port 8899. "
+            "USB RTU is only for a serial adapter on this PC."
         )
-        self.cb_growatt_modbus.currentIndexChanged.connect(self._update_growatt_modbus_controls)
+        self.cb_growatt_modbus.currentIndexChanged.connect(
+            self._on_growatt_modbus_mode_changed)
         self.sp_growatt_modbus_tcp = QSpinBox()
         self.sp_growatt_modbus_tcp.setRange(1, 65535)
         self.sp_growatt_modbus_tcp.setValue(int(self.p.growatt_modbus_tcp_port))
-        self.sp_growatt_modbus_tcp.setToolTip("Modbus TCP port (default 502)")
+        self.sp_growatt_modbus_tcp.setToolTip(
+            "Often 8899 on USR boxes (same as Home Assistant type: tcp). "
+            "502 only if the box is in Modbus TCP<=>RTU mode and listens there."
+        )
         self.ed_growatt_modbus_serial = QLineEdit(self.p.growatt_modbus_serial_path)
         self.ed_growatt_modbus_serial.setMinimumWidth(_SETUP_INFO_SPIN_W)
         self.ed_growatt_modbus_serial.setPlaceholderText("/dev/ttyUSB0")
@@ -1032,6 +1183,25 @@ class ParametersTab(QWidget):
         mbus_grid.setProperty("_params_growatt_grid", True)
         mbus_grid.addWidget(_params_field_label("Local Modbus check:"), 0, _params_label_col(0), _cell_align)
         mbus_grid.addWidget(self.cb_growatt_modbus, 0, _params_field_col(0), 1, _PARAMS_PAIR_STRIDE + 2, _cell_align)
+        self.lbl_growatt_modbus_status = QLabel()
+        self.lbl_growatt_modbus_status.setTextFormat(Qt.RichText)
+        self.lbl_growatt_modbus_status.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.lbl_growatt_modbus_status.setMinimumWidth(130)
+        self.lbl_growatt_modbus_status.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
+        )
+        # Place status on the mode row, right side of the grid.
+        mbus_grid.addWidget(
+            self.lbl_growatt_modbus_status,
+            0,
+            _params_field_col(2),
+            1,
+            2,
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
+        self._set_growatt_modbus_status(False, "Not tested yet.")
         _params_grid_add_pairs(mbus_grid, 1, [
             ("TCP port:", self.sp_growatt_modbus_tcp),
             ("Serial device:", self.ed_growatt_modbus_serial),
@@ -1040,30 +1210,60 @@ class ParametersTab(QWidget):
             ("Baud:", self.sp_growatt_modbus_baud),
             ("Unit ID:", self.sp_growatt_modbus_unit),
         ])
+        self.chk_growatt_modbus_writes = QCheckBox(
+            "Allow inverter writes via Modbus (opt-in)"
+        )
+        self.chk_growatt_modbus_writes.setChecked(
+            bool(getattr(self.p, "growatt_modbus_writes_enabled", False))
+        )
+        self.chk_growatt_modbus_writes.setToolTip(
+            "Safety opt-in: when Modbus is configured, allow this app to write "
+            "inverter holding registers on the LAN (Command Sim and any future "
+            "local schedule path). Default is off — schedule push still prefers "
+            "Growatt cloud REST until a local write path is used. "
+            "Wrong writes can drain the battery or miss cheap Agile windows."
+        )
+        mbus_grid.addWidget(
+            self.chk_growatt_modbus_writes,
+            3, _params_label_col(0), 1, _PARAMS_GRID_SPAN,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
         self._btn_test_growatt_modbus = QPushButton("Test Modbus")
         self._btn_test_growatt_modbus.setToolTip(
             "Run the same Modbus read probe as Connectivity Status — "
-            "TCP uses the LAN IP (or Wi‑Fi IP if LAN is empty); RTU uses the serial device. "
-            "Uses the values currently in this form."
+            "TCP / RTU-over-TCP uses the LAN IP (or Wi‑Fi IP if LAN is empty); "
+            "USB RTU uses the serial device. Uses the values currently in this form."
         )
         self._btn_test_growatt_modbus.clicked.connect(self._test_growatt_modbus_connection)
+        save_mbus_btn = QPushButton("Save")
+        save_mbus_btn.setToolTip(
+            "Save Local Modbus mode, TCP port, serial device, baud, unit ID, "
+            "and the inverter-write opt-in to disk"
+        )
+        save_mbus_btn.clicked.connect(self._save_growatt_modbus)
         mbus_btn_row = QHBoxLayout()
         mbus_btn_row.setContentsMargins(0, 0, 0, 0)
         mbus_btn_row.setSpacing(8)
         mbus_btn_row.addSpacing(_SETUP_INFO_SPIN_BTN_GAP)
+        mbus_btn_row.addWidget(save_mbus_btn)
         mbus_btn_row.addWidget(self._btn_test_growatt_modbus)
         mbus_btn_row.addStretch()
+        # Same column as HTTP-port Open/Save/Test so Save / Test Modbus line up.
         _mbus_btn_col = _params_field_col(0) + 1
         mbus_grid.addLayout(
-            mbus_btn_row, 1, _mbus_btn_col, 1, _PARAMS_GRID_SPAN + 1 - _mbus_btn_col
+            mbus_btn_row, 4, _mbus_btn_col, 1,
+            _PARAMS_GRID_SPAN + 1 - _mbus_btn_col,
         )
         _params_add_field_grid(g_gw, mbus_grid)
         _mbus_hint = QLabel(
-            "<b>Modbus TCP (Growatt):</b> aim at the <b>ShineWiFi‑X / LAN module IP</b> "
-            "(fixed IP on your LAN, same subnet as this PC). That unit bridges "
-            "<b>TCP port 502</b> to the inverter over USB/RS485. "
-            "Port <b>80</b> (web UI) working does <i>not</i> guarantee TCP&nbsp;502 — many "
-            "dongles have no Modbus server; use <b>Modbus RTU</b> on RS485 instead."
+            "<b>RS485–Ethernet (USR / Waveshare):</b> match Home Assistant if it "
+            "already works — typically <b>Modbus TCP</b>, converter LAN IP, port "
+            "<b>8899</b>, unit <b>1</b> (HA <code>type: tcp</code> / <code>slave: 1</code>). "
+            "Port <b>502</b> only if the box listens there in "
+            "<b>Modbus TCP&lt;=&gt;Modbus RTU</b> mode. "
+            "<b>RTU over TCP</b> is for raw Transparent serial framing only.<br>"
+            "UART on the box: <b>9600 8N1</b>, 485 Enable, RFC2217 off. "
+            "ShineWiFi dongles: port 80 does <i>not</i> mean TCP 502 exists."
         )
         _mbus_hint.setWordWrap(True)
         _mbus_hint.setTextFormat(Qt.RichText)
@@ -1155,7 +1355,11 @@ class ParametersTab(QWidget):
         self.sp_grott_fresh = QSpinBox()
         self.sp_grott_fresh.setRange(15, 99999)
         self.sp_grott_fresh.setValue(int(self.p.grott_mqtt_fresh_s))
-        self.sp_grott_fresh.setToolTip("Maximum age in seconds before Grott data is considered stale")
+        self.sp_grott_fresh.setToolTip(
+            "How old a live Grott frame may be before it counts as stale. "
+            "Shine often goes quiet ~11 min after reconnect (hourly handshake) "
+            "— that is a real gap, not an MQTT drop."
+        )
 
         self._grott_source_widgets = [
             self.ed_grott_host,
@@ -1185,7 +1389,8 @@ class ParametersTab(QWidget):
         self._btn_test_grott_mqtt.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._btn_test_grott_mqtt.setFixedWidth(130)
         self._btn_test_grott_mqtt.setToolTip(
-            "Connect to the MQTT broker, subscribe to the topic, and wait briefly for a Grott JSON payload."
+            "Check MQTT host/auth/subscribe. A Grott payload within a few seconds "
+            "is luck — Grott publishes ~every 1 min, not on demand."
         )
         self._btn_test_grott_mqtt.clicked.connect(self._test_grott_mqtt_connection)
         save_grott_btn = QPushButton("Save source")
@@ -1266,17 +1471,142 @@ class ParametersTab(QWidget):
             "Save Growatt cloud username, password, API key, and serial."
         )
         save_cloud_btn.clicked.connect(self._save_growatt_cloud_credentials)
+        test_cloud_btn = QPushButton("Test connection")
+        test_cloud_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        test_cloud_btn.setFixedWidth(130)
+        test_cloud_btn.setToolTip(
+            "Log in to server.growatt.com with these fields and probe live inverter data."
+        )
+        test_cloud_btn.clicked.connect(self._test_growatt_cloud_connection)
         cloud_btn_row = QHBoxLayout()
         cloud_btn_row.setContentsMargins(0, 0, 0, 0)
         cloud_btn_row.setSpacing(8)
         cloud_btn_row.addSpacing(_SETUP_INFO_SPIN_BTN_GAP)
         cloud_btn_row.addWidget(save_cloud_btn)
+        cloud_btn_row.addWidget(test_cloud_btn)
         cloud_btn_row.addStretch()
         cloud_grid.addLayout(
             cloud_btn_row, 2, _params_field_col(0), 1,
             _PARAMS_GRID_SPAN + 1 - _params_field_col(0),
         )
         _params_add_field_grid(g_gw, cloud_grid)
+
+        # --- PVOutput.org live upload ---
+        g_pvo = add_group("PVOutput.org (live status upload)")
+        g_pvo.addWidget(QLabel(
+            "Pushes today’s PV generation (and optional house load) to "
+            "<a href='https://pvoutput.org/'>pvoutput.org</a> via Add Status. "
+            "Create an API key under PVOutput → Settings → API Access."
+        ))
+        g_pvo.itemAt(g_pvo.count() - 1).widget().setOpenExternalLinks(True)
+        g_pvo.itemAt(g_pvo.count() - 1).widget().setWordWrap(True)
+        g_pvo.itemAt(g_pvo.count() - 1).widget().setStyleSheet(
+            "color: #a6adc8; font-size: 11px;"
+        )
+        from energy_dashboard.fetch.pvoutput import (
+            DEFAULT_INTERVAL_S,
+            MAX_INTERVAL_S,
+            MIN_INTERVAL_S,
+            load_pvoutput_config,
+        )
+        _pvo = load_pvoutput_config()
+        self.chk_pvoutput = QCheckBox("Enable PVOutput uploads")
+        self.chk_pvoutput.setChecked(bool(_pvo.enabled))
+        pvo_en = QHBoxLayout()
+        pvo_en.addWidget(self.chk_pvoutput)
+        pvo_en.addStretch()
+        g_pvo.addLayout(pvo_en)
+        self.ed_pvoutput_key = QLineEdit(_pvo.api_key)
+        self.ed_pvoutput_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ed_pvoutput_key.setMinimumWidth(_SETUP_INFO_SPIN_W)
+        self.ed_pvoutput_key.setPlaceholderText("X-Pvoutput-Apikey")
+        self.ed_pvoutput_sid = QLineEdit(_pvo.system_id)
+        self.ed_pvoutput_sid.setMinimumWidth(_SETUP_INFO_SPIN_W)
+        self.ed_pvoutput_sid.setPlaceholderText("System Id (number)")
+        self.sp_pvoutput_interval = QSpinBox()
+        self.sp_pvoutput_interval.setRange(MIN_INTERVAL_S, MAX_INTERVAL_S)
+        self.sp_pvoutput_interval.setSingleStep(60)
+        self.sp_pvoutput_interval.setValue(int(_pvo.interval_s or DEFAULT_INTERVAL_S))
+        self.sp_pvoutput_interval.setSuffix(" s")
+        self.sp_pvoutput_interval.setToolTip(
+            "Minimum seconds between uploads (PVOutput rate limit is 60/hour)."
+        )
+        pvo_grid = _params_make_field_grid()
+        _params_grid_add_pairs(pvo_grid, 0, [
+            ("API key:", self.ed_pvoutput_key),
+            ("System Id:", self.ed_pvoutput_sid),
+        ])
+        _params_grid_add_pairs(pvo_grid, 1, [
+            ("Interval:", self.sp_pvoutput_interval),
+        ])
+        save_pvo_btn = QPushButton("Save")
+        save_pvo_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        save_pvo_btn.setFixedWidth(130)
+        save_pvo_btn.setToolTip("Save PVOutput API key, System Id, and interval.")
+        save_pvo_btn.clicked.connect(self._save_pvoutput_settings)
+        test_pvo_btn = QPushButton("Test upload")
+        test_pvo_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        test_pvo_btn.setFixedWidth(130)
+        test_pvo_btn.setToolTip("Force one Add Status upload from the latest Growatt snapshot.")
+        test_pvo_btn.clicked.connect(self._test_pvoutput_upload)
+        pvo_btn_row = QHBoxLayout()
+        pvo_btn_row.setContentsMargins(0, 0, 0, 0)
+        pvo_btn_row.setSpacing(8)
+        # Start at the field column (same left edge as Interval spin); Test sits to the right.
+        pvo_btn_row.addWidget(save_pvo_btn)
+        pvo_btn_row.addWidget(test_pvo_btn)
+        pvo_btn_row.addStretch()
+        pvo_grid.addLayout(
+            pvo_btn_row, 2, _params_field_col(0), 1,
+            _PARAMS_GRID_SPAN + 1 - _params_field_col(0),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        _params_add_field_grid(g_pvo, pvo_grid)
+
+        # --- Wonderwatt.com (share / forecast — no public upload API) ---
+        g_ww = add_group("Wonderwatt.com (share link · forecast compare)")
+        g_ww.addWidget(QLabel(
+            "<a href='https://www.wonderwatt.com/'>Wonderwatt</a> reads your "
+            "plant from the <b>Growatt cloud</b> itself (not via this app). "
+            "Paste an Advanced share link here so Potential Issues can compare "
+            "their forecast with ours."
+        ))
+        g_ww.itemAt(g_ww.count() - 1).widget().setOpenExternalLinks(True)
+        g_ww.itemAt(g_ww.count() - 1).widget().setWordWrap(True)
+        g_ww.itemAt(g_ww.count() - 1).widget().setStyleSheet(
+            "color: #a6adc8; font-size: 11px;"
+        )
+        from energy_dashboard.fetch.wonderwatt import load_wonderwatt_share_url
+        self.ed_wonderwatt_share = QLineEdit(load_wonderwatt_share_url())
+        self.ed_wonderwatt_share.setMinimumWidth(_SETUP_INFO_SPIN_W * 2)
+        self.ed_wonderwatt_share.setPlaceholderText(
+            "https://app.wonderwatt.com/?wattid=…&sig=…&time=…"
+        )
+        ww_grid = _params_make_field_grid()
+        _params_grid_add_pairs(ww_grid, 0, [
+            ("Share URL:", self.ed_wonderwatt_share),
+        ])
+        save_ww_btn = QPushButton("Save")
+        save_ww_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        save_ww_btn.setFixedWidth(130)
+        save_ww_btn.clicked.connect(self._save_wonderwatt_share)
+        test_ww_btn = QPushButton("Test link")
+        test_ww_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        test_ww_btn.setFixedWidth(130)
+        test_ww_btn.clicked.connect(self._test_wonderwatt_share)
+        ww_btn_row = QHBoxLayout()
+        ww_btn_row.setContentsMargins(0, 0, 0, 0)
+        ww_btn_row.setSpacing(8)
+        # Left-align with the Share URL field; Test link sits to the right of Save.
+        ww_btn_row.addWidget(save_ww_btn)
+        ww_btn_row.addWidget(test_ww_btn)
+        ww_btn_row.addStretch()
+        ww_grid.addLayout(
+            ww_btn_row, 1, _params_field_col(0), 1,
+            _PARAMS_GRID_SPAN + 1 - _params_field_col(0),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        _params_add_field_grid(g_ww, ww_grid)
 
         # --- Auto refresh (only place to enable / set interval) ---
         g5 = add_group("Auto-refresh (Growatt, Octopus Live, Tasmota)")
@@ -1290,6 +1620,8 @@ class ParametersTab(QWidget):
         self.sp_refresh.setRange(5, 600)
         self.sp_refresh.setValue(int(self.p.auto_refresh_seconds))
         save_ar_btn = QPushButton("Save")
+        save_ar_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        save_ar_btn.setFixedWidth(130)
         save_ar_btn.setToolTip(
             "Save auto-refresh on/off and interval; applied immediately and restored when you open the dashboard"
         )
@@ -1300,11 +1632,15 @@ class ParametersTab(QWidget):
         ])
         ar_btn_row = QHBoxLayout()
         ar_btn_row.setContentsMargins(0, 0, 0, 0)
-        ar_btn_row.addSpacing(_SETUP_INFO_SPIN_BTN_GAP)
+        ar_btn_row.setSpacing(8)
+        # Own row under the interval spin, left-aligned with that spin.
         ar_btn_row.addWidget(save_ar_btn)
         ar_btn_row.addStretch()
-        _ar_btn_col = _params_field_col(0) + 1
-        ar_grid.addLayout(ar_btn_row, 0, _ar_btn_col, 1, _PARAMS_GRID_SPAN + 1 - _ar_btn_col)
+        ar_grid.addLayout(
+            ar_btn_row, 1, _params_field_col(0), 1,
+            _PARAMS_GRID_SPAN + 1 - _params_field_col(0),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
         _params_add_field_grid(g5, ar_grid)
 
         # --- Hardware detection ---
@@ -1323,7 +1659,6 @@ class ParametersTab(QWidget):
         # --- Database export ---
         g_db = add_group("Database Export (automatic logging on every refresh)")
         self._db_group = g_db.parentWidget()  # QGroupBox
-        self._db_seen_alignments: list = []
         self._db_setup_buttons: list[QPushButton] = []
 
         # SQLite
@@ -1373,10 +1708,6 @@ class ParametersTab(QWidget):
             _PARAMS_PAIR_STRIDE * 2,
             vcenter | Qt.AlignmentFlag.AlignLeft,
         )
-        rd_sq.addLayout(sqlite_grid, 0)
-        browse_btn = QPushButton("Browse…")
-        browse_btn.clicked.connect(self._browse_sqlite)
-        rd_sq.addWidget(browse_btn, 0, vcenter)
         self.lbl_db_sqlite_found = self._make_db_status_line()
         self.lbl_db_sqlite_ok = self._make_db_status_line()
         self.lbl_db_sqlite_off = self._make_db_status_line()
@@ -1385,8 +1716,16 @@ class ParametersTab(QWidget):
             self.lbl_db_sqlite_ok,
             self.lbl_db_sqlite_off,
         )
-        rd_sq.addWidget(self._db_sqlite_status, 0, vcenter)
-        rd_sq.addStretch()
+        rd_sq.addLayout(sqlite_grid, 0)
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self._browse_sqlite)
+        rd_sq.addWidget(browse_btn, 0, vcenter)
+        rd_sq.addWidget(
+            self._db_sqlite_status,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        rd_sq.addWidget(self._make_db_schema_panel("sqlite"), 1)
         g_db.addLayout(rd_sq)
         g_db.addLayout(self._make_db_action_row("sqlite"))
 
@@ -1421,8 +1760,7 @@ class ParametersTab(QWidget):
             self.ed_mysql_user,
             self.ed_mysql_pass,
             self._db_mysql_status,
-            self.lbl_db_mysql_ok,
-            self._db_seen_alignments,
+            self._make_db_schema_panel("mysql"),
         )
         g_db.addLayout(self._make_db_action_row("mysql"))
 
@@ -1457,10 +1795,10 @@ class ParametersTab(QWidget):
             self.ed_pg_user,
             self.ed_pg_pass,
             self._db_pg_status,
-            self.lbl_db_pg_ok,
-            self._db_seen_alignments,
+            self._make_db_schema_panel("pg"),
         )
         g_db.addLayout(self._make_db_action_row("pg"))
+        self.ed_pg_user.textChanged.connect(lambda _t: self._refresh_db_schema_sql())
 
         for chk in (self.chk_sqlite, self.chk_mysql, self.chk_pg):
             chk.stateChanged.connect(self._on_db_enable_changed)
@@ -1491,7 +1829,9 @@ class ParametersTab(QWidget):
             "Changing import/export p/kWh updates the Octopus summary cost immediately.\n"
             "Use Apply to all tabs to push simulator settings, battery defaults, solar location, Agile codes, and auto-refresh.\n"
             "Growatt / Octopus Live / Tasmota no longer have their own auto-refresh toggles — control them here only.\n"
-            "Use Save under Growatt inverter (local network) to persist LAN/Wi‑Fi IPs, web UI logins, HTTP port, and optional Modbus probe settings."
+            "Use Save under Growatt inverter (local network) for LAN/Wi‑Fi IPs, "
+            "web UI logins, and HTTP port; use Save next to Test Modbus for "
+            "Local Modbus probe settings."
         )
         hint.setStyleSheet("color: #6c7086; font-size: 11px;")
         hint.setWordWrap(True)
@@ -1502,35 +1842,14 @@ class ParametersTab(QWidget):
         # Spin chrome is app-wide (_spin_field_motif_qss); DB line edits stay local.
         inner.setStyleSheet(_setup_info_db_field_qss())
         self._align_setup_info_spins(inner)
-        QTimer.singleShot(0, self._align_db_seen_labels)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
 
     def showEvent(self, event):
         super().showEvent(event)
         self._load_broker_url_from_settings()
-        self._align_db_seen_labels()
         self._probe_db_seen_async()
         self._probe_service_async()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._align_db_seen_labels()
-
-    def _align_db_seen_labels(self) -> None:
-        """Line up MySQL/PostgreSQL seen/disabled labels with the SQLite one."""
-        g_db = getattr(self, "_db_group", None)
-        alignments = getattr(self, "_db_seen_alignments", None)
-        lbl_ref = getattr(self, "lbl_db_sqlite_ok", None)
-        if g_db is None or not alignments or lbl_ref is None:
-            return
-        g_db.ensurePolished()
-        lbl_ref.ensurePolished()
-        target = lbl_ref.mapTo(g_db, QPointF(0, 0)).x()
-        for seen_spacer, status_lbl, _section in alignments:
-            status_lbl.ensurePolished()
-            current = status_lbl.mapTo(g_db, QPointF(0, 0)).x()
-            seen_spacer.setFixedWidth(max(0, round(target - current)))
 
     def _align_setup_info_spins(self, root: QWidget):
         """Uniform spin size; title columns anchored to the widest title; gap before
@@ -1577,6 +1896,23 @@ class ParametersTab(QWidget):
                     continue
                 pos = col // _PARAMS_PAIR_STRIDE
                 w.setFixedWidth(widths.get(pos, label_needs.get(pos, _SETUP_INFO_LABEL_WIDTH)))
+
+        anchor_by_id = {
+            g.property("_params_anchor_id"): g
+            for g in field_grids
+            if g.property("_params_anchor_id")
+        }
+        for grid in field_grids:
+            parent_id = grid.property("_params_anchor_parent")
+            if not parent_id:
+                continue
+            src = anchor_by_id.get(str(parent_id))
+            if src is None:
+                continue
+            for c in range(_PARAMS_GRID_SPAN + 1):
+                cw = src.columnMinimumWidth(c)
+                if cw > 0:
+                    grid.setColumnMinimumWidth(c, cw)
 
         touched_layouts: set[int] = set()
         for spin in root.findChildren(QSpinBox) + root.findChildren(QDoubleSpinBox):
@@ -1633,7 +1969,20 @@ class ParametersTab(QWidget):
                     lay.insertSpacing(idx + 1, _SETUP_INFO_SPIN_BTN_GAP)
                     spin.setProperty("_pm_spin_btn_gap", True)
 
-        self._align_db_seen_labels()
+        for edit in root.findChildren(QLineEdit):
+            if not edit.property("_params_setup_line_field"):
+                continue
+            if edit.parent() is not None and isinstance(
+                edit.parent(), (QSpinBox, QDoubleSpinBox),
+            ):
+                continue
+            field_w = _SETUP_INFO_SPIN_W
+            if edit.property("_params_setup_line_wide"):
+                apply_setup_info_line_field_motif(
+                    edit, width=_SETUP_INFO_SPIN_W * 3, expand=False,
+                )
+            else:
+                apply_setup_info_line_field_motif(edit, width=_SETUP_INFO_SPIN_W)
 
     def _load_broker_url_from_settings(self):
         if not getattr(self, "ed_broker_url", None):
@@ -1720,7 +2069,7 @@ class ParametersTab(QWidget):
 
     def _update_svc_boot_button(self, status: dict | None = None):
         status = status or self._service_status or {}
-        _, unit, _ = pick_control_scope(status)
+        _, unit, _ = pick_control_scope(status, for_control=True)
         boot_on = is_boot_enabled(unit) if unit.get("installed") else False
         qss, hint = _tasmota_toggle_btn_qss(boot_on)
         self.btn_svc_boot.setStyleSheet(qss)
@@ -1755,7 +2104,7 @@ class ParametersTab(QWidget):
         if not status:
             self._probe_service_async()
             return
-        _, unit, _ = pick_control_scope(status)
+        _, unit, _ = pick_control_scope(status, for_control=True)
         if not unit.get("installed"):
             QMessageBox.information(
                 self,
@@ -1792,7 +2141,7 @@ class ParametersTab(QWidget):
         if not status:
             self._probe_service_async()
             return
-        _, unit, _ = pick_control_scope(status)
+        _, unit, _ = pick_control_scope(status, for_control=True)
         if not unit.get("installed"):
             QMessageBox.information(
                 self,
@@ -1864,9 +2213,13 @@ class ParametersTab(QWidget):
             state = "Stopped"
             colour = "#f38ba8"
         start_hint = (
-            "<code>sudo systemctl start energy-collector</code>"
-            if scope == "system"
-            else "<code>systemctl --user start energy-collector</code>"
+            "<code>systemctl --user start energy-collector</code> (no sudo)"
+            if user.get("installed")
+            else (
+                "<code>sudo systemctl start energy-collector</code>"
+                if scope == "system"
+                else "<code>systemctl --user start energy-collector</code>"
+            )
         )
         return (
             f"<span style='color:{colour}; font-weight:bold;'>{state}</span>"
@@ -1896,6 +2249,12 @@ class ParametersTab(QWidget):
                 "User-session service is installed but stopped. "
                 "For always-on collection use "
                 "<code>sudo ./services/install-energy-collector.sh</code>."
+            )
+        elif sys_inst and usr_inst and not sys_on and not usr_on:
+            notes.append(
+                "Both boot and user-session units are installed. "
+                "<b>Start/Restart</b> here uses the user-session copy (no sudo). "
+                "Terminal: <code>sudo systemctl start energy-collector</code> for the boot unit."
             )
         return notes
 
@@ -2020,13 +2379,101 @@ class ParametersTab(QWidget):
     ) -> QWidget:
         panel = QWidget()
         lay = QVBoxLayout(panel)
-        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setContentsMargins(8, 0, 8, 0)
         lay.setSpacing(2)
-        lay.addWidget(lbl_found)
-        lay.addWidget(lbl_ok)
-        lay.addWidget(lbl_off)
+        lay.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        left = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        for lbl in (lbl_found, lbl_ok, lbl_off):
+            lbl.setAlignment(left)
+            lay.addWidget(lbl, 0, left)
         panel.setMinimumWidth(_PARAMS_DB_STATUS_MIN_W)
+        panel.setMaximumWidth(_PARAMS_DB_STATUS_MAX_W)
+        panel.setSizePolicy(
+            QSizePolicy.Policy.Maximum,
+            QSizePolicy.Policy.Preferred,
+        )
         return panel
+
+    def _make_db_schema_panel(self, dialect: str) -> QWidget:
+        """Right-hand create-all SQL + table list for one engine."""
+        from energy_dashboard.db.full_schema import schema_info_html, schema_script
+
+        box = QWidget()
+        box.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        box.setMinimumWidth(_PARAMS_DB_SCHEMA_MIN_W)
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(8, 0, 0, 0)
+        lay.setSpacing(4)
+        info = QLabel(schema_info_html(dialect))
+        info.setTextFormat(Qt.TextFormat.RichText)
+        info.setWordWrap(True)
+        info.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        info.setStyleSheet(
+            f"color: {_DARK_SUBTEXT}; font-size: 11px; font-weight: normal;"
+        )
+        sql = QTextEdit()
+        sql.setReadOnly(True)
+        sql.setPlainText(schema_script(dialect, grant_role=self._db_grant_role(dialect)))
+        if dialect == "pg":
+            self._db_schema_sql_view = sql
+        sql.setMinimumHeight(110)
+        sql.setMaximumHeight(150)
+        sql.setFont(QFont("monospace", 9))
+        sql.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        sql.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        _apply_dark_log_view(sql, object_name=f"dbSchemaSql_{dialect}")
+        copy = QPushButton("Copy SQL")
+        copy.setToolTip("Copy this engine's full CREATE script to the clipboard")
+        copy.clicked.connect(
+            lambda _checked=False, d=dialect: self._copy_db_schema_sql(d)
+        )
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.addWidget(copy, 0, Qt.AlignmentFlag.AlignLeft)
+        btn_row.addStretch(1)
+        lay.addWidget(info)
+        lay.addWidget(sql, 1)
+        lay.addLayout(btn_row)
+        return box
+
+    def _db_grant_role(self, dialect: str) -> str:
+        """PostgreSQL login the GRANT lines should name (blank for other engines)."""
+        if dialect != "pg":
+            return ""
+        ed = getattr(self, "ed_pg_user", None)
+        if ed is not None:
+            return ed.text().strip()
+        s = QSettings("PowerModel", "EnergyDashboard2")
+        return str(s.value("db/pg_user", "") or "").strip()
+
+    def _refresh_db_schema_sql(self) -> None:
+        """Keep the PostgreSQL GRANT lines in step with the user field."""
+        from energy_dashboard.db.full_schema import schema_script
+
+        view = getattr(self, "_db_schema_sql_view", None)
+        if view is None:
+            return
+        view.setPlainText(schema_script("pg", grant_role=self._db_grant_role("pg")))
+
+    def _copy_db_schema_sql(self, dialect: str) -> None:
+        from energy_dashboard.db.full_schema import schema_script
+
+        QApplication.clipboard().setText(
+            schema_script(dialect, grant_role=self._db_grant_role(dialect))
+        )
+        engine = {"sqlite": "SQLite", "mysql": "MySQL", "pg": "PostgreSQL"}.get(
+            dialect, dialect
+        )
+        self.dash.set_status(f"{engine} CREATE SQL copied to clipboard.")
 
     @staticmethod
     def _set_db_status_line(lbl: QLabel, text: str, color: str, *, bold=False, tooltip=""):
@@ -2073,65 +2520,21 @@ class ParametersTab(QWidget):
                 )
                 self._set_db_status_line(lbl_off, "", _DB_RAG_GREY)
             else:
-                lbl_off.setText("")
-                lbl_off.setToolTip("")
+                pass
 
     def _on_db_enable_changed(self, _state=0):
         self._refresh_db_seen_off_rows()
         if any(chk.isChecked() for chk in (self.chk_sqlite, self.chk_mysql, self.chk_pg)):
             self._probe_db_seen_async()
 
-    def _apply_db_status_found(self, name, lbl_found, found_ok, found_detail):
-        if found_ok:
-            self._set_db_status_line(
-                lbl_found,
-                "Database found",
-                _DB_RAG_GREEN,
-                tooltip=str(found_detail),
-            )
-        else:
-            self._set_db_status_line(
-                lbl_found,
-                "Database not found",
-                _DB_RAG_RED,
-                tooltip=str(found_detail),
-            )
-
-    def _apply_db_status_ok(self, name, lbl_ok, conn_ok, conn_detail):
-        if conn_ok and isinstance(conn_detail, dict):
-            access = str(conn_detail.get("access", ""))
-            summary = format_probe_summary(conn_detail)
-            tooltip = format_probe_tooltip(conn_detail)
-            if access.startswith("read+write"):
-                self._set_db_status_line(
-                    lbl_ok,
-                    "Database OK",
-                    _DB_RAG_GREEN,
-                    tooltip=tooltip,
-                )
-                return True, f"{name}: OK — {summary}"
-            self._set_db_status_line(
-                lbl_ok,
-                "Database OK (read-only)",
-                _DB_RAG_AMBER,
-                tooltip=tooltip,
-            )
-            return True, f"{name}: read-only — {summary}"
-        if conn_ok:
-            self._set_db_status_line(
-                lbl_ok,
-                "Database OK",
-                _DB_RAG_GREEN,
-                tooltip=str(conn_detail),
-            )
-            return True, f"{name}: OK ({conn_detail})"
+    def _apply_db_status_stage(self, lbl: QLabel, ok: bool, text: str, tip: str):
         self._set_db_status_line(
-            lbl_ok,
-            "Database not OK",
-            _DB_RAG_RED,
-            tooltip=str(conn_detail),
+            lbl,
+            text,
+            _DB_RAG_GREEN if ok else _DB_RAG_RED,
+            bold=not ok,
+            tooltip=str(tip or ""),
         )
-        return False, f"{name}: FAIL — {conn_detail}"
 
     @staticmethod
     def _db_backend_display_name(backend: str | None) -> str | None:
@@ -2153,29 +2556,38 @@ class ParametersTab(QWidget):
         parts = []
         all_ok = True
         any_enabled = False
-        found_results = found_results or {}
         for name, chk, lbl_found, lbl_ok, lbl_off in self._db_status_rows():
             if only_name is not None and name != only_name:
                 continue
             if only_name is None and not chk.isChecked():
                 continue
             any_enabled = True
-            lbl_off.setText("")
-            lbl_off.setToolTip("")
-            if name in found_results:
-                self._apply_db_status_found(
-                    name, lbl_found, *found_results[name]
-                )
-            elif name not in results:
-                self._set_db_status_line(lbl_found, "Checking…", _UI_BLUE)
-            if name not in results:
-                self._set_db_status_line(lbl_ok, "Checking…", _UI_BLUE)
-                lbl_ok.setToolTip("")
+            stage = results.get(name) if isinstance(results, dict) else None
+            if not isinstance(stage, dict) or "seen_label" not in stage:
+                self._set_db_status_line(lbl_found, "Checking DB seen…", _UI_BLUE)
+                self._set_db_status_line(lbl_ok, "Checking connection…", _UI_BLUE)
+                self._set_db_status_line(lbl_off, "Checking tables…", _UI_BLUE)
                 continue
-            conn_ok, conn_detail = results[name]
-            ok_part, part = self._apply_db_status_ok(name, lbl_ok, conn_ok, conn_detail)
-            parts.append(part)
-            if not ok_part:
+            self._apply_db_status_stage(
+                lbl_found,
+                stage.get("seen_ok"),
+                stage.get("seen_label", ""),
+                stage.get("seen_tip", ""),
+            )
+            self._apply_db_status_stage(
+                lbl_ok,
+                stage.get("conn_ok"),
+                stage.get("conn_label", ""),
+                stage.get("conn_tip", ""),
+            )
+            self._apply_db_status_stage(
+                lbl_off,
+                stage.get("tables_ok"),
+                stage.get("tables_label", ""),
+                stage.get("tables_tip", ""),
+            )
+            parts.append(stage.get("summary") or name)
+            if not stage.get("ok"):
                 all_ok = False
         if summary_prefix:
             prefix = f"{summary_prefix} — "
@@ -2192,14 +2604,15 @@ class ParametersTab(QWidget):
                 f"color: {_DB_RAG_GREEN if all_ok else _DB_RAG_RED}; font-size: 11px;"
             )
 
-    def _probe_db_seen_async(self, backend=None):
+    def _probe_db_seen_async(self, backend=None, user_test=None):
         only_name = self._db_backend_display_name(backend)
         self._push_db_config_to_logger(backend)
         self._refresh_db_seen_off_rows()
-        for name, chk, lbl_found, lbl_ok, _lbl_off in self._db_status_rows():
+        for name, chk, lbl_found, lbl_ok, lbl_off in self._db_status_rows():
             if (only_name is not None and name == only_name) or (only_name is None and chk.isChecked()):
-                self._set_db_status_line(lbl_found, "Checking…", _UI_BLUE)
-                self._set_db_status_line(lbl_ok, "Checking…", _UI_BLUE)
+                self._set_db_status_line(lbl_found, "Checking DB seen…", _UI_BLUE)
+                self._set_db_status_line(lbl_ok, "Checking connection…", _UI_BLUE)
+                self._set_db_status_line(lbl_off, "Checking tables…", _UI_BLUE)
         if only_name is None and not any(chk.isChecked() for chk in (self.chk_sqlite, self.chk_mysql, self.chk_pg)):
             self._apply_db_seen_results({})
             return
@@ -2207,50 +2620,96 @@ class ParametersTab(QWidget):
         def _worker():
             dl = getattr(self.dash, 'data_logger', None)
             if dl is None:
-                self._inv.invoke(lambda: self._set_db_seen_error("Logger not initialised"))
+                self._inv.invoke(
+                    lambda u=user_test: self._set_db_seen_error(
+                        "Logger not initialised", user_test=u,
+                    )
+                )
                 return
-            found_results = {}
+            stages = {}
             if dl.sqlite_enabled:
-                found_results["SQLite"] = check_sqlite_file_exists(dl.sqlite_path)
+                stages["SQLite"] = probe_engine_stages("SQLite", path=dl.sqlite_path)
             if dl.mysql_enabled:
-                found_results["MySQL"] = check_mysql_database_exists(
-                    dl.mysql_host,
-                    dl.mysql_port,
-                    dl.mysql_user,
-                    dl.mysql_pass,
-                    dl.mysql_db,
+                stages["MySQL"] = probe_engine_stages(
+                    "MySQL",
+                    host=dl.mysql_host,
+                    port=dl.mysql_port,
+                    user=dl.mysql_user,
+                    password=dl.mysql_pass,
+                    database=dl.mysql_db,
                 )
             if dl.pg_enabled:
-                found_results["PostgreSQL"] = check_postgresql_database_exists(
-                    dl.pg_host,
-                    dl.pg_port,
-                    dl.pg_user,
-                    dl.pg_pass,
-                    dl.pg_db,
+                stages["PostgreSQL"] = probe_engine_stages(
+                    "PostgreSQL",
+                    host=dl.pg_host,
+                    port=dl.pg_port,
+                    user=dl.pg_user,
+                    password=dl.pg_pass,
+                    database=dl.pg_db,
                 )
-            results = dl.test_connections()
+            if "MySQL" in stages:
+                dl.note_connect_result("mysql", bool(stages["MySQL"].get("conn_ok")))
+            if "PostgreSQL" in stages:
+                dl.note_connect_result("pg", bool(stages["PostgreSQL"].get("conn_ok")))
             self._inv.invoke(
-                lambda r=results, f=found_results, b=backend: self._finish_db_probe(r, f, b)
+                lambda r=stages, b=backend, u=user_test: self._finish_db_probe(
+                    r, b, user_test=u,
+                )
             )
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _finish_db_probe(self, results, found_results, backend=None):
-        self._apply_db_seen_results(results, found_results, backend=backend)
+    def _finish_db_probe(self, results, backend=None, user_test=None):
+        self._apply_db_seen_results(results, backend=backend)
         if backend is not None:
             # Restore the logger's real automatic-logging backend selection after
             # a one-row probe, because per-row tests operate even if the checkbox
             # is currently off.
             self._push_db_config_to_logger()
+        if user_test is not None:
+            self._complete_db_user_test(results, user_test)
 
-    def _set_db_seen_error(self, message):
-        for _name, chk, lbl_found, lbl_ok, _lbl_off in self._db_status_rows():
+    def _complete_db_user_test(self, results, user_test) -> None:
+        backend, _on_done = user_test
+        name = self._db_backend_display_name(backend) or "Database"
+        stage = results.get(name) if isinstance(results, dict) else None
+        if not isinstance(stage, dict):
+            ok, detail = False, "No result from the database test."
+        else:
+            ok = bool(stage.get("conn_ok"))
+            detail = str(stage.get("summary") or stage.get("conn_tip") or "")
+        self._report_link_test(
+            backend or "db",
+            ok,
+            detail,
+            title=f"{name} test",
+            status=f"{name}: {detail}" if detail else None,
+        )
+
+    def _set_db_seen_error(self, message, user_test=None):
+        for name, chk, lbl_found, lbl_ok, lbl_off in self._db_status_rows():
             if chk.isChecked():
-                self._set_db_status_line(lbl_found, "Database not found", _DB_RAG_RED, tooltip=message)
-                self._set_db_status_line(lbl_ok, "Database not OK", _DB_RAG_RED, tooltip=message)
+                self._set_db_status_line(
+                    lbl_found, f"{name} DB not seen", _DB_RAG_RED, tooltip=message
+                )
+                self._set_db_status_line(
+                    lbl_ok, "Database not connected", _DB_RAG_RED, tooltip=message
+                )
+                self._set_db_status_line(
+                    lbl_off, "Tables not connected", _DB_RAG_RED, tooltip=message
+                )
         self.db_status_label.setText(message)
         self.db_status_label.setStyleSheet(f"color: {_DB_RAG_RED}; font-size: 11px;")
-        self.load_battery_solar_from_settings()
+        if user_test is not None:
+            backend, _on_done = user_test
+            name = self._db_backend_display_name(backend) or "Database"
+            self._report_link_test(
+                backend or "db", False, message, title=f"{name} test",
+            )
+
+    @staticmethod
+    def _settings_str(s: QSettings, key: str, default: str = "") -> str:
+        return str(s.value(key, default) or default).strip()
 
     def load_battery_solar_from_settings(self):
         s = self._settings()
@@ -2274,42 +2733,42 @@ class ParametersTab(QWidget):
         if s.contains("params/battery_low_soc_threshold_pct"):
             self.sp_soc_thr.setValue(int(s.value("params/battery_low_soc_threshold_pct", 10)))
         if s.contains("params/solar_lat"):
-            self.ed_lat.setText(s.value("params/solar_lat", ""))
+            self.ed_lat.setText(self._fmt_solar_coord(s.value("params/solar_lat", "")))
         if s.contains("params/solar_lon"):
-            self.ed_lon.setText(s.value("params/solar_lon", ""))
+            self.ed_lon.setText(self._fmt_solar_coord(s.value("params/solar_lon", "")))
         if s.contains("params/solar_tilt"):
-            self.ed_tilt.setText(s.value("params/solar_tilt", ""))
+            self.ed_tilt.setText(str(s.value("params/solar_tilt", "") or ""))
         if s.contains("params/solar_azimuth"):
-            self.ed_azimuth.setText(s.value("params/solar_azimuth", ""))
+            self.ed_azimuth.setText(str(s.value("params/solar_azimuth", "") or ""))
         if s.contains("params/solar_kwp"):
-            self.ed_kwp.setText(s.value("params/solar_kwp", ""))
+            self.ed_kwp.setText(str(s.value("params/solar_kwp", "") or ""))
         if s.contains("params/growatt_local_ip"):
-            legacy_ip = s.value("params/growatt_local_ip", "")
+            legacy_ip = self._settings_str(s, "params/growatt_local_ip")
         else:
             legacy_ip = ""
         if s.contains("params/growatt_lan_ip"):
-            self.p.growatt_lan_ip = s.value("params/growatt_lan_ip", "")
+            self.p.growatt_lan_ip = self._settings_str(s, "params/growatt_lan_ip")
         else:
             self.p.growatt_lan_ip = legacy_ip
         self.ed_growatt_lan_ip.setText(self.p.growatt_lan_ip)
         if s.contains("params/growatt_wifi_ip"):
-            self.p.growatt_wifi_ip = s.value("params/growatt_wifi_ip", "")
+            self.p.growatt_wifi_ip = self._settings_str(s, "params/growatt_wifi_ip")
         elif legacy_ip:
             self.p.growatt_wifi_ip = legacy_ip
         else:
             self.p.growatt_wifi_ip = ""
         self.ed_growatt_wifi_ip.setText(self.p.growatt_wifi_ip)
         if s.contains("params/growatt_lan_user"):
-            self.p.growatt_lan_user = s.value("params/growatt_lan_user", "")
+            self.p.growatt_lan_user = self._settings_str(s, "params/growatt_lan_user")
             self.ed_growatt_lan_user.setText(self.p.growatt_lan_user)
         if s.contains("params/growatt_lan_password"):
-            self.p.growatt_lan_password = s.value("params/growatt_lan_password", "")
+            self.p.growatt_lan_password = str(s.value("params/growatt_lan_password", "") or "")
             self.ed_growatt_lan_pass.setText(self.p.growatt_lan_password)
         if s.contains("params/growatt_wifi_user"):
-            self.p.growatt_wifi_user = s.value("params/growatt_wifi_user", "")
+            self.p.growatt_wifi_user = self._settings_str(s, "params/growatt_wifi_user")
             self.ed_growatt_wifi_user.setText(self.p.growatt_wifi_user)
         if s.contains("params/growatt_wifi_password"):
-            self.p.growatt_wifi_password = s.value("params/growatt_wifi_password", "")
+            self.p.growatt_wifi_password = str(s.value("params/growatt_wifi_password", "") or "")
             self.ed_growatt_wifi_pass.setText(self.p.growatt_wifi_password)
         if s.contains("params/growatt_telemetry_source") or s.contains("params/grott_mqtt_enabled"):
             self.p.growatt_telemetry_source = read_growatt_telemetry_source(s, self.p)
@@ -2325,7 +2784,7 @@ class ParametersTab(QWidget):
             if hasattr(self, "chk_grott_fill_missing"):
                 self.chk_grott_fill_missing.setChecked(bool(self.p.grott_fill_missing_api))
         if s.contains("params/grott_mqtt_host"):
-            self.p.grott_mqtt_host = s.value("params/grott_mqtt_host", "")
+            self.p.grott_mqtt_host = self._settings_str(s, "params/grott_mqtt_host")
             self.ed_grott_host.setText(self.p.grott_mqtt_host)
         if s.contains("params/grott_mqtt_port"):
             self.p.grott_mqtt_port = int(s.value("params/grott_mqtt_port", 1883))
@@ -2337,14 +2796,45 @@ class ParametersTab(QWidget):
         self.ed_emqx_host.setText(emqx_host)
         emqx_port = int(s.value("params/emqx_port", self.p.grott_mqtt_port or _EMQX_ROUTE_DEFAULT_PORT))
         self.sp_emqx_port.setValue(max(1, min(65535, emqx_port)))
+        emqx_user = str(
+            s.value("params/emqx_user", self.p.grott_mqtt_user or "") or ""
+        ).strip()
+        emqx_pass = str(
+            s.value("params/emqx_password", self.p.grott_mqtt_password or "") or ""
+        )
+        # Prefer Tasmota MQTT auth when the EMQX row was never filled (common).
+        if not emqx_user:
+            emqx_user = str(s.value("tasmota/mqtt_user", "") or "").strip()
+            if not emqx_pass:
+                emqx_pass = str(s.value("tasmota/mqtt_pass", "") or "")
+        self.ed_emqx_user.setText(emqx_user)
+        self.ed_emqx_pass.setText(emqx_pass)
         if s.contains("params/grott_mqtt_user"):
-            self.p.grott_mqtt_user = s.value("params/grott_mqtt_user", "")
+            self.p.grott_mqtt_user = self._settings_str(s, "params/grott_mqtt_user")
             self.ed_grott_user.setText(self.p.grott_mqtt_user)
         if s.contains("params/grott_mqtt_password"):
-            self.p.grott_mqtt_password = s.value("params/grott_mqtt_password", "")
+            self.p.grott_mqtt_password = str(s.value("params/grott_mqtt_password", "") or "")
             self.ed_grott_pass.setText(self.p.grott_mqtt_password)
+        # Persist empty Grott/EMQX broker from Tasmota/EMQX so Hybrid stays up.
+        from energy_dashboard.config import heal_grott_mqtt_broker_settings
+        healed = heal_grott_mqtt_broker_settings(s, self.p)
+        if healed.get("host"):
+            self.ed_grott_host.setText(healed["host"])
+            self.sp_grott_port.setValue(int(healed["port"]))
+            self.ed_emqx_host.setText(
+                self.ed_emqx_host.text().strip() or healed["host"]
+            )
+            if healed.get("username"):
+                if not self.ed_grott_user.text().strip():
+                    self.ed_grott_user.setText(healed["username"])
+                    self.ed_grott_pass.setText(healed.get("password") or "")
+                if not self.ed_emqx_user.text().strip():
+                    self.ed_emqx_user.setText(healed["username"])
+                    self.ed_emqx_pass.setText(healed.get("password") or "")
         if s.contains("params/grott_mqtt_topic"):
-            self.p.grott_mqtt_topic = s.value("params/grott_mqtt_topic", "energy/growatt")
+            self.p.grott_mqtt_topic = self._settings_str(
+                s, "params/grott_mqtt_topic", "energy/growatt"
+            ) or "energy/growatt"
             self.ed_grott_topic.setText(self.p.grott_mqtt_topic)
         if s.contains("params/grott_mqtt_fresh_s"):
             self.p.grott_mqtt_fresh_s = int(s.value("params/grott_mqtt_fresh_s", 120))
@@ -2353,15 +2843,23 @@ class ParametersTab(QWidget):
             self.p.growatt_local_port = int(s.value("params/growatt_local_port", 80))
             self.sp_growatt_port.setValue(self.p.growatt_local_port)
         if s.contains("params/growatt_modbus_mode"):
-            self.p.growatt_modbus_mode = s.value("params/growatt_modbus_mode", "off")
+            self.p.growatt_modbus_mode = str(
+                s.value("params/growatt_modbus_mode", "off") or "off"
+            ).strip()
             idx = self.cb_growatt_modbus.findData(self.p.growatt_modbus_mode)
             if idx >= 0:
-                self.cb_growatt_modbus.setCurrentIndex(idx)
+                self.cb_growatt_modbus.blockSignals(True)
+                try:
+                    self.cb_growatt_modbus.setCurrentIndex(idx)
+                finally:
+                    self.cb_growatt_modbus.blockSignals(False)
         if s.contains("params/growatt_modbus_tcp_port"):
             self.p.growatt_modbus_tcp_port = int(s.value("params/growatt_modbus_tcp_port", 502))
             self.sp_growatt_modbus_tcp.setValue(self.p.growatt_modbus_tcp_port)
         if s.contains("params/growatt_modbus_serial_path"):
-            self.p.growatt_modbus_serial_path = s.value("params/growatt_modbus_serial_path", "")
+            self.p.growatt_modbus_serial_path = self._settings_str(
+                s, "params/growatt_modbus_serial_path", "/dev/ttyUSB0"
+            )
             self.ed_growatt_modbus_serial.setText(self.p.growatt_modbus_serial_path)
         if s.contains("params/growatt_modbus_baud"):
             self.p.growatt_modbus_baud = int(s.value("params/growatt_modbus_baud", 9600))
@@ -2369,11 +2867,18 @@ class ParametersTab(QWidget):
         if s.contains("params/growatt_modbus_unit"):
             self.p.growatt_modbus_unit = int(s.value("params/growatt_modbus_unit", 1))
             self.sp_growatt_modbus_unit.setValue(self.p.growatt_modbus_unit)
+        self.p.growatt_modbus_writes_enabled = bool(
+            s.value("params/growatt_modbus_writes_enabled", False, type=bool)
+        )
+        if hasattr(self, "chk_growatt_modbus_writes"):
+            self.chk_growatt_modbus_writes.setChecked(self.p.growatt_modbus_writes_enabled)
         self._update_grott_source_controls()
         self._update_growatt_modbus_controls()
         self._read_growatt_form_into_params()
         self.p.battery_capacity_kwh = self.sp_cap.value()
         self.p.battery_low_soc_threshold_pct = float(self.sp_soc_thr.value())
+        self._normalize_solar_coord_edit(self.ed_lat)
+        self._normalize_solar_coord_edit(self.ed_lon)
         self.p.solar_lat = self.ed_lat.text().strip()
         self.p.solar_lon = self.ed_lon.text().strip()
         self.p.solar_tilt = self.ed_tilt.text().strip()
@@ -2389,6 +2894,16 @@ class ParametersTab(QWidget):
         ft.solar_edits['tilt'].setText(self.p.solar_tilt)
         ft.solar_edits['azimuth'].setText(self.p.solar_azimuth)
         ft.solar_edits['kwp'].setText(self.p.solar_kwp)
+        try:
+            ft._refresh_locale_label(force=True)
+        except Exception:
+            pass
+        # Populate Connected/Disconnected for Local Modbus without a dialog.
+        mode = (getattr(self.p, "growatt_modbus_mode", "off") or "off").lower()
+        if mode == "off":
+            self._set_growatt_modbus_status(False, "Local Modbus check is disabled.")
+        else:
+            QTimer.singleShot(400, lambda: self._test_growatt_modbus_connection(quiet=True))
 
     # ── Main tab bar visibility ───────────────────────────────────────
 
@@ -2415,7 +2930,7 @@ class ParametersTab(QWidget):
             AboutDialog(self).exec()
         except Exception as e:
             try:
-                _log.warn(f"ParametersTab: AboutDialog failed: {e}")
+                _log.warn("Setup", f"AboutDialog failed: {e}")
             except Exception:
                 pass
             QMessageBox.warning(self, "About", f"Couldn't open About dialog:\n{e}")
@@ -2425,7 +2940,7 @@ class ParametersTab(QWidget):
             HistoryDialog(self).exec()
         except Exception as e:
             try:
-                _log.warn(f"ParametersTab: HistoryDialog failed: {e}")
+                _log.warn("Setup", f"HistoryDialog failed: {e}")
             except Exception:
                 pass
             QMessageBox.warning(self, "History", f"Couldn't open History dialog:\n{e}")
@@ -2441,7 +2956,39 @@ class ParametersTab(QWidget):
         self.dash.analytics_tab.apply_from_app_params()
         self.dash.set_status("Battery defaults saved.")
 
+    def _save_alarm_settings(self):
+        self.dash.apply_alarm_settings_from_ui(
+            enabled=self.chk_alarms.isChecked(),
+            desktop=self.chk_alarm_desktop.isChecked(),
+            hold_minutes=float(self.sp_alarm_hold.value()),
+            pv_min_kw=float(self.sp_alarm_pv_min.value()),
+        )
+        self.dash.set_status("Live alarm settings saved.")
+        try:
+            self.dash._evaluate_alarms()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _fmt_solar_coord(val) -> str:
+        """Format latitude/longitude to exactly 5 decimal places when numeric."""
+        s = str(val or "").strip()
+        if not s:
+            return ""
+        try:
+            return f"{float(s):.5f}"
+        except (TypeError, ValueError):
+            return s
+
+    def _normalize_solar_coord_edit(self, edit):
+        """Snap a Setup Lat/Lon field to 5 decimal places on edit finish."""
+        if edit is None:
+            return
+        edit.setText(self._fmt_solar_coord(edit.text()))
+
     def _save_solar_installation(self):
+        self._normalize_solar_coord_edit(self.ed_lat)
+        self._normalize_solar_coord_edit(self.ed_lon)
         self.p.solar_lat = self.ed_lat.text().strip()
         self.p.solar_lon = self.ed_lon.text().strip()
         self.p.solar_tilt = self.ed_tilt.text().strip()
@@ -2560,6 +3107,104 @@ class ParametersTab(QWidget):
             except Exception:
                 pass
 
+    def _test_growatt_cloud_connection(self):
+        """Test Growatt cloud from Setup fields (always cloud, not Grott MQTT)."""
+        self._save_growatt_cloud_credentials()
+        gt = getattr(self.dash, "growatt_tab", None)
+        if gt is None or not hasattr(gt, "_test_growatt_cloud_credentials"):
+            self.dash.set_status("Growatt Live Status tab is not available.")
+            return
+        gt._test_growatt_cloud_credentials()
+
+    def _save_pvoutput_settings(self):
+        from energy_dashboard.fetch.pvoutput import save_pvoutput_config
+        cfg = save_pvoutput_config(
+            enabled=self.chk_pvoutput.isChecked(),
+            api_key=self.ed_pvoutput_key.text(),
+            system_id=self.ed_pvoutput_sid.text(),
+            interval_s=int(self.sp_pvoutput_interval.value()),
+        )
+        state = "enabled" if cfg.ready else ("on but incomplete" if cfg.enabled else "disabled")
+        self.dash.set_status(f"PVOutput settings saved ({state}).")
+
+    def _test_pvoutput_upload(self, on_done=None):
+        from energy_dashboard.fetch.pvoutput import save_pvoutput_config, upload_from_growatt
+        self._arm_link_cb("pvoutput", on_done)
+        save_pvoutput_config(
+            enabled=True,
+            api_key=self.ed_pvoutput_key.text(),
+            system_id=self.ed_pvoutput_sid.text(),
+            interval_s=int(self.sp_pvoutput_interval.value()),
+        )
+        self.chk_pvoutput.setChecked(True)
+        gt = getattr(self.dash, "growatt_tab", None)
+        status = getattr(gt, "mix_status_data", None) or {} if gt else {}
+        totals = getattr(gt, "mix_totals_data", None) or {} if gt else {}
+        if not status:
+            self._report_link_test(
+                "pvoutput",
+                False,
+                "No Growatt live snapshot yet — refresh Growatt first.",
+                title="PVOutput",
+                status="PVOutput test: no Growatt live snapshot yet — refresh Growatt first.",
+            )
+            return
+        self.dash.set_status("PVOutput: uploading test status…")
+
+        def _run():
+            ok, msg = upload_from_growatt(status, totals, force=True)
+            self._inv.invoke(
+                lambda o=ok, m=msg: self._finish_pvoutput_test(o, m)
+            )
+
+        import threading
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _finish_pvoutput_test(self, ok, msg):
+        self._report_link_test(
+            "pvoutput",
+            bool(ok),
+            msg,
+            title="PVOutput test",
+            status=f"PVOutput test: {'OK — ' if ok else 'failed — '}{msg}",
+        )
+
+    def _save_wonderwatt_share(self):
+        from energy_dashboard.fetch.wonderwatt import save_wonderwatt_share_url
+        parsed = save_wonderwatt_share_url(self.ed_wonderwatt_share.text())
+        if parsed is None:
+            self.ed_wonderwatt_share.clear()
+            self.dash.set_status("Wonderwatt share URL cleared / invalid.")
+            return
+        self.ed_wonderwatt_share.setText(parsed["share_url"])
+        pot = getattr(self.dash, "pot_issues_tab", None)
+        if pot is not None and hasattr(pot, "ww_url"):
+            pot.ww_url.setText(parsed["share_url"])
+        self.dash.set_status(f"Wonderwatt share saved (wattid={parsed['wattid']}).")
+
+    def _test_wonderwatt_share(self):
+        from energy_dashboard.fetch.wonderwatt import (
+            save_wonderwatt_share_url,
+            test_wonderwatt_connection,
+        )
+        parsed = save_wonderwatt_share_url(self.ed_wonderwatt_share.text())
+        if parsed is None:
+            self.dash.set_status(
+                "Wonderwatt test: need a valid share URL (wattid, sig, time)."
+            )
+            return
+        self.ed_wonderwatt_share.setText(parsed["share_url"])
+        self.dash.set_status("Wonderwatt: testing share link…")
+
+        def _run():
+            ok, msg = test_wonderwatt_connection(parsed["share_url"])
+            self.dash.set_status(
+                f"Wonderwatt: {'connected — ' if ok else 'failed — '}{msg}"
+            )
+
+        import threading
+        threading.Thread(target=_run, daemon=True).start()
+
     def set_growatt_telemetry_source(self, source: str, fill_missing: bool | None = None):
         """Mirror the live-status source toggle onto the Setup radios."""
         if not hasattr(self, "chk_grott_mqtt"):
@@ -2630,6 +3275,11 @@ class ParametersTab(QWidget):
         self.p.growatt_modbus_serial_path = self.ed_growatt_modbus_serial.text().strip()
         self.p.growatt_modbus_baud = int(self.sp_growatt_modbus_baud.value())
         self.p.growatt_modbus_unit = int(self.sp_growatt_modbus_unit.value())
+        self.p.growatt_modbus_writes_enabled = bool(
+            hasattr(self, "chk_growatt_modbus_writes")
+            and self.chk_growatt_modbus_writes.isChecked()
+            and self.p.growatt_modbus_mode != "off"
+        )
 
     def _write_growatt_params_to_settings(self, s):
         s.setValue("params/growatt_lan_ip", self.p.growatt_lan_ip)
@@ -2656,6 +3306,10 @@ class ParametersTab(QWidget):
         s.setValue("params/growatt_modbus_serial_path", self.p.growatt_modbus_serial_path)
         s.setValue("params/growatt_modbus_baud", self.p.growatt_modbus_baud)
         s.setValue("params/growatt_modbus_unit", self.p.growatt_modbus_unit)
+        s.setValue(
+            "params/growatt_modbus_writes_enabled",
+            bool(getattr(self.p, "growatt_modbus_writes_enabled", False)),
+        )
 
     @staticmethod
     def _growatt_web_url(host, port, username="", password=""):
@@ -2693,23 +3347,160 @@ class ParametersTab(QWidget):
             ))
         return targets
 
+    def _on_growatt_modbus_mode_changed(self):
+        mode = self.cb_growatt_modbus.currentData()
+        if mode is None:
+            mode = "off"
+        # Do not auto-rewrite TCP port: USR RS485 gateways often speak
+        # Modbus TCP on 8899 (not 502). Clobbering 8899→502 on mode select
+        # made Save appear to "lose" a working Modbus setup.
+        self._update_growatt_modbus_controls()
+        if (mode or "off").lower() == "off":
+            self._set_growatt_modbus_status(False, "Local Modbus check is disabled.")
+        else:
+            self._set_growatt_modbus_status(False, "Not tested yet — click Test Modbus.")
+
     def _update_growatt_modbus_controls(self):
         mode = self.cb_growatt_modbus.currentData()
         if mode is None:
             mode = "off"
-        tcp_on = mode == "tcp"
+        tcp_on = mode in ("tcp", "tcp_rtu")
         ser_on = mode == "serial"
         self.sp_growatt_modbus_tcp.setEnabled(tcp_on)
         self.ed_growatt_modbus_serial.setEnabled(ser_on)
         self.sp_growatt_modbus_baud.setEnabled(ser_on)
         self.sp_growatt_modbus_unit.setEnabled(mode != "off")
+        if hasattr(self, "chk_growatt_modbus_writes"):
+            self.chk_growatt_modbus_writes.setEnabled(mode != "off")
+            if mode == "off":
+                self.chk_growatt_modbus_writes.setChecked(False)
+
+    def _emqx_form_broker(self, *, fill_empty_creds=True):
+        """Host/port/user/pass from the EMQX row, with sensible credential fallbacks.
+
+        Empty username/password placeholders must not wipe working Tasmota/Grott
+        MQTT auth when the user clicks Save without retyping ``mqadmin``.
+        """
+        host = self.ed_emqx_host.text().strip() or _EMQX_ROUTE_DEFAULT_HOST
+        port = int(self.sp_emqx_port.value())
+        user = self.ed_emqx_user.text().strip()
+        password = self.ed_emqx_pass.text()
+        if fill_empty_creds and not user:
+            s = self._settings()
+            user = str(
+                s.value("tasmota/mqtt_user", "")
+                or getattr(self.p, "grott_mqtt_user", "")
+                or self.ed_grott_user.text()
+                or ""
+            ).strip()
+            if not password:
+                password = str(
+                    s.value("tasmota/mqtt_pass", "")
+                    or getattr(self.p, "grott_mqtt_password", "")
+                    or self.ed_grott_pass.text()
+                    or ""
+                )
+            if user:
+                self.ed_emqx_user.setText(user)
+                self.ed_emqx_pass.setText(password)
+        self.ed_emqx_host.setText(host)
+        return host, port, user, password
+
+    def _push_broker_to_grott_tasmota(self, host, port, user, password, *, s=None):
+        """Write broker into Grott + Tasmota form fields, app_params, and QSettings."""
+        self.ed_grott_host.setText(host)
+        self.sp_grott_port.setValue(port)
+        self.ed_grott_user.setText(user)
+        self.ed_grott_pass.setText(password)
+        self.p.grott_mqtt_host = host
+        self.p.grott_mqtt_port = port
+        self.p.grott_mqtt_user = user
+        self.p.grott_mqtt_password = password
+
+        if s is None:
+            s = self._settings()
+        s.setValue("params/emqx_host", host)
+        s.setValue("params/emqx_port", port)
+        s.setValue("params/emqx_user", user)
+        s.setValue("params/emqx_password", password)
+        s.setValue("params/grott_mqtt_host", host)
+        s.setValue("params/grott_mqtt_port", port)
+        s.setValue("params/grott_mqtt_user", user)
+        s.setValue("params/grott_mqtt_password", password)
+        s.setValue("tasmota/mqtt_host", host)
+        s.setValue("tasmota/mqtt_port", port)
+        s.setValue("tasmota/mqtt_user", user)
+        s.setValue("tasmota/mqtt_pass", password)
+
+        tt = getattr(self.dash, "tasmota_tab", None)
+        if tt is not None:
+            if getattr(tt, "ed_mqtt_host", None) is not None:
+                tt.ed_mqtt_host.setText(host)
+            if getattr(tt, "sp_mqtt_port", None) is not None:
+                tt.sp_mqtt_port.setValue(port)
+            if getattr(tt, "ed_mqtt_user", None) is not None:
+                tt.ed_mqtt_user.setText(user)
+            if getattr(tt, "ed_mqtt_pass", None) is not None:
+                tt.ed_mqtt_pass.setText(password)
+
+    def _save_growatt_modbus(self):
+        """Persist only Local Modbus probe settings."""
+        self.p.growatt_modbus_mode = self.cb_growatt_modbus.currentData() or "off"
+        self.p.growatt_modbus_tcp_port = int(self.sp_growatt_modbus_tcp.value())
+        self.p.growatt_modbus_serial_path = self.ed_growatt_modbus_serial.text().strip()
+        self.p.growatt_modbus_baud = int(self.sp_growatt_modbus_baud.value())
+        self.p.growatt_modbus_unit = int(self.sp_growatt_modbus_unit.value())
+        writes_on = bool(
+            hasattr(self, "chk_growatt_modbus_writes")
+            and self.chk_growatt_modbus_writes.isChecked()
+            and self.p.growatt_modbus_mode != "off"
+        )
+        self.p.growatt_modbus_writes_enabled = writes_on
+        if hasattr(self, "chk_growatt_modbus_writes"):
+            self.chk_growatt_modbus_writes.setChecked(writes_on)
+        s = self._settings()
+        s.setValue("params/growatt_modbus_mode", self.p.growatt_modbus_mode)
+        s.setValue("params/growatt_modbus_tcp_port", self.p.growatt_modbus_tcp_port)
+        s.setValue("params/growatt_modbus_serial_path", self.p.growatt_modbus_serial_path)
+        s.setValue("params/growatt_modbus_baud", self.p.growatt_modbus_baud)
+        s.setValue("params/growatt_modbus_unit", self.p.growatt_modbus_unit)
+        s.setValue("params/growatt_modbus_writes_enabled", writes_on)
+        s.sync()
+        mode = self.p.growatt_modbus_mode
+        if mode in ("tcp", "tcp_rtu"):
+            detail = f"{mode} port {self.p.growatt_modbus_tcp_port}, unit {self.p.growatt_modbus_unit}"
+        elif mode == "serial":
+            detail = (
+                f"serial {self.p.growatt_modbus_serial_path or '—'} "
+                f"@ {self.p.growatt_modbus_baud}, unit {self.p.growatt_modbus_unit}"
+            )
+        else:
+            detail = "disabled"
+        if writes_on:
+            detail += "; inverter writes via Modbus: ON"
+        elif mode != "off":
+            detail += "; inverter writes via Modbus: off"
+        self.dash.set_status(f"Growatt Modbus settings saved ({detail}).")
+        if hasattr(self.dash, "connectivity_tab"):
+            self.dash.connectivity_tab.refresh_status(test_db=False)
+        # Refresh Connected/Disconnected after Save using the values just stored.
+        if mode != "off":
+            self._test_growatt_modbus_connection(quiet=True)
+        else:
+            self._set_growatt_modbus_status(False, "Local Modbus check is disabled.")
 
     def _save_growatt_lan(self):
+        # EMQX row is the shared local broker — sync into Grott before persist so
+        # Save never stores an empty grott_mqtt_host while EMQX host is set.
+        host, port, user, password = self._emqx_form_broker()
+        self._push_broker_to_grott_tasmota(host, port, user, password)
         self._read_growatt_form_into_params()
         s = self._settings()
         self._write_growatt_params_to_settings(s)
-        s.setValue("params/emqx_host", self.ed_emqx_host.text().strip() or _EMQX_ROUTE_DEFAULT_HOST)
-        s.setValue("params/emqx_port", int(self.sp_emqx_port.value()))
+        s.setValue("params/emqx_host", host)
+        s.setValue("params/emqx_port", port)
+        s.setValue("params/emqx_user", user)
+        s.setValue("params/emqx_password", password)
         s.sync()
         lan = self.p.growatt_lan_ip or "—"
         wifi = self.p.growatt_wifi_ip or "—"
@@ -2720,47 +3511,154 @@ class ParametersTab(QWidget):
         )
         self.dash.set_status(
             f"Growatt local settings saved "
-            f"(LAN {lan}, Wi‑Fi {wifi}, web port {self.p.growatt_local_port}, {source})."
+            f"(LAN {lan}, Wi‑Fi {wifi}, web port {self.p.growatt_local_port}, "
+            f"EMQX {host}:{port}, {source})."
         )
         if hasattr(self.dash, "growatt_tab"):
             self.dash.growatt_tab.apply_grott_settings()
         if hasattr(self.dash, "connectivity_tab"):
             self.dash.connectivity_tab.refresh_status(test_db=False)
 
-    def _apply_emqx_route(self):
-        host = self.ed_emqx_host.text().strip() or _EMQX_ROUTE_DEFAULT_HOST
-        port = int(self.sp_emqx_port.value())
-        self.ed_emqx_host.setText(host)
+    def _save_grott_mqtt_login(self):
+        """Persist Grott MQTT host, port, topic, and login.
 
-        # Setup tab (Growatt GROTT source)
-        self.ed_grott_host.setText(host)
-        self.sp_grott_port.setValue(port)
-        self.p.grott_mqtt_host = host
-        self.p.grott_mqtt_port = port
-
+        Does not copy the EMQX row over these fields — that overwrite belongs
+        to Save / Apply on the EMQX row, not to a Grott-only login edit.
+        """
+        self.p.grott_mqtt_host = self.ed_grott_host.text().strip()
+        self.p.grott_mqtt_port = int(self.sp_grott_port.value())
+        self.p.grott_mqtt_user = self.ed_grott_user.text().strip()
+        self.p.grott_mqtt_password = self.ed_grott_pass.text()
+        topic = self.ed_grott_topic.text().strip() or "energy/growatt"
+        self.p.grott_mqtt_topic = topic
+        self.ed_grott_topic.setText(topic)
         s = self._settings()
-        s.setValue("params/emqx_host", host)
-        s.setValue("params/emqx_port", port)
-        s.setValue("params/grott_mqtt_host", host)
-        s.setValue("params/grott_mqtt_port", port)
-        s.setValue("tasmota/mqtt_host", host)
-        s.setValue("tasmota/mqtt_port", port)
+        s.setValue("params/grott_mqtt_host", self.p.grott_mqtt_host)
+        s.setValue("params/grott_mqtt_port", int(self.p.grott_mqtt_port))
+        s.setValue("params/grott_mqtt_user", self.p.grott_mqtt_user)
+        s.setValue("params/grott_mqtt_password", self.p.grott_mqtt_password)
+        s.setValue("params/grott_mqtt_topic", self.p.grott_mqtt_topic)
         s.sync()
+        if hasattr(self.dash, "growatt_tab"):
+            self.dash.growatt_tab.apply_grott_settings()
+        if hasattr(self.dash, "connectivity_tab"):
+            self.dash.connectivity_tab.refresh_status(test_db=False)
+        user = self.p.grott_mqtt_user
+        cred = f", user {user}" if user else ""
+        self.dash.set_status(
+            f"Grott MQTT login saved "
+            f"({self.p.grott_mqtt_host}:{self.p.grott_mqtt_port}{cred})."
+        )
 
-        # Keep Tasmota tab in sync immediately (if it is already constructed).
-        tt = getattr(self.dash, "tasmota_tab", None)
-        if tt is not None:
-            if getattr(tt, "ed_mqtt_host", None) is not None:
-                tt.ed_mqtt_host.setText(host)
-            if getattr(tt, "sp_mqtt_port", None) is not None:
-                tt.sp_mqtt_port.setValue(port)
+    def _save_emqx_credentials(self):
+        """Persist EMQX and push the same broker into Grott + Tasmota MQTT."""
+        host, port, user, password = self._emqx_form_broker()
+        s = self._settings()
+        self._push_broker_to_grott_tasmota(host, port, user, password, s=s)
+        s.sync()
+        if hasattr(self.dash, "growatt_tab"):
+            self.dash.growatt_tab.apply_grott_settings()
+        if hasattr(self.dash, "connectivity_tab"):
+            self.dash.connectivity_tab.refresh_status(test_db=False)
+        cred = f", user {user}" if user else ", anonymous"
+        self.dash.set_status(
+            f"EMQX saved and applied to Grott + Tasmota MQTT ({host}:{port}{cred})."
+        )
+
+    def _arm_link_cb(self, key: str, on_done) -> None:
+        cbs = getattr(self, "_link_test_cbs", None)
+        if cbs is None:
+            self._link_test_cbs = cbs = {}
+        if callable(on_done):
+            cbs[key] = on_done
+        else:
+            cbs.pop(key, None)
+
+    def _report_link_test(self, key, ok, msg, *, title, status=None) -> bool:
+        """Store the last Test result and tell an open login panel, if any.
+
+        Returns True when a panel callback handled the result (no message box).
+        """
+        from energy_dashboard.dialogs.component_login import record_link_test
+        text = str(msg or "")
+        record_link_test(key, bool(ok), text)
+        cb = getattr(self, "_link_test_cbs", {}).pop(key, None)
+        if status:
+            self.dash.set_status(status)
+        elif ok:
+            self.dash.set_status(f"{title} OK — {text}")
+        else:
+            self.dash.set_status(f"{title} failed — {text}")
+        if callable(cb):
+            try:
+                cb(bool(ok), text)
+            except RuntimeError:
+                pass
+            return True
+        return False
+
+    def _test_emqx_connection(self, on_done=None):
+        self._arm_link_cb("emqx", on_done)
+        host, port, user, password = self._emqx_form_broker()
+        if not host:
+            handled = self._report_link_test(
+                "emqx", False, "Enter the EMQX host first.", title="EMQX",
+            )
+            if not handled:
+                QMessageBox.information(self, "EMQX", "Enter the EMQX host first.")
+            return
+        self.btn_test_emqx.setEnabled(False)
+        self._set_growatt_local_status(None, f"Testing EMQX MQTT at {host}:{port}...")
+        threading.Thread(
+            target=self._test_emqx_thread,
+            args=(host, port, user, password),
+            daemon=True,
+        ).start()
+
+    def _test_emqx_thread(self, host, port, user, password):
+        try:
+            ok, msg = test_tasmota_mqtt_connection(
+                host, port, username=user, password=password,
+            )
+            self._inv.invoke(lambda o=ok, m=msg: self._finish_emqx_test(o, m))
+        except Exception as e:
+            self._inv.invoke(
+                lambda err=str(e): self._finish_emqx_test(
+                    False, f"EMQX test failed unexpectedly:\n{err}",
+                )
+            )
+
+    def _finish_emqx_test(self, ok, msg):
+        self.btn_test_emqx.setEnabled(True)
+        self._set_growatt_local_status(bool(ok), msg)
+        title = "EMQX test"
+        handled = self._report_link_test(
+            "emqx",
+            bool(ok),
+            msg,
+            title=title,
+            status=(f"EMQX OK — {msg}" if ok else f"EMQX failed — {msg}"),
+        )
+        if handled:
+            return
+        if ok:
+            QMessageBox.information(self, title, msg)
+        else:
+            QMessageBox.warning(self, title, msg)
+
+    def _apply_emqx_route(self):
+        host, port, user, password = self._emqx_form_broker()
+        s = self._settings()
+        self._push_broker_to_grott_tasmota(host, port, user, password, s=s)
+        s.sync()
 
         if hasattr(self.dash, "growatt_tab"):
             self.dash.growatt_tab.apply_grott_settings()
         if hasattr(self.dash, "connectivity_tab"):
             self.dash.connectivity_tab.refresh_status(test_db=False)
+        cred = f", user {user}" if user else ", anonymous"
         self.dash.set_status(
-            f"EMQX routing applied ({host}:{port}) to Grott MQTT + Tasmota MQTT."
+            f"EMQX routing applied ({host}:{port}{cred}) to Grott MQTT + Tasmota MQTT."
         )
 
     def _open_growatt_web_ui(self):
@@ -2774,20 +3672,22 @@ class ParametersTab(QWidget):
         label, host, user, pwd = targets[0]
         port = int(self.sp_growatt_port.value())
         url = self._growatt_web_url(host, port, user, pwd)
+        from energy_dashboard.dialogs.map_picker import _open_http_url
         _open_http_url(
             url,
             parent=self,
             title=f"Growatt web UI ({label})",
         )
 
-    def _test_growatt_http_connection(self):
+    def _test_growatt_http_connection(self, on_done=None):
+        self._arm_link_cb("webui", on_done)
         targets = self._growatt_web_targets()
         if not targets:
             self._set_growatt_local_status(False, "No LAN or WiFi address configured.")
-            QMessageBox.information(
-                self, "Growatt",
-                "Enter a LAN or Wi‑Fi IP address / hostname first.",
-            )
+            msg = "Enter a LAN or Wi‑Fi IP address / hostname first."
+            handled = self._report_link_test("webui", False, msg, title="Growatt")
+            if not handled:
+                QMessageBox.information(self, "Growatt", msg)
             return
         http_port = int(self.sp_growatt_port.value())
         self._set_growatt_local_status(None, "Testing Growatt web UI TCP connectivity...")
@@ -2826,20 +3726,25 @@ class ParametersTab(QWidget):
 
     def _finish_growatt_http_test(self, msg, error=False, ok=False):
         self._btn_test_growatt_http.setEnabled(True)
-        self._set_growatt_local_status(bool(ok) and not error, msg)
+        connected = bool(ok) and not error
+        self._set_growatt_local_status(connected, msg)
         title = "Growatt — web UI test"
+        handled = self._report_link_test("webui", connected, msg, title=title)
+        if handled:
+            return
         if error:
             QMessageBox.warning(self, title, msg)
         else:
             QMessageBox.information(self, title, msg)
 
-    def _test_grott_mqtt_connection(self):
+    def _test_grott_mqtt_connection(self, on_done=None):
+        self._arm_link_cb("grott", on_done)
         self._read_growatt_form_into_params()
         if not self.p.grott_mqtt_host:
-            QMessageBox.information(
-                self, "Grott MQTT",
-                "Enter the MQTT broker host first.",
-            )
+            msg = "Enter the MQTT broker host first."
+            handled = self._report_link_test("grott", False, msg, title="Grott MQTT")
+            if not handled:
+                QMessageBox.information(self, "Grott MQTT", msg)
             return
         self._btn_test_grott_mqtt.setEnabled(False)
         threading.Thread(
@@ -2874,14 +3779,21 @@ class ParametersTab(QWidget):
     def _finish_grott_mqtt_test(self, ok, msg):
         self._btn_test_grott_mqtt.setEnabled(True)
         title = "Grott MQTT test"
+        handled = self._report_link_test(
+            "grott",
+            bool(ok),
+            msg,
+            title=title,
+            status=(f"Grott MQTT OK — {msg}" if ok else f"Grott MQTT failed — {msg}"),
+        )
+        if handled:
+            return
         if ok:
             QMessageBox.information(self, title, msg)
-            self.dash.set_status(f"Grott MQTT OK — {msg}")
         else:
             QMessageBox.warning(self, title, msg)
-            self.dash.set_status(f"Grott MQTT failed — {msg}")
 
-    def _test_growatt_modbus_connection(self):
+    def _test_growatt_modbus_connection(self, *, quiet: bool = False, on_done=None):
         mode = self.cb_growatt_modbus.currentData() or "off"
         host = (
             self.ed_growatt_lan_ip.text().strip()
@@ -2892,55 +3804,108 @@ class ParametersTab(QWidget):
         baud = int(self.sp_growatt_modbus_baud.value())
         unit = int(self.sp_growatt_modbus_unit.value())
         m = (mode or "off").lower()
+        if not quiet:
+            self._arm_link_cb("modbus", on_done)
+
+        def _modbus_blocked(text: str) -> None:
+            if quiet:
+                return
+            handled = self._report_link_test("modbus", False, text, title="Growatt")
+            if not handled:
+                QMessageBox.information(self, "Growatt", text)
+
         if m == "off":
-            self._set_growatt_local_status(False, "Modbus probe is disabled.")
-            QMessageBox.information(
-                self, "Growatt",
-                "Choose Modbus TCP or RTU under “Local Modbus check” first.",
+            self._set_growatt_modbus_status(False, "Local Modbus check is disabled.")
+            _modbus_blocked(
+                "Choose Modbus TCP, RTU over TCP, or USB RTU under “Local Modbus check” first."
             )
             return
-        if m == "tcp" and not host:
-            self._set_growatt_local_status(False, "No LAN or WiFi address configured for Modbus TCP.")
-            QMessageBox.information(
-                self, "Growatt",
-                "Enter a LAN or Wi‑Fi IP address / hostname above (used for Modbus TCP).",
+        if m in ("tcp", "tcp_rtu") and not host:
+            self._set_growatt_modbus_status(
+                False, "No LAN or WiFi address configured for Modbus TCP."
             )
+            _modbus_blocked("Enter the RS485–Ethernet (or ShineWiFi) LAN IP above.")
             return
         if m == "serial" and not serial_path:
-            self._set_growatt_local_status(False, "No serial device path configured for Modbus RTU.")
-            QMessageBox.information(
-                self, "Growatt",
-                "Enter the serial device path (e.g. /dev/ttyUSB0) for Modbus RTU.",
+            self._set_growatt_modbus_status(
+                False, "No serial device path configured for Modbus RTU."
+            )
+            _modbus_blocked(
+                "Enter the serial device path (e.g. /dev/ttyUSB0) for Modbus RTU."
             )
             return
-        self._set_growatt_local_status(None, "Testing Growatt Modbus connectivity...")
+        self._set_growatt_modbus_status(None, "Testing Growatt Modbus connectivity...")
         self._btn_test_growatt_modbus.setEnabled(False)
+        self._modbus_test_token += 1
+        token = self._modbus_test_token
+        QTimer.singleShot(
+            18000, lambda t=token, q=quiet: self._modbus_test_watchdog(t, quiet=q),
+        )
         threading.Thread(
             target=self._test_growatt_modbus_thread,
-            args=(m, host, tcp_port, serial_path, baud, unit),
+            args=(m, host, tcp_port, serial_path, baud, unit, token, quiet),
             daemon=True,
         ).start()
 
-    def _test_growatt_modbus_thread(self, mode, host, tcp_port, serial_path, baud, unit):
+    def _modbus_test_watchdog(self, token: int, quiet: bool = True) -> None:
+        if token != self._modbus_test_token:
+            return
+        if self._btn_test_growatt_modbus.isEnabled():
+            return
+        self._finish_growatt_modbus_test(
+            "Modbus test timed out after 18s — no reply from the gateway/inverter. "
+            "If the USR box is still in Transparent Mode, switch it to "
+            "Modbus TCP<=>Modbus RTU and use port 502, or keep RTU over TCP on 8899 "
+            "with UART 9600 8N1 and RFC2217 off.",
+            error=True,
+            token=token,
+            quiet=quiet,
+        )
+
+    def _test_growatt_modbus_thread(
+        self, mode, host, tcp_port, serial_path, baud, unit, token=0, quiet=False
+    ):
         try:
             r = _growatt_modbus_probe_sync(mode, host, tcp_port, serial_path, baud, unit)
             st = r.get("state_text", "—")
             det = r.get("detail", "")
             msg = f"Local Modbus ({mode}): {st}\n\n{det}"
             ok = r.get("state_key") == "ok"
-            self._inv.invoke(lambda o=ok, m=msg: self._finish_growatt_modbus_test(m, ok=o))
+            self._inv.invoke(
+                lambda o=ok, m=msg, t=token, q=quiet: self._finish_growatt_modbus_test(
+                    m, ok=o, token=t, quiet=q
+                )
+            )
         except Exception as e:
             self._inv.invoke(
-                lambda err=str(e): self._finish_growatt_modbus_test(
-                    f"Modbus test failed unexpectedly:\n{err}", error=True
+                lambda err=str(e), t=token, q=quiet: self._finish_growatt_modbus_test(
+                    f"Modbus test failed unexpectedly:\n{err}",
+                    error=True,
+                    token=t,
+                    quiet=q,
                 )
             )
 
-    def _finish_growatt_modbus_test(self, msg, error=False, ok=False):
+    def _finish_growatt_modbus_test(
+        self, msg, error=False, ok=False, token=None, quiet=False
+    ):
+        if token is not None and token != self._modbus_test_token:
+            return
+        self._modbus_test_token += 1
         self._btn_test_growatt_modbus.setEnabled(True)
-        self._set_growatt_local_status(bool(ok) and not error, msg)
+        connected = bool(ok) and not error
+        self._set_growatt_modbus_status(connected, msg)
         title = "Growatt — Modbus test"
-        if error:
+        status = "Modbus Connected" if connected else "Modbus Disconnected"
+        if quiet:
+            self.dash.set_status(status)
+            return
+        handled = self._report_link_test(
+            "modbus", connected, msg, title=title, status=status,
+        )
+        if handled:
+            return
+        if error or not ok:
             QMessageBox.warning(self, title, msg)
         else:
             QMessageBox.information(self, title, msg)
@@ -3021,6 +3986,12 @@ class ParametersTab(QWidget):
         dl.pg_user = self.ed_pg_user.text().strip()
         dl.pg_pass = self.ed_pg_pass.text()
         dl.reconfigure()
+        bar = getattr(self.dash, "system_status", None)
+        if bar is not None:
+            try:
+                bar.refresh_db_now()
+            except Exception:
+                pass
 
     def _save_db_config(self, backend=None):
         s = self._settings()
@@ -3046,8 +4017,10 @@ class ParametersTab(QWidget):
         else:
             self.dash.set_status("Database config saved and logger reconfigured.")
 
-    def _test_db_connections(self, backend=None):
-        self._probe_db_seen_async(backend)
+    def _test_db_connections(self, backend=None, on_done=None):
+        if on_done is not None and backend:
+            self._arm_link_cb(backend, on_done)
+        self._probe_db_seen_async(backend, user_test=(backend, on_done))
 
     def _set_db_setup_buttons_enabled(self, enabled: bool):
         for btn in getattr(self, "_db_setup_buttons", []):
@@ -3109,13 +4082,10 @@ class ParametersTab(QWidget):
             lines.append(msg)
             all_ok = all_ok and ok
         if cap['pg']:
-            ok, msg = setup_postgresql_schema(
-                cap['pg_host'], cap['pg_port'],
-                cap['pg_user'], cap['pg_pass'],
-                cap['pg_db'] or 'powermon',
+            lines.append(
+                "PostgreSQL: this login does not create tables. "
+                "Run the CREATE SQL on the right by hand as the database owner."
             )
-            lines.append(msg)
-            all_ok = all_ok and ok
         self._inv.invoke(lambda m=lines, a=all_ok: self._setup_database_done(m, a))
 
     def _setup_database_done(self, lines, all_ok):
@@ -3127,6 +4097,12 @@ class ParametersTab(QWidget):
         dl = getattr(self.dash, 'data_logger', None)
         if dl:
             dl.reconfigure()
+        bar = getattr(self.dash, "system_status", None)
+        if bar is not None:
+            try:
+                bar.refresh_db_now()
+            except Exception:
+                pass
         self.dash.set_status(
             "Database setup complete." if all_ok else "Database setup finished with one or more errors."
         )
@@ -3164,6 +4140,10 @@ class ParametersTab(QWidget):
             self.ed_pg_pass.setText(s.value("db/pg_pass", ""))
         self._push_db_config_to_logger()
         self._refresh_db_seen_off_rows()
+        # Growatt LAN/Modbus/EMQX, battery, solar, etc. live in the same Setup
+        # tab — always reload them with DB config so Save actually sticks across
+        # restarts (previously only loaded on a DB-probe error path).
+        self.load_battery_solar_from_settings()
 
     def _apply_all(self):
         self.p.import_flat_pence = self.sp_import.value()
@@ -3177,6 +4157,8 @@ class ParametersTab(QWidget):
         self.p.battery_capacity_kwh = self.sp_cap.value()
         self.p.battery_low_soc_threshold_pct = float(self.sp_soc_thr.value())
 
+        self._normalize_solar_coord_edit(self.ed_lat)
+        self._normalize_solar_coord_edit(self.ed_lon)
         self.p.solar_lat = self.ed_lat.text().strip()
         self.p.solar_lon = self.ed_lon.text().strip()
         self.p.solar_tilt = self.ed_tilt.text().strip()

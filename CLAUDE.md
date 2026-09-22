@@ -2,6 +2,8 @@
 
 This file provides guidance when working in this repository.
 
+**Primary agent brief:** read and follow [`AGENTS.md`](AGENTS.md) at the repo root on every task (plain-English solar expertise, telemetry integrity, scope).
+
 ## Project Overview
 
 **EnergyDashboard2.py** is the primary application: a PySide6 energy monitoring GUI that integrates Octopus Energy consumption data, Growatt inverter/battery APIs, Tasmota power monitors, PostgreSQL/SQLite logging, and matplotlib visualizations.

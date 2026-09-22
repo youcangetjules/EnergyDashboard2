@@ -4,6 +4,19 @@ Energy Dashboard — `tabs/octopus_live.py` (split from EnergyDashboard2.py).
 from __future__ import annotations
 
 from energy_dashboard.common import *
+import json
+
+from energy_dashboard.tabs.octopus_live_cost import (
+    COST_REFRESH_S,
+    compose_cost_view,
+    energy_slots_from_frames,
+    rest_half_hour_slots,
+    scales_from_history,
+    summarise_days,
+    summary_lines,
+    update_history,
+    price_slots,
+)
 class OctopusLiveTab(QWidget):
     @staticmethod
     def _apply_figure_layout(fig):
@@ -136,8 +149,31 @@ class OctopusLiveTab(QWidget):
         return merged[['interval_start', 'net_kwh']].sort_values('interval_start').reset_index(drop=True)
 
     @staticmethod
+    def _london_calendar_day(timestamps):
+        """Timezone-aware London calendar day (midnight) for each timestamp."""
+        import pytz
+        london = pytz.timezone('Europe/London')
+        ts = pd.to_datetime(timestamps)
+        if getattr(ts, 'dt', None) is None:
+            ts = pd.Series(ts)
+        if ts.dt.tz is None:
+            # Naive stamps from Octopus are treated as London local wall time.
+            ts = ts.dt.tz_localize(london, ambiguous='infer', nonexistent='shift_forward')
+        else:
+            ts = ts.dt.tz_convert(london)
+        return ts.dt.normalize()
+
+    @staticmethod
+    def _cumsum_reset_each_london_day(values, timestamps):
+        """Running total that resets at each Europe/London calendar midnight."""
+        s = pd.to_numeric(pd.Series(values), errors='coerce').fillna(0.0)
+        day = OctopusLiveTab._london_calendar_day(timestamps)
+        # groupby preserves row order within each day when the input is sorted.
+        return s.groupby(day.values, sort=False).cumsum()
+
+    @staticmethod
     def _build_cumulative_kwh_series(imp_view, exp_view, src='REST', granularity_id=1):
-        """Running totals of import and export kWh (integral of top-chart interval energy)."""
+        """Per-day running import/export kWh (resets at London midnight)."""
         cols = ['interval_start', 'cum_import_kwh', 'cum_export_kwh', 'cum_net_kwh']
         slot_min = OctopusLiveTab._slot_minutes(src, granularity_id)
         imp = OctopusLiveTab._floor_consumption_by_slot(imp_view, slot_min)
@@ -157,14 +193,18 @@ class OctopusLiveTab(QWidget):
         merged = merged.sort_values('interval_start').reset_index(drop=True)
         imp_kwh = merged['consumption_imp'].fillna(0.0)
         exp_kwh = merged['consumption_exp'].fillna(0.0)
-        merged['cum_import_kwh'] = imp_kwh.cumsum()
-        merged['cum_export_kwh'] = exp_kwh.cumsum()
+        merged['cum_import_kwh'] = OctopusLiveTab._cumsum_reset_each_london_day(
+            imp_kwh, merged['interval_start'],
+        )
+        merged['cum_export_kwh'] = OctopusLiveTab._cumsum_reset_each_london_day(
+            exp_kwh, merged['interval_start'],
+        )
         merged['cum_net_kwh'] = merged['cum_import_kwh'] - merged['cum_export_kwh']
         return merged[cols]
 
     @staticmethod
     def _build_cumulative_kwh_series_from_demand(imp_view, src='GraphQL', granularity_id=3):
-        """Running import/export/net kWh from signed demand (integral of top demand chart)."""
+        """Per-day running import/export/net from signed demand (London midnight reset)."""
         cols = ['interval_start', 'cum_import_kwh', 'cum_export_kwh', 'cum_net_kwh']
         slot_min = OctopusLiveTab._slot_minutes(src, granularity_id)
         hrs = slot_min / 60.0
@@ -186,10 +226,126 @@ class OctopusLiveTab(QWidget):
         w = grouped['demand_w']
         grouped['import_kwh'] = w.clip(lower=0) * hrs / 1000.0
         grouped['export_kwh'] = (-w.clip(upper=0)) * hrs / 1000.0
-        grouped['cum_import_kwh'] = grouped['import_kwh'].cumsum()
-        grouped['cum_export_kwh'] = grouped['export_kwh'].cumsum()
+        grouped['cum_import_kwh'] = OctopusLiveTab._cumsum_reset_each_london_day(
+            grouped['import_kwh'], grouped['interval_start'],
+        )
+        grouped['cum_export_kwh'] = OctopusLiveTab._cumsum_reset_each_london_day(
+            grouped['export_kwh'], grouped['interval_start'],
+        )
         grouped['cum_net_kwh'] = grouped['cum_import_kwh'] - grouped['cum_export_kwh']
         return grouped[cols]
+
+    @staticmethod
+    def _pv_query_fail_text(exc) -> str:
+        from energy_dashboard.db.connect_probe import is_table_privilege_error
+        raw = str(exc or "").splitlines()[0].strip()
+        if is_table_privilege_error(raw):
+            return "Growatt PV: database login cannot read growatt_readings"
+        short = raw[:80] if raw else exc.__class__.__name__
+        return f"Growatt PV unavailable ({short})"
+
+    def _pv_kwh_by_slot(self, view_start, view_end, slot_minutes, london):
+        """Mean Growatt PV (kW) per slot → kWh for that slot. Empty if no DB/PV."""
+        cols = ['interval_start', 'pv_kwh']
+        self._cum_pv_note = ""
+        logger = self.data_logger
+        if logger is None or logger._primary_storage_backend() is None:
+            self._cum_pv_note = "No logging database — PV overlay needs growatt_readings"
+            return pd.DataFrame(columns=cols)
+        try:
+            start_utc = pd.Timestamp(view_start)
+            end_utc = pd.Timestamp(view_end)
+            if start_utc.tzinfo is None:
+                start_utc = start_utc.tz_localize(london)
+            if end_utc.tzinfo is None:
+                end_utc = end_utc.tz_localize(london)
+            start_utc = start_utc.tz_convert(timezone.utc)
+            end_utc = end_utc.tz_convert(timezone.utc)
+            pl_df = logger.query_growatt_pv_actual(start_utc, end_utc)
+        except Exception as exc:
+            self._cum_pv_note = self._pv_query_fail_text(exc)
+            return pd.DataFrame(columns=cols)
+        if pl_df is None or pl_df.is_empty():
+            self._cum_pv_note = "No Growatt PV in this window"
+            return pd.DataFrame(columns=cols)
+        try:
+            pdf = pl_df.to_pandas()
+        except Exception:
+            return pd.DataFrame(columns=cols)
+        if pdf.empty or 'pv_kw' not in pdf.columns:
+            return pd.DataFrame(columns=cols)
+        ts = pd.to_datetime(pdf['timestamp'], utc=True, errors='coerce')
+        ts = ts.dt.tz_convert(london)
+        pv = pd.to_numeric(pdf['pv_kw'], errors='coerce')
+        out = pd.DataFrame({'interval_start': ts, 'pv_kw': pv}).dropna()
+        if out.empty:
+            return pd.DataFrame(columns=cols)
+        slot = out['interval_start'].dt.floor(f'{int(slot_minutes)}min')
+        hrs = float(slot_minutes) / 60.0
+        grouped = (
+            out.assign(interval_start=slot)
+            .groupby('interval_start', as_index=False)['pv_kw']
+            .mean()
+            .sort_values('interval_start')
+            .reset_index(drop=True)
+        )
+        grouped['pv_kwh'] = grouped['pv_kw'].clip(lower=0.0) * hrs
+        return grouped[['interval_start', 'pv_kwh']]
+
+    def _attach_cumulative_pv(self, cum_df, view_start, view_end, slot_minutes, london):
+        """Add ``cum_pv_kwh`` and ``cum_consumption_kwh`` on the import timeline.
+
+        Consumption is the meter balance ``import + PV − export`` (labelled
+        analysis, not a separate BMS/inverter register).
+        """
+        if cum_df is None or cum_df.empty:
+            return cum_df
+        out = cum_df.copy()
+        out['interval_start'] = pd.to_datetime(out['interval_start'])
+        if out['interval_start'].dt.tz is None:
+            out['interval_start'] = out['interval_start'].dt.tz_localize(london)
+        else:
+            out['interval_start'] = out['interval_start'].dt.tz_convert(london)
+        pv = self._pv_kwh_by_slot(view_start, view_end, slot_minutes, london)
+        if pv.empty:
+            out['cum_pv_kwh'] = 0.0
+            cum_exp = (
+                out['cum_export_kwh']
+                if 'cum_export_kwh' in out.columns
+                else 0.0
+            )
+            out['cum_consumption_kwh'] = (
+                out['cum_import_kwh'].fillna(0.0)
+                - pd.to_numeric(cum_exp, errors='coerce').fillna(0.0)
+            )
+            return out
+        pv = pv.copy()
+        pv['interval_start'] = pd.to_datetime(pv['interval_start'])
+        if pv['interval_start'].dt.tz is None:
+            pv['interval_start'] = pv['interval_start'].dt.tz_localize(london)
+        else:
+            pv['interval_start'] = pv['interval_start'].dt.tz_convert(london)
+        # Match slot floors used on the import side.
+        out['_slot'] = out['interval_start'].dt.floor(f'{int(slot_minutes)}min')
+        pv['_slot'] = pv['interval_start'].dt.floor(f'{int(slot_minutes)}min')
+        pv_map = pv.groupby('_slot', as_index=True)['pv_kwh'].sum()
+        out['pv_kwh'] = out['_slot'].map(pv_map).fillna(0.0)
+        out['cum_pv_kwh'] = OctopusLiveTab._cumsum_reset_each_london_day(
+            out['pv_kwh'], out['interval_start'],
+        )
+        # House load from meter balance: import + generation − export.
+        # Uses the same Octopus + Growatt series already on this chart (not rescaled).
+        cum_exp = (
+            out['cum_export_kwh']
+            if 'cum_export_kwh' in out.columns
+            else 0.0
+        )
+        out['cum_consumption_kwh'] = (
+            out['cum_import_kwh'].fillna(0.0)
+            + out['cum_pv_kwh'].fillna(0.0)
+            - pd.to_numeric(cum_exp, errors='coerce').fillna(0.0)
+        )
+        return out.drop(columns=['_slot', 'pv_kwh'], errors='ignore')
 
     @staticmethod
     def _build_net_kwh_series_from_demand(imp_view, src='GraphQL', granularity_id=3):
@@ -234,9 +390,11 @@ class OctopusLiveTab(QWidget):
         ax.set_ylim(min(lo, 0.0) - pad, max(hi, 0.0) + pad)
         return True
 
-    def __init__(self, status_callback):
+    def __init__(self, status_callback, data_logger=None, app_params=None):
         super().__init__()
         self.set_status = status_callback
+        self.data_logger = data_logger  # Growatt PV for the cumulative chart
+        self.app_params = app_params
         self._inv = Invoker(self)
         self.import_df = None
         self.export_df = None
@@ -246,13 +404,32 @@ class OctopusLiveTab(QWidget):
         self._auto_timer = QTimer(self)
         self._auto_timer.setInterval(30000)
         self._auto_timer.timeout.connect(self.fetch_data)
+        # smartMeterTelemetry aggregates to 5 min at its finest, so this tab
+        # polls every 60 s regardless of the shared cycle — at the global 600 s
+        # the displayed Live Demand could be 10+ minutes behind.
+        self._auto_timer_interval_override_ms = 60000
         self._auto_refresh_pending = False
         self._ctrl_filter_active = False
         # Holds the unit label widget for the live_demand card so we can
         # append "· N min ago" to it; populated in build_ui.
         self._live_demand_unit_label = None
+        # Last completed Octopus API attempt (not the age of the meter slot).
+        self._link_state = "unknown"
+        self._link_detail = ""
+        self._link_at = None
+        self._status_body = ""
+        # Spot-price bundle and the remembered settled-day ratios (cost view).
+        self._cost_bundle = None
+        self._cost_history = {}
+        self._card_boxes = {}
+        self._card_units = {}
         self.build_ui()
         self._load_saved_octopus_live()
+        self._link_timer = QTimer(self)
+        self._link_timer.setInterval(30000)
+        self._link_timer.timeout.connect(self._paint_connectivity)
+        self._link_timer.start()
+        QTimer.singleShot(800, self._paint_connectivity)
         if self.isVisible():
             self._set_ctrl_show_filter(True)
 
@@ -281,6 +458,24 @@ class OctopusLiveTab(QWidget):
             row0.addWidget(rb)
         self.hours_group.button(2).setChecked(True)
         self.hours_group.idClicked.connect(self._on_hours_changed)
+        row0.addSpacing(12)
+        row0.addWidget(QLabel("View:"))
+        self.display_group = QButtonGroup(self)
+        self.rb_view_power = QRadioButton("Power")
+        self.rb_view_cost = QRadioButton("Cost")
+        self.display_group.addButton(self.rb_view_power, 0)
+        self.display_group.addButton(self.rb_view_cost, 1)
+        self.rb_view_power.setChecked(True)
+        self.rb_view_power.setToolTip("Watts and kWh from the live meter.")
+        self.rb_view_cost.setToolTip(
+            "Money: energy times the Agile spot price. "
+            "Days Octopus has already metered use that half-hour meter. "
+            "Today is an estimate, scaled so it lines up with those settled days. "
+            "Standing charge is not included."
+        )
+        row0.addWidget(self.rb_view_power)
+        row0.addWidget(self.rb_view_cost)
+        self.display_group.idClicked.connect(self._on_display_mode)
         self._show_api_key_btn = QPushButton("Show")
         self._show_api_key_btn.setVisible(False)
         self._show_api_key_btn.setStyleSheet(_SUBTLE_BTN_QSS)
@@ -290,10 +485,23 @@ class OctopusLiveTab(QWidget):
         row0.addStretch()
         ctrl_vlayout.addLayout(row0)
 
+        # Shared label column so Account / Import MPAN / Export MPAN fields
+        # share the same left edge (Export MPAN is the visual reference).
+        _mpan_lbl_w = max(
+            QFontMetrics(self.font()).horizontalAdvance(t)
+            for t in ("Account No:", "Import MPAN:", "Export MPAN:")
+        ) + 8
+
+        def _mpan_row_label(text: str) -> QLabel:
+            lbl = QLabel(text)
+            lbl.setFixedWidth(_mpan_lbl_w)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            return lbl
+
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("Account No:"))
+        row1.addWidget(_mpan_row_label("Account No:"))
         self.account_edit = QLineEdit(DEFAULT_OCTOPUS_ACCOUNT)
-        self.account_edit.setFixedWidth(130)
+        self.account_edit.setFixedWidth(150)
         self.account_edit.setPlaceholderText("A-12345678")
         self.account_edit.setToolTip(
             "Octopus account number (e.g. A-12345678). "
@@ -316,29 +524,35 @@ class OctopusLiveTab(QWidget):
             row1.addWidget(rb)
         self.granularity_group.button(3).setChecked(True)
         row1.addSpacing(15)
-        row1.addWidget(QLabel("Import MPAN:"))
-        self.import_mpan_edit = QLineEdit(DEFAULT_IMPORT_MPAN)
-        self.import_mpan_edit.setFixedWidth(150)
-        row1.addWidget(self.import_mpan_edit)
-        row1.addWidget(QLabel("Serial:"))
-        self.import_serial_edit = QLineEdit(DEFAULT_IMPORT_SERIAL)
-        self.import_serial_edit.setFixedWidth(120)
-        row1.addWidget(self.import_serial_edit)
-        row1.addSpacing(15)
-        # Fetch button + status blurb live on the same row as Import/Serial so
-        # the chart area below doesn't lose two rows of vertical space to a
-        # near-empty action bar.
+        # Fetch + status on the account row so Import/Export MPAN stay stacked
+        # and left-aligned with each other.
         self.fetch_btn = QPushButton("Fetch Live Data")
         self.fetch_btn.clicked.connect(self.fetch_data)
         row1.addWidget(self.fetch_btn)
-        self.status_label = QLabel("")
-        self.status_label.setStyleSheet(f"color: {_UI_BLUE}; font-size: 11px;")
+        self.status_label = QLabel("Connectivity — not checked yet")
+        self.status_label.setStyleSheet("color: #6c7086; font-size: 11px;")
         self.status_label.setWordWrap(True)
+        self.status_label.setToolTip(
+            "Whether the last call to Octopus succeeded. "
+            "This is the API link, not how old the meter reading is."
+        )
         row1.addWidget(self.status_label, 1)
         ctrl_vlayout.addLayout(row1)
 
+        row_imp = QHBoxLayout()
+        row_imp.addWidget(_mpan_row_label("Import MPAN:"))
+        self.import_mpan_edit = QLineEdit(DEFAULT_IMPORT_MPAN)
+        self.import_mpan_edit.setFixedWidth(150)
+        row_imp.addWidget(self.import_mpan_edit)
+        row_imp.addWidget(QLabel("Serial:"))
+        self.import_serial_edit = QLineEdit(DEFAULT_IMPORT_SERIAL)
+        self.import_serial_edit.setFixedWidth(120)
+        row_imp.addWidget(self.import_serial_edit)
+        row_imp.addStretch(1)
+        ctrl_vlayout.addLayout(row_imp)
+
         row1b = QHBoxLayout()
-        row1b.addWidget(QLabel("Export MPAN:"))
+        row1b.addWidget(_mpan_row_label("Export MPAN:"))
         self.export_mpan_edit = QLineEdit(DEFAULT_EXPORT_MPAN)
         self.export_mpan_edit.setFixedWidth(150)
         row1b.addWidget(self.export_mpan_edit)
@@ -449,8 +663,11 @@ class OctopusLiveTab(QWidget):
             self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
 
     def eventFilter(self, watched, event):
+        # Application-wide filters must not call super().eventFilter — that
+        # re-enters PySide's QObject wrapper path (getWrapperForQObject) and
+        # can SIGSEGV during doSetProperty / notify on Wayland.
         if not self._ctrl_filter_active:
-            return super().eventFilter(watched, event)
+            return False
         et = event.type()
         if et == QEvent.Type.KeyPress:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -461,7 +678,7 @@ class OctopusLiveTab(QWidget):
             mods = QApplication.keyboardModifiers()
             if not (mods & Qt.KeyboardModifier.ControlModifier):
                 self._set_show_api_key_btn(False)
-        return super().eventFilter(watched, event)
+        return False
 
     def _reveal_api_key(self):
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Normal)
@@ -536,10 +753,125 @@ class OctopusLiveTab(QWidget):
         gid = self.granularity_group.checkedId()
         return {1: "HALF_HOURLY", 2: "QUARTER_HOURLY", 3: "FIVE_MINUTES"}.get(gid, "HALF_HOURLY")
 
+    def live_refresh_expectation(self):
+        """(active, expected_seconds, detail) for the banner refresh pill."""
+        sec = max(5, int(self._auto_timer.interval() // 1000))
+        if not self._auto_timer.isActive():
+            return False, float(sec), "auto-refresh off"
+        return True, float(sec), f"Octopus GraphQL poll every {sec}s"
+
+    def _link_stale_after_s(self) -> float:
+        """How long a successful Octopus answer may sit before the link is stale.
+
+        The live tab polls about once a minute. A few missed polls means we
+        have lost the API, even if the last meter slot was already a few
+        minutes old when it arrived.
+        """
+        sec = 60.0
+        timer = getattr(self, "_auto_timer", None)
+        if timer is not None:
+            try:
+                sec = max(15.0, float(timer.interval()) / 1000.0)
+            except Exception:
+                sec = 60.0
+        return max(180.0, sec * 3.0)
+
+    def connectivity_view(self) -> dict:
+        """Current Octopus API link, for this page and the footer strip."""
+        state = getattr(self, "_link_state", "unknown") or "unknown"
+        detail = getattr(self, "_link_detail", "") or ""
+        at = getattr(self, "_link_at", None)
+        age_s = None if at is None else (datetime.now() - at).total_seconds()
+        polling = False
+        timer = getattr(self, "_auto_timer", None)
+        if timer is not None:
+            try:
+                polling = bool(timer.isActive())
+            except Exception:
+                polling = False
+        if (
+            state in ("ok", "degraded")
+            and polling
+            and age_s is not None
+            and age_s > self._link_stale_after_s()
+        ):
+            state = "stale"
+        words = {
+            "ok": ("OK", "Connectivity — OK", "#a6e3a1", "ok"),
+            "degraded": ("REST only", "Connectivity — REST only", "#fab387", "warn"),
+            "stale": ("stale", "Connectivity — stale", "#fab387", "warn"),
+            "failed": ("failed", "Connectivity — failed", "#f38ba8", "bad"),
+            "checking": ("checking…", "Connectivity — checking…", "#b8dcff", "busy"),
+            "unknown": ("—", "Connectivity — not checked yet", "#6c7086", "idle"),
+        }
+        short, prefix, color, health = words.get(state, words["unknown"])
+        tips = [
+            "Whether the last call to Octopus succeeded. "
+            "This is the API link, not how old the meter reading is.",
+        ]
+        if detail:
+            tips.append(detail)
+        if at is not None:
+            tips.append("Last result at " + at.strftime("%H:%M:%S"))
+        if state == "ok":
+            tips.append("GraphQL telemetry answered (the live smart-meter stream).")
+        elif state == "degraded":
+            tips.append(
+                "GraphQL did not return live readings. Half-hour REST meter "
+                "data is in use instead — that feed is often about a day behind."
+            )
+        elif state == "stale":
+            tips.append(
+                "Auto-refresh is on, but Octopus has not answered within the last few minutes."
+            )
+        elif state == "failed":
+            tips.append("The last Octopus request failed. The next auto-refresh will try again.")
+        elif state == "unknown":
+            tips.append("Octopus Live has not completed a fetch yet.")
+        for extra in (
+            getattr(self, "_live_err_imp", None),
+            getattr(self, "_live_err_exp", None),
+        ):
+            if extra:
+                tips.append(str(extra))
+        return {
+            "state": state,
+            "short": short,
+            "prefix": prefix,
+            "color": color,
+            "health": health,
+            "tooltip": "\n".join(tips),
+        }
+
+    def _set_link(self, state: str, detail: str = "") -> None:
+        self._link_state = state
+        self._link_detail = detail or ""
+        if state != "checking":
+            self._link_at = datetime.now()
+        elif self._link_at is None:
+            self._link_at = datetime.now()
+        self._paint_connectivity()
+
+    def _paint_connectivity(self) -> None:
+        view = self.connectivity_view()
+        body = getattr(self, "_status_body", "") or ""
+        text = f"{view['prefix']} · {body}" if body else view["prefix"]
+        label = getattr(self, "status_label", None)
+        if label is not None:
+            label.setText(text)
+            label.setStyleSheet(f"color: {view['color']}; font-size: 11px;")
+            label.setToolTip(view["tooltip"])
+        dash = self.window()
+        bar = getattr(dash, "system_status", None) if dash is not None else None
+        if bar is not None and hasattr(bar, "set_octopus_link"):
+            bar.set_octopus_link(view)
+
     def fetch_data(self):
         if self.fetching:
             self._auto_refresh_pending = True
             return
+        if getattr(self, "_link_state", "unknown") == "unknown":
+            self._set_link("checking", "Asking Octopus for live meter readings…")
         self.fetching = True
         self._auto_refresh_pending = False
         self._save_octopus_live()
@@ -632,7 +964,8 @@ class OctopusLiveTab(QWidget):
         short = (msg or "").replace("\n", " ").strip()
         if len(short) > 160:
             short = short[:157] + "..."
-        self.status_label.setText(f"refresh error: {short}")
+        self._status_body = short
+        self._set_link("failed", short or "Live refresh failed")
         self.gql_status.setStyleSheet("color: #f38ba8; font-size: 11px;")
         self.gql_status.setText("Live refresh failed; the next auto-refresh tick will retry.")
         if pending:
@@ -672,22 +1005,27 @@ class OctopusLiveTab(QWidget):
             if age_min > self._view_hours * 60:
                 freshness += " | chart shifted to latest available data"
 
-        line = f"{src} | {n_imp} import + {n_exp} export | {freshness} | {ts}"
-        tips = []
-        if getattr(self, "_live_err_imp", None):
-            tips.append(f"Import: {self._live_err_imp}")
-        if getattr(self, "_live_err_exp", None):
-            tips.append(f"Export: {self._live_err_exp}")
-        self.status_label.setText(line)
-        self.status_label.setToolTip("\n".join(tips) if tips else "")
-        gql_msg = getattr(self, '_gql_msg', '')
+        bits = [src, f"{n_imp} import + {n_exp} export"]
+        if freshness:
+            bits.append(freshness)
+        bits.append(ts)
+        self._status_body = " | ".join(bits)
+        gql_msg = getattr(self, "_gql_msg", "") or ""
+        if src == "GraphQL" and (n_imp or n_exp):
+            link_state, link_detail = "ok", gql_msg or "GraphQL telemetry answered"
+        elif n_imp or n_exp:
+            link_state, link_detail = "degraded", gql_msg or "REST meter data only"
+        else:
+            link_state = "failed"
+            link_detail = gql_msg or "Octopus returned no live readings"
+        self._set_link(link_state, link_detail)
         if gql_msg:
-            if 'OK' in gql_msg:
-                color = '#a6e3a1'
-            elif 'REST API' in gql_msg or 'No account' in gql_msg:
-                color = _UI_BLUE
+            if link_state == "ok":
+                color = "#a6e3a1"
+            elif link_state == "degraded":
+                color = "#fab387"
             else:
-                color = '#f38ba8'
+                color = "#f38ba8"
             self.gql_status.setStyleSheet(f"color: {color}; font-size: 11px;")
             self.gql_status.setText(gql_msg)
         elif not self.account_edit.text().strip():
@@ -912,9 +1250,10 @@ class OctopusLiveTab(QWidget):
         self.ax_import.tick_params(axis='x', rotation=30, labelbottom=False)
         self.ax_import.grid(axis='y', color=_DARK_GRID, linewidth=0.4)
 
-        # Bottom chart: cumulative kWh (running integral of top-chart interval energy)
+        # Bottom chart: cumulative import + PV + consumption (import+PV−export)
         import numpy as np
         gid = self.granularity_group.checkedId() if src == 'GraphQL' else 1
+        slot_min = self._slot_minutes(src, gid)
         cum_from_demand = has_demand and src == 'GraphQL'
         if cum_from_demand:
             cum_df = self._build_cumulative_kwh_series_from_demand(imp_view, src, gid)
@@ -926,6 +1265,10 @@ class OctopusLiveTab(QWidget):
                 cum_from_demand = False
         else:
             cum_df = self._build_cumulative_kwh_series(imp_view, exp_view, src, gid)
+        if not cum_df.empty:
+            cum_df = self._attach_cumulative_pv(
+                cum_df, view_start, view_end, slot_min, london,
+            )
         has_cumulative = False
         if not cum_df.empty:
             ts = pd.to_datetime(cum_df['interval_start'])
@@ -934,12 +1277,20 @@ class OctopusLiveTab(QWidget):
             else:
                 ts = ts.dt.tz_convert(london)
             ci = cum_df['cum_import_kwh'].to_numpy(dtype=float)
-            ce = cum_df['cum_export_kwh'].to_numpy(dtype=float)
-            cn = cum_df['cum_net_kwh'].to_numpy(dtype=float)
+            cpv = (
+                cum_df['cum_pv_kwh'].to_numpy(dtype=float)
+                if 'cum_pv_kwh' in cum_df.columns
+                else np.zeros_like(ci)
+            )
+            ccons = (
+                cum_df['cum_consumption_kwh'].to_numpy(dtype=float)
+                if 'cum_consumption_kwh' in cum_df.columns
+                else (ci + cpv)
+            )
             peak = max(
-                float(ci.max()) if len(ci) else 0.0,
-                float(ce.max()) if len(ce) else 0.0,
-                float(np.abs(cn).max()) if len(cn) else 0.0,
+                float(np.nanmax(ci)) if len(ci) else 0.0,
+                float(np.nanmax(cpv)) if len(cpv) else 0.0,
+                float(np.nanmax(ccons)) if len(ccons) else 0.0,
             )
             if peak > 1e-9:
                 has_cumulative = True
@@ -947,17 +1298,25 @@ class OctopusLiveTab(QWidget):
                     ts, ci, where='post', color='#F44336', linewidth=1.6,
                     label='Cumulative import',
                 )
+                if float(np.nanmax(cpv)) > 1e-9:
+                    self.ax_net.step(
+                        ts, cpv, where='post', color='#fab387', linewidth=1.6,
+                        label='Cumulative PV generation',
+                    )
+                else:
+                    self.ax_net.text(
+                        0.98, 0.05,
+                        getattr(self, '_cum_pv_note', '') or 'No Growatt PV in this window',
+                        transform=self.ax_net.transAxes,
+                        ha='right', va='bottom', fontsize=9, color=_DARK_SUBTEXT,
+                    )
                 self.ax_net.step(
-                    ts, ce, where='post', color='#4CAF50', linewidth=1.6,
-                    label='Cumulative export',
-                )
-                self.ax_net.step(
-                    ts, cn, where='post', color='#89b4fa', linewidth=1.2,
-                    linestyle='--', label='Cumulative net (import − export)',
+                    ts, ccons, where='post', color='#cba6f7', linewidth=1.8,
+                    label='Cumulative consumption (import + PV − export)',
                 )
                 self.ax_net.axhline(0, color=_DARK_GRID, linewidth=0.6)
-                ymin = float(min(0.0, cn.min(), ce.min()))
-                ymax = float(max(ci.max(), ce.max(), cn.max()))
+                ymin = float(min(0.0, np.nanmin(ci), np.nanmin(cpv), np.nanmin(ccons)))
+                ymax = float(max(np.nanmax(ci), np.nanmax(cpv), np.nanmax(ccons)))
                 pad = max((ymax - ymin) * 0.08, 0.01)
                 self.ax_net.set_ylim(ymin - pad, ymax + pad)
                 self.ax_net.legend(
@@ -983,9 +1342,12 @@ class OctopusLiveTab(QWidget):
             self.ax_net.axvline(latest_ts, color='#f9e2af', linestyle=':', linewidth=1)
         self.ax_net.set_xlim(view_start, view_end)
         self.ax_net.set_ylabel('Cumulative kWh')
-        cum_title = f'Cumulative import / export — running totals ({hours}h view)'
+        cum_title = (
+            f'Cumulative import / PV / consumption — daily totals '
+            f'(reset at London midnight, {hours}h view)'
+        )
         if cum_from_demand and not cum_df.empty:
-            cum_title += ' (from live demand)'
+            cum_title += ' (import from live demand)'
         if stale_window:
             cum_title += ' [latest available]'
         self.ax_net.set_title(cum_title)
@@ -997,9 +1359,15 @@ class OctopusLiveTab(QWidget):
         _draw_6h_vertical_grid(self.ax_net, london)
         _draw_day_date_labels(self.ax_import, london)
         _draw_day_date_labels(self.ax_net, london)
+        if has_cumulative and not cum_df.empty:
+            _octopus_live_draw_cumulative_day_labels(
+                self.ax_net, london, cum_df, now=now,
+            )
         self._tight_y_from_artists(self.ax_import)
         if not has_cumulative:
             self._tight_y_from_artists(self.ax_net)
+        if has_demand and src == 'GraphQL':
+            _octopus_live_draw_demand_zone_labels(self.ax_import, self.fig)
         if has_imp or has_exp:
             _octopus_live_draw_per_day_totals(
                 self.ax_import, london, imp_view, exp_view, view_start, view_end)
@@ -1023,7 +1391,8 @@ class OctopusLiveTab(QWidget):
             )
         self.ax_net.format_coord = lambda xv, yv, tz=london: _fmt_toolbar_time_y(
             xv, yv, tz, "cumulative kWh",
-            "running total of import, export, or net since the start of this chart window",
+            "daily running total of import, PV, or consumption "
+            "(import+PV−export); resets at London midnight",
         )
         self._apply_figure_layout(self.fig)
         self.canvas.draw()

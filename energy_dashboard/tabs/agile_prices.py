@@ -1,16 +1,22 @@
 """
 Energy Dashboard — `tabs/agile_prices.py`.
 
-Grid view of Octopus Agile half-hourly slot prices for today / tomorrow,
-colour-coded like the Octopus Energy app's own Agile schedule screen.
-Reuses the Agile DataFrames the Forecasts tab already fetches (and merges
-with DB history) so this tab never issues its own extra API calls — the
-Refresh button here simply asks the Forecasts tab to fetch, and this tab
-redraws once that completes.
+Grid view of Octopus Agile half-hourly slot prices for a three-day window
+(yesterday / today / tomorrow by default), colour-coded like the Octopus
+Energy app's own Agile schedule screen.
+
+Live data comes from the Forecasts tab's already-fetched Agile DataFrames
+(Refresh here triggers that same fetch). Historical days come from
+``agile_price_snapshots`` in the DataLogger — written whenever Forecasts
+persists a fetch — so Older / Newer can walk back through stored days.
 """
 from __future__ import annotations
 
 from energy_dashboard.common import *
+from energy_dashboard.tabs.forecasts import (
+    _coerce_agile_frame,
+    _merge_agile_forecast_frames,
+)
 
 # (upper bound exclusive, colour, legend label) — ascending, matches the
 # banded legend on Octopus Energy's own Agile schedule view. The last
@@ -28,6 +34,8 @@ _AGILE_BANDS = (
 )
 _AGILE_NO_DATA_COLOR = '#3a3a4c'
 _AGILE_GRID_COLS = 12
+# How far Older may walk into DB history (calendar days behind today).
+_AGILE_HISTORY_MAX_DAYS = 90
 
 
 def _agile_band_for_price(price):
@@ -53,7 +61,7 @@ def _agile_readable_text_color(hex_color):
 
 
 class AgileSpotPricesTab(QWidget):
-    """Read-only colour-grid view of Octopus Agile import/export prices."""
+    """Colour-grid view of Octopus Agile import/export prices (3-day window)."""
 
     def __init__(self, forecasts_tab, status_callback):
         super().__init__()
@@ -61,6 +69,8 @@ class AgileSpotPricesTab(QWidget):
         self.set_status = status_callback
         self.on_data_updated = None
         self._view = 'import'
+        # 0 = middle row is calendar today; negative = middle is older.
+        self._anchor_offset = 0
         self.build_ui()
 
     # ── UI construction ─────────────────────────────────────────────────
@@ -86,6 +96,19 @@ class AgileSpotPricesTab(QWidget):
             seg_lay.addWidget(lbl)
             lay.addWidget(seg, 1)
         return bar
+
+    def _make_day_section(self, days_layout, title: str):
+        header = QLabel(title)
+        header.setStyleSheet(
+            f"color: {_DARK_TEXT}; font-weight: bold; font-size: 12px;"
+        )
+        days_layout.addWidget(header)
+        host = QWidget()
+        grid = QGridLayout(host)
+        grid.setSpacing(6)
+        grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        days_layout.addWidget(host)
+        return header, grid
 
     def build_ui(self):
         main_layout = QVBoxLayout(self)
@@ -120,21 +143,45 @@ class AgileSpotPricesTab(QWidget):
         self._view_group.idClicked.connect(self._on_view_toggled)
         ctrl_lay.addWidget(self.rb_import)
         ctrl_lay.addWidget(self.rb_export)
+        ctrl_lay.addSpacing(12)
+
+        self.btn_older = QPushButton("◀ Older")
+        self.btn_older.setToolTip(
+            "Shift the three-day window one day into the past "
+            "(uses prices stored in the database)."
+        )
+        self.btn_older.clicked.connect(self._on_older)
+        _apply_primary_button_style(self.btn_older)
+        ctrl_lay.addWidget(self.btn_older)
+
+        self.btn_today = QPushButton("Today")
+        self.btn_today.setToolTip("Jump back so the middle row is calendar today.")
+        self.btn_today.clicked.connect(self._on_jump_today)
+        _apply_primary_button_style(self.btn_today)
+        ctrl_lay.addWidget(self.btn_today)
+
+        self.btn_newer = QPushButton("Newer ▶")
+        self.btn_newer.setToolTip("Shift the three-day window one day toward today.")
+        self.btn_newer.clicked.connect(self._on_newer)
+        _apply_primary_button_style(self.btn_newer)
+        ctrl_lay.addWidget(self.btn_newer)
+
         ctrl_lay.addStretch(1)
 
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.setToolTip(
             "Re-fetch Agile prices (same fetch the Forecasts tab uses; this "
-            "grid redraws once it completes)."
+            "grid redraws once it completes). New slots are also saved to the DB."
         )
         self.refresh_btn.clicked.connect(self.refresh_now)
+        _apply_primary_button_style(self.refresh_btn)
         ctrl_lay.addWidget(self.refresh_btn)
         main_layout.addWidget(ctrl_box)
 
         info_row = QHBoxLayout()
         self.hint_label = QLabel(
-            "Prices include VAT. Today's slots are shown above tomorrow's; "
-            "use Import/Export to change which price series fills the grids."
+            "Prices include VAT. Default view: Yesterday · Today · Tomorrow. "
+            "Use Older / Newer to walk stored history; Import/Export switches series."
         )
         self.hint_label.setStyleSheet(f"color: {_DARK_SUBTEXT}; font-size: 11px;")
         info_row.addWidget(self.hint_label, 1)
@@ -152,29 +199,14 @@ class AgileSpotPricesTab(QWidget):
         days_layout.setSpacing(4)
         days_layout.setAlignment(Qt.AlignTop)
 
-        self.today_header = QLabel("Today")
-        self.today_header.setStyleSheet(
-            f"color: {_DARK_TEXT}; font-weight: bold; font-size: 12px;"
-        )
-        days_layout.addWidget(self.today_header)
-        today_grid_host = QWidget()
-        self.grid_layout_today = QGridLayout(today_grid_host)
-        self.grid_layout_today.setSpacing(6)
-        self.grid_layout_today.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        days_layout.addWidget(today_grid_host)
-
-        days_layout.addSpacing(10)
-
-        self.tomorrow_header = QLabel("Tomorrow")
-        self.tomorrow_header.setStyleSheet(
-            f"color: {_DARK_TEXT}; font-weight: bold; font-size: 12px;"
-        )
-        days_layout.addWidget(self.tomorrow_header)
-        tomorrow_grid_host = QWidget()
-        self.grid_layout_tomorrow = QGridLayout(tomorrow_grid_host)
-        self.grid_layout_tomorrow.setSpacing(6)
-        self.grid_layout_tomorrow.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        days_layout.addWidget(tomorrow_grid_host)
+        self.day_headers = []
+        self.day_grids = []
+        for i, title in enumerate(("Yesterday", "Today", "Tomorrow")):
+            if i:
+                days_layout.addSpacing(10)
+            header, grid = self._make_day_section(days_layout, title)
+            self.day_headers.append(header)
+            self.day_grids.append(grid)
 
         scroll.setWidget(days_host)
         main_layout.addWidget(scroll, 1)
@@ -186,6 +218,8 @@ class AgileSpotPricesTab(QWidget):
         self.summary_label.setWordWrap(True)
         summary_lay.addWidget(self.summary_label)
         main_layout.addWidget(summary_box, 0)
+
+        self._sync_nav_buttons()
 
     # ── Lifecycle / data plumbing ────────────────────────────────────────
 
@@ -200,6 +234,32 @@ class AgileSpotPricesTab(QWidget):
         self._view = 'import' if idx == 0 else 'export'
         self._render()
 
+    def _on_older(self):
+        if self._anchor_offset <= -_AGILE_HISTORY_MAX_DAYS:
+            return
+        self._anchor_offset -= 1
+        self._sync_nav_buttons()
+        self._render()
+
+    def _on_newer(self):
+        if self._anchor_offset >= 0:
+            return
+        self._anchor_offset += 1
+        self._sync_nav_buttons()
+        self._render()
+
+    def _on_jump_today(self):
+        if self._anchor_offset == 0:
+            return
+        self._anchor_offset = 0
+        self._sync_nav_buttons()
+        self._render()
+
+    def _sync_nav_buttons(self):
+        self.btn_newer.setEnabled(self._anchor_offset < 0)
+        self.btn_today.setEnabled(self._anchor_offset != 0)
+        self.btn_older.setEnabled(self._anchor_offset > -_AGILE_HISTORY_MAX_DAYS)
+
     def refresh_now(self):
         """Ask the Forecasts tab to fetch (Agile + solar); our grid redraws
         via `refresh_from_forecasts()` once that finishes."""
@@ -210,8 +270,7 @@ class AgileSpotPricesTab(QWidget):
         self.set_status("Agile Spot Prices: refreshing (via Forecasts fetch)…")
 
     def refresh_from_forecasts(self):
-        """Re-read the Forecasts tab's already-fetched Agile DataFrames
-        (no extra Octopus API calls) and redraw the grid."""
+        """Re-read Forecasts / DB Agile data and redraw the three-day grid."""
         self._render()
         if self.on_data_updated:
             try:
@@ -219,11 +278,80 @@ class AgileSpotPricesTab(QWidget):
             except Exception:
                 pass
 
-    def _current_df(self):
+    def _current_mem_df(self):
         ft = self.forecasts_tab
         if ft is None:
             return None
         return ft.agile_df if self._view == 'import' else ft.agile_export_df
+
+    def _tariff_code(self) -> str:
+        ft = self.forecasts_tab
+        if ft is None:
+            return ""
+        if self._view == 'import':
+            return (ft.tariff_edit.text() or "").strip()
+        return (ft.export_tariff_edit.text() or "").strip()
+
+    def _day_label(self, day_date, today):
+        """Relative name when the day is near today; otherwise weekday + date."""
+        delta = (day_date - today).days
+        if delta == -1:
+            word = "Yesterday"
+        elif delta == 0:
+            word = "Today"
+        elif delta == 1:
+            word = "Tomorrow"
+        else:
+            word = day_date.strftime('%A')
+        return f"{word} — {day_date.strftime('%a %d %b %Y')}"
+
+    def _empty_frame_msg(self, day_date, today):
+        if day_date > today:
+            return (
+                "Tomorrow's rates aren't published yet — usually available "
+                "mid-afternoon."
+                if (day_date - today).days == 1
+                else "No published rates for this future day yet."
+            )
+        if day_date < today:
+            return (
+                "No stored prices for this day in the database yet. "
+                "They appear after a Forecasts / Refresh fetch once that day "
+                "has been seen."
+            )
+        return "No Agile data yet — click Refresh (fetches via the Forecasts tab)."
+
+    def _prices_for_window(self, start_date, end_date):
+        """Merge in-memory Forecasts Agile data with DB snapshots for the window.
+
+        Live/memory wins on duplicate slots. Returns a Polars frame (may be empty).
+        """
+        mem = _coerce_agile_frame(self._current_mem_df())
+        logger = getattr(self.forecasts_tab, "data_logger", None)
+        tariff = self._tariff_code()
+        db = pl.DataFrame()
+        if (
+            logger is not None
+            and tariff
+            and getattr(logger, "_primary_storage_backend", lambda: None)() is not None
+        ):
+            try:
+                import pytz
+                london = pytz.timezone("Europe/London")
+                t0 = london.localize(
+                    datetime.combine(start_date, datetime.min.time())
+                ).astimezone(timezone.utc)
+                t1 = london.localize(
+                    datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+                ).astimezone(timezone.utc)
+                db = logger.query_agile_prices(t0, t1, tariff, self._view)
+            except Exception as e:
+                try:
+                    self.set_status(f"Agile Spot Prices: DB history read failed ({e})")
+                except Exception:
+                    pass
+                db = pl.DataFrame()
+        return _merge_agile_forecast_frames(mem, db)
 
     # ── Rendering ─────────────────────────────────────────────────────────
 
@@ -232,18 +360,24 @@ class AgileSpotPricesTab(QWidget):
         london = pytz.timezone('Europe/London')
         now_l = datetime.now(london)
         today = now_l.date()
-        tomorrow = today + timedelta(days=1)
-        df = self._current_df()
+        middle = today + timedelta(days=self._anchor_offset)
+        days = [
+            middle - timedelta(days=1),
+            middle,
+            middle + timedelta(days=1),
+        ]
         view_label = "Import" if self._view == 'import' else "Export (outgoing)"
-
         self.title_label.setText(f"Agile Octopus Slots — {view_label}")
-        self.today_header.setText(f"Today — {today.strftime('%a %d %b %Y')}")
-        self.tomorrow_header.setText(f"Tomorrow — {tomorrow.strftime('%a %d %b %Y')}")
 
-        self._build_day_grid(self.grid_layout_today, df, today, now_l)
-        self._build_day_grid(self.grid_layout_tomorrow, df, tomorrow, now_l)
-        self._update_summary(df, today, tomorrow, view_label)
+        df = self._prices_for_window(days[0], days[2])
+
+        for header, grid, day in zip(self.day_headers, self.day_grids, days):
+            header.setText(self._day_label(day, today))
+            self._build_day_grid(grid, df, day, now_l, today)
+
+        self._update_summary(df, days, today, view_label)
         self.updated_label.setText(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
+        self._sync_nav_buttons()
 
     @staticmethod
     def _clear_grid(layout):
@@ -253,10 +387,10 @@ class AgileSpotPricesTab(QWidget):
             if w is not None:
                 w.deleteLater()
 
-    def _build_day_grid(self, layout, df, day_date, now_l):
+    def _build_day_grid(self, layout, df, day_date, now_l, today):
         self._clear_grid(layout)
         if df is None or df.is_empty():
-            lbl = QLabel("No Agile data yet — click Refresh (fetches via the Forecasts tab).")
+            lbl = QLabel(self._empty_frame_msg(day_date, today))
             lbl.setStyleSheet(f"color: {_DARK_SUBTEXT}; font-size: 12px; padding: 16px;")
             layout.addWidget(lbl, 0, 0)
             return
@@ -265,12 +399,7 @@ class AgileSpotPricesTab(QWidget):
         except Exception:
             day_df = pl.DataFrame()
         if day_df.is_empty():
-            msg = (
-                "No data for this day yet."
-                if day_date <= now_l.date()
-                else "Tomorrow's rates aren't published yet — usually available mid-afternoon."
-            )
-            lbl = QLabel(msg)
+            lbl = QLabel(self._empty_frame_msg(day_date, today))
             lbl.setStyleSheet(f"color: {_DARK_SUBTEXT}; font-size: 12px; padding: 16px;")
             layout.addWidget(lbl, 0, 0)
             return
@@ -327,32 +456,37 @@ class AgileSpotPricesTab(QWidget):
             lay.addWidget(now_lbl)
         return frame
 
-    def _summary_line_for_day(self, df, day_date, day_word, view_label):
+    def _summary_line_for_day(self, df, day_date, today, view_label):
+        word = self._day_label(day_date, today).split(" — ", 1)[0]
         if df is None or df.is_empty():
-            return f"{view_label} ({day_word}): no data yet."
+            return f"{view_label} ({word}): no data yet."
         try:
             day_df = df.filter(pl.col('valid_from').dt.date() == day_date)
         except Exception:
             day_df = pl.DataFrame()
         if day_df.is_empty():
-            suffix = "not published yet" if day_word == "tomorrow" else "no data yet"
-            return f"{view_label} ({day_word}, {day_date.strftime('%a %d %b')}): {suffix}."
+            if day_date > today:
+                suffix = "not published yet"
+            elif day_date < today:
+                suffix = "not in DB yet"
+            else:
+                suffix = "no data yet"
+            return f"{view_label} ({word}, {day_date.strftime('%a %d %b')}): {suffix}."
         prices = day_df['price_pence']
         cheapest = day_df.sort('price_pence').row(0, named=True)
         priciest = day_df.sort('price_pence', descending=True).row(0, named=True)
         return (
-            f"{view_label} ({day_word}, {day_date.strftime('%a %d %b')}): "
+            f"{view_label} ({word}, {day_date.strftime('%a %d %b')}): "
             f"min {prices.min():.2f}p @ {cheapest['valid_from'].strftime('%H:%M')}  |  "
             f"max {prices.max():.2f}p @ {priciest['valid_from'].strftime('%H:%M')}  |  "
             f"avg {prices.mean():.2f}p  |  {day_df.height} slots"
         )
 
-    def _update_summary(self, df, today, tomorrow, view_label):
+    def _update_summary(self, df, days, today, view_label):
         lines = [
-            self._summary_line_for_day(df, today, "today", view_label),
-            self._summary_line_for_day(df, tomorrow, "tomorrow", view_label),
+            self._summary_line_for_day(df, d, today, view_label) for d in days
         ]
         self.summary_label.setText('\n'.join(lines))
 
 
-__all__ = [n for n in globals() if not n.startswith('__')]
+__all__ = ["AgileSpotPricesTab"]

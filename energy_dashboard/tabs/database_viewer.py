@@ -9,7 +9,11 @@ from energy_dashboard.dialogs.db_health import DbHealthDialog
 class DatabaseViewerTab(QWidget):
     """Read-only browse of DataLogger tables using Parameters → Database Export fields."""
 
-    TABLES = ("growatt_readings", "tasmota_readings", "tasmota_devices", "octopus_readings")
+    TABLES = (
+        "growatt_readings", "tasmota_readings", "tasmota_devices",
+        "octopus_readings", "agile_price_snapshots", "agile_year_daily",
+        "pv_string_charge",
+    )
 
     def __init__(self, dashboard):
         super().__init__()
@@ -38,9 +42,11 @@ class DatabaseViewerTab(QWidget):
         row.addWidget(self.spin_limit)
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh_data)
+        _apply_primary_button_style(self.refresh_btn)
         row.addWidget(self.refresh_btn)
         self.status_btn = QPushButton("Status")
         self.status_btn.clicked.connect(self.show_status)
+        _apply_primary_button_style(self.status_btn)
         row.addWidget(self.status_btn)
         self.status_lbl = QLabel(
             "Connection details are taken from the Parameters tab (Database Export). "
@@ -147,14 +153,13 @@ class DatabaseViewerTab(QWidget):
                 finally:
                     conn.close()
             elif backend == "MySQL":
-                import pymysql
-                conn = pymysql.connect(
-                    host=cap['mysql_host'] or "localhost",
-                    port=int(cap['mysql_port']),
-                    user=cap['mysql_user'],
-                    password=cap['mysql_pass'],
-                    database=cap['mysql_db'] or "energy",
-                    charset='utf8mb4',
+                from energy_dashboard.db.connect_probe import mysql_connect
+                conn = mysql_connect(
+                    cap['mysql_host'] or "localhost",
+                    cap['mysql_port'],
+                    cap['mysql_user'],
+                    cap['mysql_pass'],
+                    cap['mysql_db'] or "energy",
                 )
                 try:
                     with conn.cursor() as cur:
@@ -164,13 +169,13 @@ class DatabaseViewerTab(QWidget):
                 finally:
                     conn.close()
             else:
-                import psycopg2
-                conn = psycopg2.connect(
-                    host=cap['pg_host'] or "localhost",
-                    port=int(cap['pg_port']),
-                    dbname=cap['pg_db'] or "powermon",
-                    user=cap['pg_user'],
-                    password=cap['pg_pass'],
+                from energy_dashboard.db.connect_probe import postgresql_connect
+                conn = postgresql_connect(
+                    cap['pg_host'] or "localhost",
+                    cap['pg_port'],
+                    cap['pg_user'],
+                    cap['pg_pass'],
+                    cap['pg_db'] or "powermon",
                 )
                 try:
                     with conn.cursor() as cur:

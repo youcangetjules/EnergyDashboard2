@@ -1,0 +1,27 @@
+---
+description: Always read AGENTS.md and the basic dev-environment instruction files
+alwaysApply: true
+---
+
+# Mandatory agent brief
+
+Before answering or editing in this repo, **read and follow** [`AGENTS.md`](../../AGENTS.md) at the repository root.
+
+`AGENTS.md` defines the **basic instructions for the development environment**, which always include these files — read them every session, not only when convenient:
+
+| File | Role |
+|------|------|
+| [`architecture.md`](../../architecture.md) | Application architecture and decisions that affect it — update when those decisions change |
+| [`worklog.md`](../../worklog.md) | Plain-English daily development log — append after meaningful work |
+| [`skills.md`](../../skills.md) | Required expertise (engineering, UI/UX, AI/ML, Growatt PV & battery) |
+| [`MOTIFS.md`](../../MOTIFS.md) | UI design motifs (buttons, spin boxes, alignment) — update when motifs change |
+| [`bug_tracker.md`](../../bug_tracker.md) | Timestamped log of every bug — open on find/report; fill resolution when fixed |
+
+`AGENTS.md` itself also covers:
+
+- Solar / battery / UK tariff expertise and **plain-English** explanations
+- Telemetry integrity (never fudge measured data)
+- Where to work in the codebase and what is out of scope
+- Safety around inverter writes and secrets
+
+If `AGENTS.md` (and its basic instruction files) disagree with a shorter rule on tone or domain explanation, **`AGENTS.md` wins**. Keep using `.cursor/rules/` for workspace path boundaries; do not skip this brief.

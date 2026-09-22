@@ -14,15 +14,28 @@ _DARK_SURFACE0 = '#313244'
 _DARK_SUBTEXT = '#a6adc8'
 _DARK_OVERLAY = '#6c7086'
 
-# Main tab bar: fresh data tint fades to _DARK_BG over this many seconds.
-_TAB_FRESH_MAX_AGE_SEC = 600
-_TAB_FRESH_TINT = '#c8f0c0'
+# Main tab bar page colours (groups stay amber on the left).
+_TAB_PAGE_UPDATEABLE = '#5daf6e'       # solid green — just refreshed
+_TAB_PAGE_STATIC = '#5b8fd4'           # solid blue — Setup, License, tools, etc.
+_TAB_PAGE_NOT_UPDATED = _DARK_BG      # black — updateable but never / no longer fresh
+_TAB_PAGE_NOT_UPDATED_TEXT = '#ffffff'
+_TAB_PAGE_HATCH = QColor(255, 255, 255, 55)  # diagonal strokes on selected page
+_TAB_CORNER_RADIUS = 8
+# Faint tab chrome (ARGB) — visible on coloured page tabs.
+_TAB_OUTLINE_FAINT = QColor(69, 71, 90, 72)
+_TAB_OUTLINE_SELECTED = QColor(205, 214, 244, 160)
+
+# Updateable pages: green → black fade over 20 minutes after last refresh.
+_TAB_FRESH_MAX_AGE_SEC = 1200
+_TAB_FRESH_TINT = _TAB_PAGE_UPDATEABLE
 _TAB_TEXT_ON_LIGHT_BG = '#000000'
 _TAB_TEXT_ON_DARK_BG = _DARK_TEXT
-_TAB_CORNER_RADIUS = 8
-# Faint tab chrome (ARGB) — visible on green freshness tints and dark tabs alike.
-_TAB_OUTLINE_FAINT = QColor(69, 71, 90, 72)
-_TAB_OUTLINE_SELECTED = QColor(108, 112, 134, 130)
+
+# Amber group strip (left of page tabs) — Catppuccin peach / amber accent.
+_TAB_GROUP_AMBER = '#f5a524'
+_TAB_GROUP_AMBER_DIM = '#c4841a'
+_TAB_GROUP_AMBER_BG = '#2a2418'
+_TAB_GROUP_AMBER_BG_SEL = '#3d3018'
 
 # Main tab bar only — no ::tab background (FreshnessTabBar paints per-tab tint).
 _FRESH_MAIN_TAB_BAR_QSS = f"""
@@ -45,6 +58,47 @@ QTabBar#freshMainTabBar::tab:selected {{
 }}
 QTabBar#freshMainTabBar::tab:hover:!selected {{
     color: {_DARK_SUBTEXT};
+}}
+"""
+
+_MAIN_TAB_GROUP_STRIP_QSS = f"""
+QWidget#mainTabGroupStrip {{
+    background: {_DARK_BG};
+}}
+"""
+
+# Applied directly on each group button so app-wide QPushButton green cannot override.
+_MAIN_TAB_GROUP_BTN_QSS = f"""
+QPushButton {{
+    color: {_TAB_GROUP_AMBER};
+    background-color: {_TAB_GROUP_AMBER_BG};
+    border: 1px solid {_TAB_GROUP_AMBER_DIM};
+    border-bottom: none;
+    border-top-left-radius: {_TAB_CORNER_RADIUS}px;
+    border-top-right-radius: {_TAB_CORNER_RADIUS}px;
+    padding: 6px 10px;
+    margin-right: 2px;
+    font-size: 11px;
+    font-weight: 600;
+}}
+QPushButton:hover:!checked {{
+    color: #ffd27a;
+    background-color: {_TAB_GROUP_AMBER_BG_SEL};
+    border: 1px solid {_TAB_GROUP_AMBER};
+    border-bottom: none;
+}}
+QPushButton:checked {{
+    color: #1a1208;
+    background-color: {_TAB_GROUP_AMBER};
+    border: 1px solid #ffc857;
+    border-bottom: 1px solid {_DARK_BG};
+    font-weight: 700;
+}}
+QPushButton:checked:hover {{
+    color: #1a1208;
+    background-color: #ffc857;
+    border: 1px solid #ffd27a;
+    border-bottom: 1px solid {_DARK_BG};
 }}
 """
 

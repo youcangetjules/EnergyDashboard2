@@ -1,9 +1,10 @@
 """
-Growatt local pipeline probe — trace WiFi / GROTT / EMQX / dashboard hops.
+Growatt pipeline probe — trace Modbus / GROTT / EMQX / dashboard hops.
 
 Runs synchronously (call from a worker thread).  Each hop returns ok / warn /
 bad / off / idle.  Links between hops are evaluated to surface the first break
-in the chain.
+in the chain.  Growatt cloud API is a separate peer (not probed as a TCP hop
+here); Modbus is independent of GROTT.
 """
 from __future__ import annotations
 
@@ -17,16 +18,12 @@ from typing import Any, Callable
 
 from PySide6.QtCore import QSettings
 
-from energy_dashboard.modbus.command_sim import (
-    GROWATT_WIFI_PING_OK_PORT_CLOSED_HINT,
-    _host_ping_ok,
-)
 from energy_dashboard.config import (
     GROWATT_TELEMETRY_API,
     GROWATT_TELEMETRY_GROTT,
     GROWATT_TELEMETRY_HYBRID,
-    growatt_http_host,
     growatt_modbus_tcp_host,
+    growatt_modbus_uses_lan_tcp,
     growatt_uses_grott,
     read_growatt_telemetry_source,
 )
@@ -107,60 +104,29 @@ class PipelineProbeReport:
         return None
 
 
-def _probe_wifi_direct(params) -> PipelineHopResult:
-    host = growatt_http_host(params)
-    port = int(getattr(params, "growatt_local_port", 80) or 80)
-    if not host:
-        return PipelineHopResult(
-            "wifi_direct",
-            "Growatt WiFi Direct",
-            "off",
-            "WiFi / ShineLan IP not configured under Setup & Info",
-        )
-    ok, detail, ms = _tcp_open(host, port)
-    if ok:
-        state = "ok"
-    elif _host_ping_ok(host):
-        state = "warn"
-        detail = (
-            f"{host} online (ping OK) but TCP port {port} closed. "
-            f"{GROWATT_WIFI_PING_OK_PORT_CLOSED_HINT}"
-        )
-    else:
-        state = "bad"
-    return PipelineHopResult(
-        "wifi_direct",
-        "Growatt WiFi Direct",
-        state,
-        detail,
-        latency_ms=ms,
-        extra={"host": host, "port": port},
-    )
-
-
-def _probe_lan_direct(params) -> PipelineHopResult:
+def _probe_modbus(params) -> PipelineHopResult:
     mode = (getattr(params, "growatt_modbus_mode", "off") or "off").lower()
     if mode == "off":
         return PipelineHopResult(
-            "lan_direct",
-            "Growatt LAN Direct",
+            "modbus",
+            "Modbus",
             "off",
             "Modbus disabled in Setup (optional for this pipeline)",
         )
-    host = growatt_modbus_tcp_host(params) if mode == "tcp" else ""
-    if mode == "tcp":
+    host = growatt_modbus_tcp_host(params) if growatt_modbus_uses_lan_tcp(mode) else ""
+    if growatt_modbus_uses_lan_tcp(mode):
         if not host:
             return PipelineHopResult(
-                "lan_direct",
-                "Growatt LAN Direct",
+                "modbus",
+                "Modbus",
                 "off",
-                "Modbus TCP enabled but LAN/Wi‑Fi IP is empty",
+                "Modbus TCP enabled but host IP is empty",
             )
         port = int(getattr(params, "growatt_modbus_tcp_port", 502) or 502)
         ok, detail, ms = _tcp_open(host, port)
         return PipelineHopResult(
-            "lan_direct",
-            "Growatt LAN Direct",
+            "modbus",
+            "Modbus",
             "ok" if ok else "bad",
             detail,
             latency_ms=ms,
@@ -169,15 +135,15 @@ def _probe_lan_direct(params) -> PipelineHopResult:
     path = (getattr(params, "growatt_modbus_serial_path", "") or "").strip()
     if not path:
         return PipelineHopResult(
-            "lan_direct",
-            "Growatt LAN Direct",
+            "modbus",
+            "Modbus",
             "warn",
             "Modbus RTU configured but serial path is empty",
             extra={"mode": mode},
         )
     return PipelineHopResult(
-        "lan_direct",
-        "Growatt LAN Direct",
+        "modbus",
+        "Modbus",
         "idle",
         f"RTU path {path} — serial probe not run (TCP-only check in pipeline probe)",
         extra={"mode": mode, "path": path},
@@ -206,11 +172,18 @@ def _read_mqtt_settings(params, settings: QSettings | None) -> dict[str, Any]:
     if topic_raw in ("grott/#", "#"):
         topic_raw = _DEFAULT_GROTT_TOPIC
 
+    user = str(_val("grott_mqtt_user", "params/emqx_user", "") or "").strip()
+    if not user:
+        user = str(_val("grott_mqtt_user", "params/grott_mqtt_user", "") or "").strip()
+    password = str(_val("grott_mqtt_password", "params/emqx_password", "") or "")
+    if password == "" and settings.contains("params/grott_mqtt_password"):
+        password = str(_val("grott_mqtt_password", "params/grott_mqtt_password", "") or "")
+
     return {
         "host": emqx_host,
         "port": max(1, min(65535, emqx_port)),
-        "user": str(_val("grott_mqtt_user", "params/grott_mqtt_user", "") or "").strip(),
-        "password": str(_val("grott_mqtt_password", "params/grott_mqtt_password", "") or ""),
+        "user": user,
+        "password": password,
         "topic": topic_raw,
         "fresh_s": int(_val("grott_mqtt_fresh_s", "params/grott_mqtt_fresh_s", 150) or 150),
     }
@@ -229,6 +202,18 @@ def _probe_emqx_broker(mqtt_cfg: dict[str, Any]) -> PipelineHopResult:
     ok, detail, ms = _tcp_open(host, port)
     if not ok:
         return PipelineHopResult("emqx", "EMQX MQTT broker", "bad", detail, extra={"host": host, "port": port})
+
+    from energy_dashboard.fetch.mqtt_session import broker_session
+
+    if broker_session().shares_broker(host, port):
+        return PipelineHopResult(
+            "emqx",
+            "EMQX MQTT broker",
+            "ok",
+            f"MQTT already connected on the shared session {host}:{port} ({ms:.0f} ms TCP)",
+            latency_ms=ms,
+            extra={"host": host, "port": port},
+        )
 
     if mqtt is None:
         return PipelineHopResult(
@@ -328,6 +313,16 @@ def _probe_grott_publish(
             "GROTT publish",
             "off",
             "MQTT broker not configured",
+        )
+    from energy_dashboard.fetch.mqtt_session import broker_session
+
+    if broker_session().shares_broker(host, port):
+        return PipelineHopResult(
+            "grott",
+            "GROTT publish",
+            "ok",
+            f"Shared MQTT session already connected to {host}:{port} — not opening a second listener",
+            extra={"host": host, "port": port, "topic": listen_topic},
         )
     if mqtt is None:
         return PipelineHopResult(
@@ -616,7 +611,7 @@ def run_growatt_pipeline_probe(
     grott_wait_s: float = 20.0,
     progress: Callable[[str], None] | None = None,
 ) -> PipelineProbeReport:
-    """Probe Growatt WiFi → GROTT → EMQX → dashboard and return structured results."""
+    """Probe Growatt API / GROTT / Modbus peers → EMQX → dashboard and return structured results."""
     started = datetime.now()
     settings = settings or QSettings("PowerModel", "EnergyDashboard2")
     source = read_growatt_telemetry_source(settings, params)
@@ -625,12 +620,8 @@ def run_growatt_pipeline_probe(
     hops: list[PipelineHopResult] = []
 
     if progress:
-        progress("Probing Growatt WiFi Direct…")
-    hops.append(_probe_wifi_direct(params))
-
-    if progress:
-        progress("Probing Growatt LAN Direct…")
-    hops.append(_probe_lan_direct(params))
+        progress("Probing Modbus…")
+    hops.append(_probe_modbus(params))
 
     if progress:
         progress("Probing EMQX MQTT broker…")
@@ -653,23 +644,19 @@ def run_growatt_pipeline_probe(
     hops.append(_probe_dashboard(dash, mqtt_cfg, telemetry_source=source))
 
     by_id = {h.hop_id: h for h in hops}
-    wifi = by_id["wifi_direct"]
-    lan = by_id["lan_direct"]
     grott = by_id["grott"]
     emqx = by_id["emqx"]
     dash_hop = by_id["dashboard"]
 
-    upstream_inv = lan if lan.state == "ok" else wifi
-    if upstream_inv.state == "off" and wifi.state != "off":
-        upstream_inv = wifi
-
+    # Three Growatt methods: cloud API (separate), Grott→EMQX, Modbus (separate).
+    # Do not treat Modbus as Grott's upstream.
     links = [
         _eval_link(
             "inv_grott",
-            upstream_inv.hop_id,
             "grott",
-            f"{upstream_inv.label} → GROTT",
-            upstream_inv,
+            "grott",
+            "Inverter report → GROTT",
+            grott,
             grott,
         ),
         _eval_link(

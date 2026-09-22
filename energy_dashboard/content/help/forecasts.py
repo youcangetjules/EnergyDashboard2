@@ -9,6 +9,8 @@ HELP_TEXT = """\
 <h2>Forecasts</h2><p>
 Pulls Octopus Agile import &amp; export half-hourly prices and a solar generation forecast: <b>Forecast.Solar</b> first; if that is unreachable or empty, an <b>Open-Meteo</b> hourly tilted-irradiance backup scaled to your kWp. The API curve starts today — past calendar days have no watts. The previous London day is filled from measured Growatt PV; a dashed line can still show yesterday's DB-saved <i>planned</i> forecast for accuracy checks.</p>
 <p>
+<b>Chart days</b> sets the visible window to that many calendar days (today plus the previous N−1). Longer forecast tails from the solar API are clipped to this window so a 4-day setting does not stretch the axis to two weeks.</p>
+<p>
 <b>Location handling</b></p>
 <ul>
 <li>
@@ -19,5 +21,7 @@ Lat / Lon are <code>DECIMAL(10,5)</code> — values snap to 5 dp on commit and p
 <b>Show on map</b> opens an OpenStreetMap picker with optional what3words lookup.</li>
 <li>
 The Locale label is reverse-geocoded via OpenStreetMap Nominatim (fine zoom so village/town names appear when available) and cached.</li>
+<li>
+For multi-face roofs, use the sibling <b>Roof layout</b> tab (Google Earth / KML + panel types), then <b>Apply to Forecasts</b> — Fetch Forecasts sums one PV curve per face.</li>
 </ul>
 """

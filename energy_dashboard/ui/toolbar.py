@@ -8,18 +8,26 @@ from energy_dashboard.ui.buttons import _TASMOTA_PIN_CHART_CB_QSS
 from energy_dashboard.ui.styles import _checkbox_indicator_qss
 
 
-def _apply_pin_chart_checkbox_halo(checkbox):
+def _apply_pin_chart_checkbox_halo(checkbox, spin=None):
     """Pill chrome on the chart toolbar; indicator matches app-wide checkbox style."""
-    checkbox.setObjectName('tasmotaPinHist500')
+    checkbox.setObjectName('tasmotaPinHistY')
     checkbox.setStyleSheet(
         _TASMOTA_PIN_CHART_CB_QSS
-        + _checkbox_indicator_qss("QCheckBox#tasmotaPinHist500")
+        + _checkbox_indicator_qss("QCheckBox#tasmotaPinHistY")
     )
     halo = QGraphicsDropShadowEffect(checkbox)
     halo.setBlurRadius(16)
     halo.setColor(QColor(255, 255, 255, 160))
     halo.setOffset(0, 0)
     checkbox.setGraphicsEffect(halo)
+    if spin is not None:
+        spin.setObjectName('tasmotaPinHistW')
+        spin.setStyleSheet(_TASMOTA_PIN_CHART_CB_QSS)
+        spin_halo = QGraphicsDropShadowEffect(spin)
+        spin_halo.setBlurRadius(16)
+        spin_halo.setColor(QColor(255, 255, 255, 160))
+        spin_halo.setOffset(0, 0)
+        spin.setGraphicsEffect(spin_halo)
 
 
 class DarkNavigationToolbar(_MplNavigationToolbar):
@@ -53,6 +61,12 @@ class DarkNavigationToolbar(_MplNavigationToolbar):
             self.locLabel.setStyleSheet(
                 'color: #ffffff; background: transparent; padding: 0 4px;'
             )
+        # Global bar-value mouseover for every chart that uses this toolbar.
+        try:
+            from energy_dashboard.ui.chart_utils import enable_bar_value_hover
+            enable_bar_value_hover(canvas)
+        except Exception:
+            pass
 
 
 class ChartShimmerOverlay(QWidget):

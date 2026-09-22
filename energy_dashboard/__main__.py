@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from energy_dashboard.app_entry import _configure_app_input_palette, _flush_qsettings_on_quit
 from energy_dashboard.core.logging import ensure_log_manager
-from energy_dashboard.dialogs.map_picker import _configure_qt_webengine_chromium
+from energy_dashboard.qt_env import configure_qt_webengine_chromium, prepare_qapplication_attributes
 from energy_dashboard.version import APP_VERSION
 
 
@@ -29,17 +29,11 @@ def _install_exception_logger():
 
 
 def main() -> None:
-    # #region agent log
-    from energy_dashboard.core.debug_trace import debug_trace
-    debug_trace(
-        "__main__.py:main",
-        "main() entry",
-        data={"argv": sys.argv, "executable": sys.executable},
-        hypothesis_id="H5",
-    )
-    # #endregion
-    _configure_qt_webengine_chromium()
+    configure_qt_webengine_chromium()
+    prepare_qapplication_attributes()
     app = QApplication(sys.argv)
+    from energy_dashboard.ui.modal_ontop import install_modal_stay_on_top
+    install_modal_stay_on_top(app)
     ensure_log_manager()
     _install_exception_logger()
 

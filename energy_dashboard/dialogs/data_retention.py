@@ -101,14 +101,16 @@ class _RetentionRow(QGroupBox):
         self.sp_rows.setSpecialValueText("unlimited")
         self.sp_rows.setValue(pol.max_rows)
         self.sp_rows.setToolTip("0 = unlimited. Oldest rows deleted first.")
-        apply_spin_field_motif(self.sp_rows, width=100)
+        apply_spin_field_motif(self.sp_rows, width=140)
+        self.sp_rows.setProperty("_pm_spin_motif_w", 140)
 
         self.sp_days = QSpinBox()
         self.sp_days.setRange(0, 3650)
         self.sp_days.setSpecialValueText("unlimited")
         self.sp_days.setValue(pol.max_age_days)
         self.sp_days.setToolTip("0 = unlimited. Deletes rows older than this many days.")
-        apply_spin_field_motif(self.sp_days, width=72)
+        apply_spin_field_motif(self.sp_days, width=140)
+        self.sp_days.setProperty("_pm_spin_motif_w", 140)
 
         self.sp_mb = QDoubleSpinBox()
         self.sp_mb.setRange(0.0, 50_000.0)
@@ -119,7 +121,8 @@ class _RetentionRow(QGroupBox):
             "0 = unlimited. PostgreSQL: table size via pg_total_relation_size; "
             "SQLite: approximate by trimming oldest rows."
         )
-        apply_spin_field_motif(self.sp_mb, width=88)
+        apply_spin_field_motif(self.sp_mb, width=140)
+        self.sp_mb.setProperty("_pm_spin_motif_w", 140)
 
         for row, (lbl, widget) in enumerate(
             (
@@ -220,12 +223,15 @@ class ConnectivityRetentionDialog(QDialog):
         *,
         table_stats: dict | None = None,
         data_logger=None,
+        dash=None,
         parent=None,
     ):
         super().__init__(parent)
-        title = {"database": "Databases", "export": "Exported data"}.get(
-            box_key, box_key
-        )
+        title = {
+            "database": "Databases",
+            "export": "Exported data",
+            "storage": "Databases & Exports",
+        }.get(box_key, box_key)
         self.setWindowTitle(title)
         self.setMinimumWidth(520)
         self._box_key = box_key
@@ -246,12 +252,20 @@ class ConnectivityRetentionDialog(QDialog):
         intro.setTextFormat(Qt.TextFormat.RichText)
         root.addWidget(intro)
 
+        login = None
+        if dash is not None:
+            from energy_dashboard.dialogs.component_login import build_component_login
+
+            login = build_component_login(box_key, dash)
+            if login is not None:
+                self.setMinimumWidth(720)
+
         summary = QTextEdit()
         summary.setReadOnly(True)
         summary.setFont(QFont("Helvetica", 10))
         summary.setFrameShape(QFrame.Shape.NoFrame)
         summary.setPlainText(summary_body)
-        summary.setMaximumHeight(180)
+        summary.setMaximumHeight(280)
         root.addWidget(summary)
 
         rule = QFrame()
@@ -266,6 +280,8 @@ class ConnectivityRetentionDialog(QDialog):
         inner = QWidget()
         inner_lay = QVBoxLayout(inner)
         inner_lay.setSpacing(8)
+        if login is not None:
+            inner_lay.addWidget(login)
         stats = table_stats or {}
         for target in targets_for_box(box_key):
             row = _RetentionRow(
@@ -303,9 +319,11 @@ class ConnectivityRetentionDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
+        screen = QApplication.primaryScreen()
+        avail_h = screen.availableGeometry().height() if screen is not None else 800
         self.resize(
-            600,
-            min(780, int(QApplication.primaryScreen().availableGeometry().height() * 0.88)),
+            760 if login is not None else 600,
+            min(780, int(avail_h * 0.88)),
         )
 
     def _set_status(self, text: str, *, ok: bool = True) -> None:

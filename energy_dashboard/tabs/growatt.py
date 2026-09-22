@@ -17,6 +17,7 @@ from energy_dashboard.config import (
 )
 from energy_dashboard.fetch.grott_mqtt import (
     GrottMqttSubscriber,
+    _merge_nonempty_dict,
     grott_derive_load_kw,
     grott_snapshot_fresh,
     test_grott_mqtt_connection,
@@ -34,6 +35,14 @@ _GROTT_API_FILL_TIP = (
     "Value filled from Growatt cloud API (Grott did not publish this register)."
 )
 _GROTT_LIVE_API_PATCH_INTERVAL_S = 60.0
+# A resubscribe tears the MQTT client down and reconnects, so recovery attempts
+# on a quiet feed are rate-limited rather than fired on every refresh tick.
+_GROTT_RESUBSCRIBE_COOLDOWN_S = 60.0
+# Growatt Open API V1 rejects endpoints hit more often than ~once per 5 min per
+# device (error 10012 / error_frequently_access). Polling faster only earns a
+# ban — and each banned call used to re-arm the local 30-min pause, which is
+# why the pause message never counted down. All live V1 calls share this gate.
+_GROWATT_V1_LIVE_MIN_POLL_S = 300.0
 
 
 def growatt_format_live_kw(val) -> str | None:
@@ -180,6 +189,16 @@ def _patch_grott_live_from_api(
                 api_filled.add("sys_lost")
                 break
     _patch_totals("load_etoday", "elocalLoadToday")
+    _patch_totals(
+        "imp_etoday",
+        "etouser",
+        "eToUser",
+        "eToUserToday",
+        "efromGridToday",
+        "eFromGridToday",
+        "import_from_grid_energy_today",
+        "import_from_grid_today",
+    )
     _patch_totals("exp_etoday", "etoGridToday")
 
     return merged_status, merged_info, merged_totals, api_filled
@@ -204,11 +223,24 @@ class GrowattTab(QWidget):
         self._plant_devices = []
         self._model_inv = '—'
         self._model_bat = '—'
+        self._battery_equipage = {}
+        self._modbus_pack_serials = []
+        self._modbus_pack_serials_detail = ""
+        self._modbus_modules = None
+        self._modbus_modules_detail = ""
+        self._modbus_battery_polling = False
+        self._modbus_battery_poll_ts = 0.0
         self._auto_timer = QTimer(self)
         self._auto_timer.setInterval(30000)
         self._auto_timer.timeout.connect(self._on_auto_tick)
         self._auto_refresh_pending = False
         self._growatt_fetching = False
+        self._last_v1_live_poll = 0.0
+        # Last raw cloud live read + same-moment Grott snapshot, so sibling
+        # tabs (Grott/API Align) can reuse it instead of spending the shared
+        # Open API budget on their own polls.
+        self._last_cloud_pair = None
+        self._v1_throttle_notice_ts = 0.0
         self._growatt_testing = False
         self._growatt_auth_gen = 0
         self._growatt_connecting = False
@@ -223,6 +255,7 @@ class GrowattTab(QWidget):
         self._last_shinelan_probe = None
         self._last_shinelan_probe_time = None
         self._last_grott_downstream_notify = 0.0
+        self._last_grott_resubscribe = 0.0
         self._grott_static_enriching = False
         self._last_grott_static_enrich = 0.0
         self._grott_static_enrich_interval_s = 900.0
@@ -230,12 +263,27 @@ class GrowattTab(QWidget):
         self._last_grott_live_api_patch = 0.0
         self._grott_gap_fill_only = False
         self._last_grott_present = {"status": set(), "info": set(), "totals": set()}
+        # Per-key last-seen times so sparse Shine heartbeats (SOC + grid V/Hz)
+        # do not wipe the "Grott published this" set from a recent full frame.
+        self._grott_present_seen_at = {
+            "status": {}, "info": {}, "totals": {},
+        }
         self._api_filled_fields = set()
+        # Last good Grott display bundle — survives session reset and sparse MQTT.
+        self._grott_display_cache = {"status": {}, "info": {}, "totals": {}}
         self._power_label_colors = {}
         self._total_label_colors = {}
+        self._grott_ui_pending = False
+        self._grott_ui_timer = QTimer(self)
+        self._grott_ui_timer.setSingleShot(True)
+        self._grott_ui_timer.setInterval(250)
+        self._grott_ui_timer.timeout.connect(self._flush_grott_ui_apply)
         self._grott = GrottMqttSubscriber(
-            on_update=lambda: self._inv.invoke(self._apply_grott_snapshot_if_needed),
+            on_update=lambda: self._inv.invoke(self._schedule_grott_ui_apply),
             on_status=lambda msg: self._inv.invoke(lambda m=msg: self._set_grott_status(m)),
+            on_link_event=lambda et, detail: self._inv.invoke(
+                lambda e=et, d=detail: self._on_grott_link_event(e, d)
+            ),
         )
         self._countdown_timer = QTimer(self)
         self._countdown_timer.setInterval(1000)
@@ -243,6 +291,18 @@ class GrowattTab(QWidget):
         self.build_ui()
         self.apply_grott_settings()
         self._countdown_timer.start()
+
+    def _schedule_grott_ui_apply(self):
+        """Coalesce rapid Grott MQTT updates into one UI apply shortly."""
+        self._grott_ui_pending = True
+        if not self._grott_ui_timer.isActive():
+            self._grott_ui_timer.start()
+
+    def _flush_grott_ui_apply(self):
+        if not self._grott_ui_pending:
+            return
+        self._grott_ui_pending = False
+        self._apply_grott_snapshot_if_needed()
 
     def build_ui(self):
         main_layout = QVBoxLayout(self)
@@ -300,6 +360,7 @@ class GrowattTab(QWidget):
             "Check the selected source and whether live inverter data is reachable."
         )
         self.test_cred_btn.clicked.connect(self._test_growatt_credentials)
+        _apply_primary_button_style(self.test_cred_btn)
         cred_layout.addWidget(self.test_cred_btn)
         self.connect_btn = QPushButton("Connect")
         self.connect_btn.clicked.connect(self.connect)
@@ -310,6 +371,7 @@ class GrowattTab(QWidget):
             "Open the Setup tab at the Growatt inverter section to edit credentials and source."
         )
         self.setup_btn.clicked.connect(self._open_growatt_setup)
+        _apply_primary_button_style(self.setup_btn)
         cred_layout.addWidget(self.setup_btn)
         cred_layout.addSpacing(12)
         self.chk_fill_missing_api = QCheckBox("Fill missing Grott data with API")
@@ -459,146 +521,278 @@ class GrowattTab(QWidget):
         self.info_labels['status'].setWordWrap(True)
         main_layout.addWidget(info_box)
 
-        # --- Physical: 3 columns — dashboard model | today | live telemetry ---
+        # --- Physical: 4 columns — model & today | equipage | grid & PV | pack & status ---
+        # Titles live in a fixed-width wrapping column so a long name can never
+        # run under the value next to it; values own the rest of the column.
+        _PHYS_TITLE_W = 132
+        _PHYS_VALUE_MIN_W = 96
+        _PHYS_COL_MIN_W = 248
+        _PHYS_MULTILINE_PT = max(10, INFO_PHYSICAL_VALUE_PT - 2)
+
+        def _phys_height_for_width(lbl):
+            """Let a wrapping label claim the height its wrapped text needs.
+            Without this a grid row keeps the one-line height and clips the
+            second line."""
+            sp = lbl.sizePolicy()
+            sp.setHeightForWidth(True)
+            lbl.setSizePolicy(sp)
+
         phys_box = QGroupBox(
             "Physical — inverter & battery "
             "(dashboard model + live telemetry + today’s energy)"
         )
         phys_box.setToolTip(
-            "Column 1: Setup / Parameters battery model. Column 2: today’s "
-            "energy from mix_totals. Column 3: live readings from "
-            "mix_system_status / mix_info."
+            "Column 1: Setup / Parameters battery model and today’s energy from "
+            "mix_totals. Column 2: battery equipage (packs, chemistry, serials). "
+            "Columns 3–4: live readings from mix_system_status / mix_info."
         )
         phys_outer = QHBoxLayout(phys_box)
-        phys_outer.setSpacing(6)
-        phys_outer.setContentsMargins(6, 8, 6, 8)
-        phys_box.setMinimumHeight(280)
+        phys_outer.setSpacing(14)
+        phys_outer.setContentsMargins(10, 8, 10, 8)
+        phys_box.setMinimumHeight(320)
         phys_box.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
         self.physical_labels = {}
 
-        def _phys_row(grid, row, title, key, *, tip=None, value_font_pt=INFO_PHYSICAL_VALUE_PT):
+        def _phys_row(
+            grid, row, title, key, *, tip=None, value_font_pt=None,
+            multiline=False,
+        ):
+            if value_font_pt is None:
+                value_font_pt = (
+                    _PHYS_MULTILINE_PT if multiline else INFO_PHYSICAL_VALUE_PT
+                )
             tl = QLabel(title)
             tl.setStyleSheet(
                 f"color: #a6adc8; font-size: {INFO_PHYSICAL_TITLE_PX}px;")
+            tl.setWordWrap(True)
+            tl.setFixedWidth(_PHYS_TITLE_W)
+            _phys_height_for_width(tl)
             if tip:
                 tl.setToolTip(tip)
-            grid.addWidget(tl, row, 0, Qt.AlignRight | Qt.AlignVCenter)
+            # Alignment goes on the labels, not on addWidget: a grid item with
+            # an alignment flag is shrunk to its size hint, which would keep the
+            # value column at its minimum width and wrap text into clipped rows.
+            tl.setAlignment(
+                Qt.AlignRight | Qt.AlignTop if multiline
+                else Qt.AlignRight | Qt.AlignVCenter
+            )
+            grid.addWidget(tl, row, 0)
             vl = QLabel("—")
             vl.setFont(QFont('Helvetica', value_font_pt, QFont.Bold))
             vl.setStyleSheet("color: #cdd6f4;")
             vl.setWordWrap(True)
+            vl.setMinimumWidth(_PHYS_VALUE_MIN_W)
+            if multiline:
+                vl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+                vl.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+                vl.setMinimumHeight(36)
+                vl.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextSelectableByMouse)
+            _phys_height_for_width(vl)
             if tip:
                 vl.setToolTip(tip)
-            grid.addWidget(vl, row, 1, Qt.AlignLeft | Qt.AlignVCenter)
+            vl.setAlignment(
+                Qt.AlignLeft | Qt.AlignTop if multiline
+                else Qt.AlignLeft | Qt.AlignVCenter
+            )
+            grid.addWidget(vl, row, 1)
             self.physical_labels[key] = vl
 
-        col_model = QWidget()
-        lay_model = QVBoxLayout(col_model)
-        lay_model.setContentsMargins(0, 0, 0, 0)
-        lay_model.setSpacing(8)
-        hdr_model = QLabel("— Dashboard model —")
-        hdr_model.setStyleSheet(
-            f"color: #6c7086; font-size: {INFO_PHYSICAL_HDR_PX}px; font-weight: bold;")
-        lay_model.addWidget(hdr_model)
-        grid_model = QGridLayout()
-        grid_model.setHorizontalSpacing(12)
-        grid_model.setVerticalSpacing(8)
-        grid_model.setColumnStretch(1, 1)
-        r = 0
+        def _phys_column():
+            col = QWidget()
+            col.setMinimumWidth(_PHYS_COL_MIN_W)
+            lay = QVBoxLayout(col)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(6)
+            return col, lay
+
+        def _phys_section(lay, header):
+            hdr = QLabel(header)
+            hdr.setStyleSheet(
+                f"color: #6c7086; font-size: {INFO_PHYSICAL_HDR_PX}px; "
+                "font-weight: bold;")
+            lay.addWidget(hdr)
+            grid = QGridLayout()
+            grid.setHorizontalSpacing(10)
+            grid.setVerticalSpacing(8)
+            grid.setColumnMinimumWidth(0, _PHYS_TITLE_W)
+            grid.setColumnStretch(0, 0)
+            grid.setColumnStretch(1, 1)
+            lay.addLayout(grid)
+            return grid
+
+        def _phys_divider():
+            line = QFrame()
+            line.setFrameShape(QFrame.Shape.VLine)
+            line.setFrameShadow(QFrame.Shadow.Plain)
+            line.setStyleSheet("color: #313244;")
+            return line
+
+        col_model, lay_model = _phys_column()
+        grid_model = _phys_section(lay_model, "— Dashboard model —")
         _phys_row(
-            grid_model, r, "Nominal battery capacity (dashboard model)", "dash_kwh",
-            tip="Used by Battery Analysis, Optimiser, etc. Edit in Setup / Parameters.",
+            grid_model, 0, "Nominal capacity", "dash_kwh",
+            tip="Dashboard model: usable pack size used by Battery Analysis, "
+                "Optimiser, etc. Edit in Setup / Parameters.",
         )
-        r += 1
         _phys_row(
-            grid_model, r, "Max charge / discharge rate (dashboard model)", "dash_kw",
-            tip="Peak AC battery power assumed in simulations (kW).",
+            grid_model, 1, "Max charge / discharge", "dash_kw",
+            tip="Dashboard model: peak AC battery power assumed in simulations (kW).",
         )
-        r += 1
         _phys_row(
-            grid_model, r, "Round-trip efficiency (dashboard model)", "dash_eff",
-            tip="Whole-cycle efficiency % used in battery simulations.",
+            grid_model, 2, "Round-trip efficiency", "dash_eff",
+            tip="Dashboard model: whole-cycle efficiency % used in battery simulations.",
         )
-        r += 1
         _phys_row(
-            grid_model, r, "Low-SOC floor (dashboard model)", "dash_soc_floor",
-            tip="Minimum SOC % before the planner treats the pack as empty.",
+            grid_model, 3, "Low-SOC floor", "dash_soc_floor",
+            tip="Dashboard model: minimum SOC % before the planner treats the "
+                "pack as empty.",
         )
-        lay_model.addLayout(grid_model)
+        lay_model.addSpacing(6)
+        grid_today = _phys_section(lay_model, "— Today (from inverter totals) —")
+        _phys_row(grid_today, 0, "House load", "load_etoday",
+                  tip="Energy the house used today. mix_totals: elocalLoadToday (kWh).")
+        _phys_row(grid_today, 1, "Imported", "imp_etoday",
+                  tip="Bought from the grid today. mix_totals / mix_detail: etouser "
+                      "(kWh). Includes grid energy used by load and AC battery charging.")
+        _phys_row(grid_today, 2, "Exported", "exp_etoday",
+                  tip="Sold to the grid today. mix_totals: etoGridToday (kWh).")
         lay_model.addStretch(1)
 
-        col_today = QWidget()
-        lay_today = QVBoxLayout(col_today)
-        lay_today.setContentsMargins(0, 0, 0, 0)
-        lay_today.setSpacing(8)
-        hdr_today = QLabel("— Today (from inverter totals) —")
-        hdr_today.setStyleSheet(
-            f"color: #6c7086; font-size: {INFO_PHYSICAL_HDR_PX}px; font-weight: bold;")
-        lay_today.addWidget(hdr_today)
-        grid_today = QGridLayout()
-        grid_today.setHorizontalSpacing(12)
-        grid_today.setVerticalSpacing(8)
-        grid_today.setColumnStretch(1, 1)
-        r = 0
-        _phys_row(grid_today, r, "House load energy today", "load_etoday",
-                   tip="mix_totals: elocalLoadToday (kWh).")
-        r += 1
-        _phys_row(grid_today, r, "Energy exported to grid today", "exp_etoday",
-                   tip="mix_totals: etoGridToday (kWh).")
-        lay_today.addLayout(grid_today)
-        lay_today.addStretch(1)
-
-        col_live = QWidget()
-        lay_live = QVBoxLayout(col_live)
-        lay_live.setContentsMargins(0, 0, 0, 0)
-        lay_live.setSpacing(8)
-        hdr_live = QLabel("— Live inverter / pack —")
-        hdr_live.setStyleSheet(
-            f"color: #6c7086; font-size: {INFO_PHYSICAL_HDR_PX}px; font-weight: bold;")
-        lay_live.addWidget(hdr_live)
-        grid_live = QGridLayout()
-        grid_live.setHorizontalSpacing(6)
-        grid_live.setVerticalSpacing(8)
-        grid_live.setColumnStretch(1, 1)
-        r = 0
-        _phys_row(grid_live, r, "Grid AC voltage", "grid_v",
-                   tip="mix_system_status: vAc1 / vac1 (V).")
-        r += 1
-        _phys_row(grid_live, r, "Grid frequency", "grid_hz",
-                   tip="mix_system_status: fAc (Hz).")
-        r += 1
-        _phys_row(grid_live, r, "Battery terminal voltage", "bat_v",
-                   tip="mix_system_status: vBat (V).")
-        r += 1
-        _phys_row(grid_live, r, "BMS display voltage", "bat_vdsp",
-                   tip="mix_info: vbatdsp when present (V).")
-        r += 1
-        _phys_row(grid_live, r, "Battery chemistry (BMS code)", "bat_type",
-                   tip="mix_system_status: wBatteryType — Growatt enum; legend is indicative.")
+        col_equip, lay_equip = _phys_column()
+        grid_equip = _phys_section(lay_equip, "— Battery equipage —")
+        _phys_row(
+            grid_equip, 0, "Packs seen (telemetry)", "equip_modules",
+            tip=(
+                "Growatt cloud, the Growatt website, and Grott MQTT only expose "
+                "one shared battery bus for parallel GBLI packs — packs 2+ are "
+                "usually not countable. Use Manual packs below when needed."
+            ),
+        )
+        _phys_row(
+            grid_equip, 1, "Equipage capacity", "equip_kwh",
+            tip=(
+                "modules × 6.5 kWh (GBLI-class) when a count is known "
+                "(manual / Modbus / rare explicit field). Compare with Setup."
+            ),
+        )
+        tl_mod = QLabel("Manual packs")
+        tl_mod.setStyleSheet(
+            f"color: #a6adc8; font-size: {INFO_PHYSICAL_TITLE_PX}px;")
+        tl_mod.setWordWrap(True)
+        tl_mod.setFixedWidth(_PHYS_TITLE_W)
+        tl_mod.setToolTip(
+            "Override when Growatt/Grott cannot see packs 2+. "
+            "0 = Auto. Typical GBLI = 6.5 kWh each (3 → 19.5 kWh)."
+        )
+        tl_mod.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        grid_equip.addWidget(tl_mod, 2, 0)
+        mod_row = QWidget(self)
+        mod_lay = QHBoxLayout(mod_row)
+        mod_lay.setContentsMargins(0, 0, 0, 0)
+        mod_lay.setSpacing(6)
+        self.equip_modules_spin = QSpinBox(mod_row)
+        self.equip_modules_spin.setRange(0, 16)
+        self.equip_modules_spin.setSpecialValueText("Auto")
+        self.equip_modules_spin.setToolTip(
+            "0 = Auto (telemetry only). Set 3 if you have three parallel packs."
+        )
+        try:
+            _ov = _growatt_battery_modules_override()
+            self.equip_modules_spin.setValue(int(_ov) if _ov else 0)
+        except Exception:
+            self.equip_modules_spin.setValue(0)
+        self.equip_modules_apply_btn = QPushButton("Apply", mod_row)
+        self.equip_modules_apply_btn.setToolTip(
+            "Save manual module count (or Auto) and refresh equipage labels."
+        )
+        self.equip_modules_apply_btn.clicked.connect(self._apply_battery_modules_override)
+        self.equip_modbus_probe_btn = QPushButton("Probe packs", mod_row)
+        self.equip_modbus_probe_btn.setToolTip(
+            "Modbus TCP: read pack serials at holding 1125+ (SPH) and derive "
+            "module count from them when pack-count regs are 0. Also runs "
+            "automatically when Local Modbus is enabled in Setup — Grott MQTT "
+            "cannot see packs 2/3."
+        )
+        self.equip_modbus_probe_btn.clicked.connect(self._probe_battery_modules_modbus)
+        mod_lay.addWidget(self.equip_modules_spin)
+        mod_lay.addWidget(self.equip_modules_apply_btn)
+        mod_lay.addWidget(self.equip_modbus_probe_btn)
+        mod_lay.addStretch(1)
+        grid_equip.addWidget(mod_row, 2, 1)
+        _phys_row(grid_equip, 3, "Chemistry (BMS)", "bat_type",
+                  tip="mix_system_status: wBatteryType — Growatt enum; legend is "
+                      "indicative.")
         _lbl_bt = self.physical_labels['bat_type']
         _lbl_bt.setTextFormat(Qt.TextFormat.PlainText)
-        _lbl_bt.setWordWrap(False)
         _lbl_bt.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         _lbl_bt.setMinimumHeight(0)
-        r += 1
-        _phys_row(grid_live, r, "PV string 1 (V, W)", "pv1",
-                   tip="mix_system_status: vPv1, pPv1.")
-        r += 1
-        _phys_row(grid_live, r, "PV string 2 (V, W)", "pv2",
-                   tip="mix_system_status: vPv2, pPv2.")
-        r += 1
-        _phys_row(grid_live, r, "PV DC rating hint (inverter)", "pv_pmax",
-                   tip="mix_system_status: pmax (kW-ish; meaning varies by firmware).")
-        r += 1
-        _phys_row(grid_live, r, "System status (raw)", "sys_lost",
-                   tip="mix_system_status: lost / status string from cloud.")
-        lay_live.addLayout(grid_live)
+        _phys_row(grid_equip, 4, "Pack serials", "bat_sns",
+                  multiline=True,
+                  tip=(
+                      "Per-pack serials from plant device_list (storage devices), "
+                      "live fields if published, or Modbus Probe packs "
+                      "(holding 1125+ / input 3263). Cloud/Grott often omit these."
+                  ))
+        # One SN per line only — no soft-wrap (that inflated the row to dozens
+        # of lines when the label width was still narrow during layout).
+        _lbl_sns = self.physical_labels["bat_sns"]
+        _lbl_sns.setWordWrap(False)
+        _lbl_sns.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        lay_equip.addStretch(1)
+
+        col_grid, lay_grid = _phys_column()
+        grid_gridpv = _phys_section(lay_grid, "— Grid & PV (live) —")
+        _phys_row(grid_gridpv, 0, "Grid voltage", "grid_v",
+                  tip="mix_system_status: vAc1 / vac1 (V).")
+        _phys_row(grid_gridpv, 1, "Grid frequency", "grid_hz",
+                  tip="mix_system_status: fAc (Hz).")
+        _phys_row(grid_gridpv, 2, "PV string 1", "pv1",
+                  tip="Volts and watts on MPPT input 1. mix_system_status: vPv1, pPv1.")
+        _phys_row(grid_gridpv, 3, "PV string 2", "pv2",
+                  tip="Volts and watts on MPPT input 2. mix_system_status: vPv2, pPv2.")
+        _phys_row(grid_gridpv, 4, "PV DC rating hint", "pv_pmax",
+                  tip="mix_system_status: pmax (kW-ish; meaning varies by firmware).")
+        lay_grid.addStretch(1)
+
+        col_live, lay_live = _phys_column()
+        grid_live = _phys_section(lay_live, "— Pack & status (live) —")
+        _phys_row(grid_live, 0, "Battery voltage", "bat_v",
+                  tip="Pack terminal voltage. mix_system_status: vBat (V).")
+        _phys_row(grid_live, 1, "BMS voltage", "bat_vdsp",
+                  tip="Voltage the BMS itself reports. mix_info: vbatdsp when "
+                      "present (V).")
+        _phys_row(grid_live, 2, "System status", "sys_lost",
+                  tip=(
+                      "Inverter work mode from Grott/cloud (lost / status / pvstatus). "
+                      "Hover the value for the raw code and full legend. "
+                      "Not the same as fault words below."
+                  ))
+        _phys_row(
+            grid_live, 3, "Faults (inverter)", "sys_faults",
+            multiline=True,
+            tip=(
+                "Grott/cloud faultBit, warningBit, systemfaultword0–7. "
+                "Each non-zero word is one row."
+            ),
+        )
+        _phys_row(
+            grid_live, 4, "Faults (dashboard)", "sys_faults_dash",
+            multiline=True,
+            tip=(
+                "Live dashboard alarms (Grott MQTT lost, low SOC, spare PV). "
+                "Same set as the banner — one row per alarm."
+            ),
+        )
         lay_live.addStretch(1)
 
-        phys_outer.addWidget(col_model, 1)
-        phys_outer.addWidget(col_today, 1)
-        phys_outer.addWidget(col_live, 2)
+        for _idx, _col in enumerate((col_model, col_equip, col_grid, col_live)):
+            if _idx:
+                phys_outer.addWidget(_phys_divider(), 0)
+            phys_outer.addWidget(_col, 1)
 
         phys_refresh_strip = QWidget()
         phys_refresh_strip.setSizePolicy(
@@ -620,6 +814,7 @@ class GrowattTab(QWidget):
         self.refresh_btn.clicked.connect(self.refresh_data)
         self.refresh_btn.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        _apply_primary_button_style(self.refresh_btn)
         refresh_v.addWidget(self.refresh_btn, 0, Qt.AlignTop)
         self.countdown_label = QLabel("—")
         self.countdown_label.setStyleSheet(f"color: {_UI_BLUE}; font-size: 12px;")
@@ -641,38 +836,22 @@ class GrowattTab(QWidget):
         return QSettings("PowerModel", "EnergyDashboard2")
 
     def _grott_config(self) -> dict:
+        from energy_dashboard.config import heal_grott_mqtt_broker_settings
+
         s = self._growatt_settings()
         p = self.app_params
-
-        def _val(attr, key, default="", type_=None):
-            if s.contains(key):
-                if type_ is bool:
-                    return s.value(key, default, type=bool)
-                return s.value(key, default)
-            return getattr(p, attr, default) if p is not None else default
-
-        def _int(attr, key, default):
-            try:
-                return int(_val(attr, key, default))
-            except (TypeError, ValueError):
-                return int(default)
-
-        topic_raw = str(
-            _val("grott_mqtt_topic", "params/grott_mqtt_topic", "energy/growatt")
-            or "energy/growatt"
-        ).strip()
-        if topic_raw in ("grott/#", "#"):
-            topic_raw = "energy/growatt"
+        broker = heal_grott_mqtt_broker_settings(s, p)
         return {
             "enabled": growatt_uses_grott(self._telemetry_source()),
             "telemetry_source": self._telemetry_source(),
             "fill_missing_api": self._fill_missing_api_enabled(),
-            "host": str(_val("grott_mqtt_host", "params/grott_mqtt_host", "") or "").strip(),
-            "port": _int("grott_mqtt_port", "params/grott_mqtt_port", 1883),
-            "username": str(_val("grott_mqtt_user", "params/grott_mqtt_user", "") or "").strip(),
-            "password": str(_val("grott_mqtt_password", "params/grott_mqtt_password", "") or ""),
-            "topic": topic_raw,
-            "fresh_s": _int("grott_mqtt_fresh_s", "params/grott_mqtt_fresh_s", 120),
+            "host": broker.get("host") or "",
+            "port": int(broker.get("port") or 1883),
+            "username": broker.get("username") or "",
+            "password": broker.get("password") or "",
+            "topic": broker.get("topic") or "energy/growatt",
+            "fresh_s": int(broker.get("fresh_s") or 120),
+            "broker_source": broker.get("source") or "grott",
         }
 
     def _telemetry_source(self) -> str:
@@ -729,26 +908,96 @@ class GrowattTab(QWidget):
 
     def apply_grott_settings(self) -> None:
         cfg = self._grott_config()
+        # Keep Setup EMQX / Grott fields in sync when we healed from Tasmota.
+        pt = getattr(getattr(self, "dash", None), "parameters_tab", None)
+        if pt is not None and cfg.get("host"):
+            try:
+                if hasattr(pt, "ed_grott_host") and not pt.ed_grott_host.text().strip():
+                    pt.ed_grott_host.setText(cfg["host"])
+                    pt.sp_grott_port.setValue(int(cfg["port"]))
+                if hasattr(pt, "ed_emqx_host") and not pt.ed_emqx_host.text().strip():
+                    pt.ed_emqx_host.setText(cfg["host"])
+                    pt.sp_emqx_port.setValue(int(cfg["port"]))
+                if cfg.get("username"):
+                    if hasattr(pt, "ed_grott_user") and not pt.ed_grott_user.text().strip():
+                        pt.ed_grott_user.setText(cfg["username"])
+                        pt.ed_grott_pass.setText(cfg.get("password") or "")
+                    if hasattr(pt, "ed_emqx_user") and not pt.ed_emqx_user.text().strip():
+                        pt.ed_emqx_user.setText(cfg["username"])
+                        pt.ed_emqx_pass.setText(cfg.get("password") or "")
+            except Exception:
+                pass
         if not cfg["enabled"]:
-            self._grott.stop()
-            self._set_grott_status("Grott MQTT not selected")
+            def _stop():
+                self._grott.stop()
+                self._inv.invoke(lambda: self._set_grott_status("Grott MQTT not selected"))
+            threading.Thread(target=_stop, daemon=True).start()
             return
         if not cfg["host"]:
-            self._set_grott_status("Grott MQTT enabled but host is empty")
+            self._set_grott_status(
+                "Grott MQTT enabled but host is empty — set EMQX host or Grott MQTT host in Setup"
+            )
             return
-        ok, msg = self._grott.start(
-            cfg["host"],
-            cfg["port"],
-            username=cfg["username"],
-            password=cfg["password"],
-            topic=cfg["topic"],
+        who = cfg.get("broker_source") or "grott"
+        self._set_grott_status(
+            f"Grott MQTT connecting to {cfg['host']}:{cfg['port']} ({who})…"
         )
+
+        def _worker():
+            ok, msg = self._grott.start(
+                cfg["host"],
+                cfg["port"],
+                username=cfg["username"],
+                password=cfg["password"],
+                topic=cfg["topic"],
+            )
+            self._inv.invoke(lambda: self._grott_start_done(ok, msg))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _grott_start_done(self, ok: bool, msg: str) -> None:
         self._set_grott_status(msg)
         if not ok:
             self.set_status(f"Grott MQTT source failed: {msg}")
 
     def _set_grott_status(self, msg: str) -> None:
         self._grott_status = msg or "—"
+
+    def _on_grott_link_event(self, event_type: str, detail: str) -> None:
+        """Persist disconnect/reconnect edges for Connectivity → Show history."""
+        try:
+            from energy_dashboard.db.connectivity_events import log_connectivity_event
+
+            severity = {
+                "disconnect": "warn",
+                "connect_fail": "bad",
+                "reconnect_fail": "warn",
+                "reconnect": "ok",
+                "connect": "ok",
+                "reconnect_attempt": "info",
+            }.get(event_type, "info")
+            dash = getattr(self, "dash", None)
+            log_connectivity_event(
+                getattr(dash, "data_logger", None) if dash is not None else None,
+                service_key="grott_mqtt",
+                service_label="Growatt local (Grott MQTT)",
+                event_type=(
+                    "fault" if severity == "bad"
+                    else "warn" if severity == "warn"
+                    else "recover" if event_type in ("reconnect", "connect")
+                    else "info"
+                ),
+                state_key=severity,
+                state_text=event_type,
+                detail=str(detail or "")[:2000],
+            )
+        except Exception:
+            pass
+        if event_type in ("disconnect", "reconnect", "connect_fail"):
+            try:
+                self.set_status(f"Grott MQTT {event_type}: {detail}")
+            except Exception:
+                pass
 
     def grott_status(self) -> dict:
         status = self._grott.status()
@@ -846,6 +1095,55 @@ class GrowattTab(QWidget):
     def _growatt_v1_rate_limited(self):
         return self._growatt_v1_rate_limit_remaining() is not None
 
+    def _uses_open_api_v1_creds(self) -> bool:
+        """True when live calls would go to Open API V1 (token sessions)."""
+        return bool(self.token_edit.text().strip()) or _growatt_uses_open_api_v1(self.api)
+
+    def _mark_v1_live_poll(self):
+        self._last_v1_live_poll = _time_mod.monotonic()
+
+    def _cloud_live_fetch(self, api, device_sn, plant_id):
+        """Single funnel for raw cloud live reads.
+
+        Marks the shared Open API V1 poll gate and captures the raw bundle
+        (paired with a same-moment Grott snapshot) so other pages can reuse
+        it instead of issuing their own cloud polls.
+        """
+        if _growatt_uses_open_api_v1(api):
+            self._mark_v1_live_poll()
+        status, info, totals = _growatt_fetch_mix_live(api, device_sn, plant_id)
+        self._remember_cloud_pair(status, info, totals)
+        return status, info, totals
+
+    def _remember_cloud_pair(self, status, info, totals):
+        try:
+            grott_snap = self._grott.snapshot()
+        except Exception:
+            grott_snap = None
+        self._last_cloud_pair = {
+            "status": status if isinstance(status, dict) else {},
+            "info": info if isinstance(info, dict) else {},
+            "totals": totals if isinstance(totals, dict) else {},
+            "grott_snap": grott_snap,
+            "at": _time_mod.monotonic(),
+            "when": datetime.now(),
+        }
+
+    def _v1_poll_wait_s(self) -> float:
+        """Seconds until the next Open API V1 live poll is allowed (0 = now).
+
+        Combines the server-imposed 10012 pause with the local minimum poll
+        interval so nothing anywhere in the tab can hammer the V1 endpoints.
+        """
+        if not self._uses_open_api_v1_creds():
+            return 0.0
+        wait = 0.0
+        rem = self._growatt_v1_rate_limit_remaining()
+        if rem is not None:
+            wait = rem.total_seconds()
+        since = _time_mod.monotonic() - self._last_v1_live_poll
+        return max(wait, _GROWATT_V1_LIVE_MIN_POLL_S - since, 0.0)
+
     def _growatt_v1_rate_limit_message(self):
         remaining = self._growatt_v1_rate_limit_remaining()
         if remaining is None:
@@ -870,7 +1168,7 @@ class GrowattTab(QWidget):
         if msg:
             if self._uses_grott() and self._fill_missing_api_enabled():
                 self._apply_growatt_link_status(
-                    "warn",
+                    "ok",
                     self._grott_connection_method(),
                     f"Live Grott data; fill-missing paused ({msg})",
                     connected=True,
@@ -986,9 +1284,10 @@ class GrowattTab(QWidget):
             self.set_status("Setup tab is not available.")
             return
         pt = getattr(dash, "parameters_tab", None)
-        tabs = getattr(dash, "tabs", None)
-        if tabs is not None and pt is not None:
-            tabs.setCurrentWidget(pt)
+        if pt is not None and hasattr(dash, "show_main_page"):
+            dash.show_main_page(pt)
+        elif getattr(dash, "tabs", None) is not None and pt is not None:
+            dash.tabs.setCurrentWidget(pt)
         if pt is not None and hasattr(pt, "reveal_growatt_section"):
             pt.reveal_growatt_section()
 
@@ -1096,7 +1395,10 @@ class GrowattTab(QWidget):
             return None
         if self._last_auth_time is None:
             return None
-        if (datetime.now() - self._last_auth_time).total_seconds() > 180:
+        # 10 min: a fresh authenticate costs 3+ Open API calls (plant_list,
+        # device_list, live probe) — re-doing that every 3 min ate the same
+        # V1 budget the throttle is trying to protect.
+        if (datetime.now() - self._last_auth_time).total_seconds() > 600:
             return None
         return dict(self._last_auth_result)
 
@@ -1116,7 +1418,7 @@ class GrowattTab(QWidget):
     def _growatt_probe_live(self, api, device_sn, plant_id):
         """Return (flow_key, detail, status, info, totals) after a single live read."""
         try:
-            status, info, totals = _growatt_fetch_mix_live(api, device_sn, plant_id)
+            status, info, totals = self._cloud_live_fetch(api, device_sn, plant_id)
             lost, reason = _growatt_inverter_comms_lost(status)
             if lost:
                 return (
@@ -1235,6 +1537,7 @@ class GrowattTab(QWidget):
         if getattr(self, "_growatt_testing", False):
             return
         self._growatt_testing = True
+        self._record_cloud_test = not self._uses_grott()
         gen = self._bump_growatt_auth_gen()
         self.test_cred_btn.setEnabled(False)
         if self._uses_grott():
@@ -1247,6 +1550,28 @@ class GrowattTab(QWidget):
         method = self._growatt_auth_method_label(self.token_edit.text().strip())
         self._apply_growatt_link_status("checking", method, "Testing Growatt credentials…")
         self.set_status("Testing Growatt connection…")
+        threading.Thread(target=self._test_growatt_thread, args=(gen,), daemon=True).start()
+
+    def _test_growatt_cloud_credentials(self, *, on_done=None):
+        """Always test Growatt cloud login (API key or username/password).
+
+        Used by the Connectivity Growatt API popup so Hybrid / Grott source
+        selection does not redirect the test to MQTT. ``on_done(ok, detail)``
+        is optional UI feedback for that popup.
+        """
+        if getattr(self, "_growatt_testing", False):
+            if callable(on_done):
+                on_done(False, "A Growatt test is already running.")
+            return
+        self._growatt_testing = True
+        self._record_cloud_test = True
+        self._growatt_cloud_test_done = on_done
+        gen = self._bump_growatt_auth_gen()
+        if hasattr(self, "test_cred_btn"):
+            self.test_cred_btn.setEnabled(False)
+        method = self._growatt_auth_method_label(self.token_edit.text().strip())
+        self._apply_growatt_link_status("checking", method, "Testing Growatt cloud…")
+        self.set_status("Testing Growatt cloud connection…")
         threading.Thread(target=self._test_growatt_thread, args=(gen,), daemon=True).start()
 
     def _test_grott_thread(self, gen: int):
@@ -1286,11 +1611,11 @@ class GrowattTab(QWidget):
                 self._inv.invoke(lambda msg=err: self._finish_growatt_test(False, msg, gen=gen))
             else:
                 self._growatt_testing = False
-                self._inv.invoke(lambda: self.test_cred_btn.setEnabled(True))
+                self._inv.invoke(self._clear_growatt_test_ui)
             return
         if self._growatt_auth_stale(gen):
             self._growatt_testing = False
-            self._inv.invoke(lambda: self.test_cred_btn.setEnabled(True))
+            self._inv.invoke(self._clear_growatt_test_ui)
             return
         ok = bool(result.get("ok"))
         detail = result.get("detail") or ("OK" if ok else "Test failed")
@@ -1306,14 +1631,43 @@ class GrowattTab(QWidget):
             )
         )
 
+    def _clear_growatt_test_ui(self):
+        if hasattr(self, "test_cred_btn"):
+            self.test_cred_btn.setEnabled(True)
+        cb = getattr(self, "_growatt_cloud_test_done", None)
+        self._growatt_cloud_test_done = None
+        if callable(cb):
+            try:
+                cb(False, "Test cancelled.")
+            except Exception:
+                pass
+
     def _finish_growatt_test(self, ok, detail, *, flow_key=None, method="—", gen=0):
         if gen and self._growatt_auth_stale(gen):
             return
         self._growatt_testing = False
-        self.test_cred_btn.setEnabled(True)
+        if hasattr(self, "test_cred_btn"):
+            self.test_cred_btn.setEnabled(True)
+        if getattr(self, "_record_cloud_test", False):
+            from energy_dashboard.dialogs.component_login import record_link_test
+            record_link_test("cloud", bool(ok), str(detail or ""))
+            self._record_cloud_test = False
         flow_key = flow_key or ("auth_ok" if ok else "bad")
         self._apply_growatt_link_status(flow_key, method, detail, connected=False)
         title = "Growatt — connection test"
+        cb = getattr(self, "_growatt_cloud_test_done", None)
+        self._growatt_cloud_test_done = None
+        if callable(cb):
+            try:
+                cb(bool(ok), str(detail or ""))
+            except Exception:
+                pass
+            # Popup already shows the result — skip the modal box.
+            if ok:
+                self.set_status(f"Growatt test OK — {detail}")
+            else:
+                self.set_status(f"Growatt test failed — {detail}")
+            return
         if ok:
             self.set_status(f"Growatt test OK — {detail}")
             QMessageBox.information(self, title, detail)
@@ -1415,7 +1769,7 @@ class GrowattTab(QWidget):
             self.device_type = result["device_type"]
             flow_key = result.get("flow_key") or "auth_ok"
             detail = result.get("detail") or "Connected"
-            inv_m, bat_m = _growatt_resolve_models(
+            inv_m, bat_m, equip = _growatt_resolve_models(
                 self.api,
                 self.plant_id,
                 self._plant_devices,
@@ -1425,6 +1779,7 @@ class GrowattTab(QWidget):
                 log_device_list=True,
             )
             self._model_inv, self._model_bat = inv_m, bat_m
+            self._battery_equipage = equip
             if not self._growatt_auth_stale(gen):
                 self._inv.invoke(
                     lambda d=detail, f=flow_key, m=method, g=gen: (
@@ -1464,13 +1819,24 @@ class GrowattTab(QWidget):
         """Restore last session: reload saved source/credentials and reconnect."""
         self._load_growatt_credentials()
         self.sync_source_toggle()
+        # Pack serials come from Modbus, not Grott — kick a first poll soon.
+        QTimer.singleShot(
+            900, lambda: self._schedule_modbus_battery_poll(force=True)
+        )
         if self._restore_grott_live_path():
             return
         self._begin_cloud_connect()
 
     def _apply_device_model_labels(self):
         inv = getattr(self, '_model_inv', '—')
-        bat = getattr(self, '_model_bat', '—')
+        # Always strip prior equipage suffixes before re-composing (refresh-safe).
+        bat = _growatt_strip_equipage_from_model(getattr(self, '_model_bat', '—'))
+        self._model_bat = bat
+        equip = getattr(self, '_battery_equipage', None) or {}
+        if equip.get('label'):
+            bat = _growatt_prefer_detected_battery_label(bat, equip)
+            # Persist only the stripped base in _model_bat; display uses composed bat.
+            # Keep composed text in the widget only so the next refresh can strip cleanly.
         if 'inv_model' in self.info_labels:
             self.info_labels['inv_model'].setText(inv)
             tip = (
@@ -1479,11 +1845,29 @@ class GrowattTab(QWidget):
             )
             self.info_labels['inv_model'].setToolTip(tip)
         if 'bat_model' in self.info_labels:
-            self.info_labels['bat_model'].setText(bat)
-            self.info_labels['bat_model'].setToolTip(
-                "From Growatt cloud when available; "
-                "otherwise Setup → Battery Analysis capacity (kWh)."
-            )
+            lbl = self.info_labels['bat_model']
+            lbl.setWordWrap(True)
+            lbl.setText(bat)
+            tip_bits = []
+            if equip.get('detail'):
+                tip_bits.append(str(equip['detail']))
+            if equip.get('mismatch'):
+                tip_bits.append(str(equip['mismatch']))
+            if equip.get('why_missing'):
+                tip_bits.append(str(equip['why_missing']))
+            if not tip_bits:
+                tip_bits.append(
+                    "Product/model from cloud when available; pack count lives "
+                    "on Physical → Battery equipage."
+                )
+            lbl.setToolTip(' '.join(tip_bits))
+            if equip.get('mismatch') or (
+                (equip.get('confidence') or '') in ('partial', 'unknown')
+                and equip.get('bus_count')
+            ):
+                lbl.setStyleSheet("color: #fab387; font-weight: bold;")
+            else:
+                lbl.setStyleSheet("")
 
     def _set_connection_status_label(self, text, color):
         lbl = self.info_labels['status']
@@ -1669,6 +2053,21 @@ class GrowattTab(QWidget):
         self._plant_devices = []
         self._inverter_comms_lost = False
 
+    def _remember_grott_display_bundle(self, status, info, totals) -> None:
+        """Keep the last good live bundle for merge when Grott sends partial frames."""
+        cache = self._grott_display_cache
+        cache["status"] = _merge_nonempty_dict(cache.get("status"), status)
+        cache["info"] = _merge_nonempty_dict(cache.get("info"), info)
+        cache["totals"] = _merge_nonempty_dict(cache.get("totals"), totals)
+
+    def _grott_display_merge_base(self):
+        """Merge bases for an incoming Grott frame (cache → session → new)."""
+        cache = self._grott_display_cache or {}
+        status = _merge_nonempty_dict(cache.get("status"), self.mix_status_data)
+        info = _merge_nonempty_dict(cache.get("info"), self.mix_info_data)
+        totals = _merge_nonempty_dict(cache.get("totals"), self.mix_totals_data)
+        return status, info, totals
+
     def _growatt_clear_session(self, *, keep_plant_label: bool = False):
         """Drop cloud API handles and reset UI after disconnect / failed connect."""
         self._growatt_reset_session_data()
@@ -1702,6 +2101,9 @@ class GrowattTab(QWidget):
         if not isinstance(status, dict):
             status = {}
         self.mix_status_data = status
+        info_d = mix_info if isinstance(mix_info, dict) else {}
+        tot_d = mix_totals if isinstance(mix_totals, dict) else {}
+        self._remember_grott_display_bundle(status, info_d, tot_d)
         soc = status.get('SOC', '--')
         discharge = float(status.get('pdisCharge1', 0) or 0)
         charge = float(status.get('chargePower', 0) or 0)
@@ -1774,7 +2176,7 @@ class GrowattTab(QWidget):
         self.mix_info_data = mix_info if isinstance(mix_info, dict) else {}
         if getattr(self, '_model_inv', '—') == '—' or getattr(self, '_model_bat', '—') == '—':
             if source == "cloud":
-                inv_m, bat_m = _growatt_resolve_models(
+                inv_m, bat_m, equip = _growatt_resolve_models(
                     self.api,
                     self.plant_id,
                     self._plant_devices,
@@ -1782,8 +2184,10 @@ class GrowattTab(QWidget):
                     self.app_params,
                     self.device_type,
                     mix_info=self.mix_info_data,
+                    status=status if isinstance(status, dict) else None,
                 )
                 self._model_inv, self._model_bat = inv_m, bat_m
+                self._battery_equipage = equip
                 self._invoke_or_call(self._apply_device_model_labels, from_worker=from_worker)
             elif source == "grott":
                 inv_m = (
@@ -1812,12 +2216,28 @@ class GrowattTab(QWidget):
                     or self.mix_info_data.get("batterytype")
                     or self.mix_info_data.get("batttype")
                 )
+                equip = _growatt_detect_battery_equipage(
+                    devices=getattr(self, '_plant_devices', None),
+                    status=status if isinstance(status, dict) else None,
+                    info=self.mix_info_data,
+                    app_params=self.app_params,
+                    modbus_modules=getattr(self, '_modbus_modules', None),
+                    modbus_detail=getattr(self, '_modbus_modules_detail', '') or '',
+                    modbus_serials=getattr(self, '_modbus_pack_serials', None),
+                )
+                self._battery_equipage = equip
                 changed = False
                 if inv_m and getattr(self, '_model_inv', '—') == '—':
                     self._model_inv = str(inv_m)
                     changed = True
                 if bat_m and getattr(self, '_model_bat', '—') == '—':
                     self._model_bat = str(bat_m)
+                    changed = True
+                if equip.get('label'):
+                    base = _growatt_strip_equipage_from_model(
+                        getattr(self, '_model_bat', '—'),
+                    )
+                    self._model_bat = base
                     changed = True
                 if changed:
                     self._invoke_or_call(self._apply_device_model_labels, from_worker=from_worker)
@@ -1835,6 +2255,11 @@ class GrowattTab(QWidget):
             lambda s=st, a=mi, b=mt, af=filled: self._update_physical_display(
                 s, a, b, api_filled_fields=af,
             ),
+            from_worker=from_worker,
+        )
+        # Grott/cloud never publish parallel pack SNs — keep Modbus pack cache warm.
+        self._invoke_or_call(
+            lambda: self._schedule_modbus_battery_poll(force=False),
             from_worker=from_worker,
         )
         if source == "cloud":
@@ -1880,7 +2305,7 @@ class GrowattTab(QWidget):
             devices = list(result.get("devices") or [])
             device_sn = result.get("device_sn") or self.device_sn
             device_type = result.get("device_type") or self.device_type or "mix"
-            inv_m, bat_m = _growatt_resolve_models(
+            inv_m, bat_m, equip = _growatt_resolve_models(
                 api,
                 plant_id,
                 devices,
@@ -1896,6 +2321,7 @@ class GrowattTab(QWidget):
                 "devices": devices,
                 "inv_model": inv_m,
                 "bat_model": bat_m,
+                "equipage": equip,
             }
             self._inv.invoke(lambda p=payload: self._finish_grott_static_api_enrichment(p))
         except Exception as exc:
@@ -1926,8 +2352,15 @@ class GrowattTab(QWidget):
         if payload.get("bat_model") and getattr(self, '_model_bat', '—') == '—':
             self._model_bat = str(payload["bat_model"])
             changed = True
+        if payload.get("equipage"):
+            self._battery_equipage = dict(payload.get("equipage") or {})
+            changed = True
         if changed:
             self._apply_device_model_labels()
+            st = dict(self.mix_status_data or {})
+            mi = dict(self.mix_info_data or {})
+            mt = dict(self.mix_totals_data or {})
+            self._update_physical_display(st, mi, mt)
             self.set_status("Growatt: filled missing static info from cloud API; live data remains GROTT MQTT.")
 
     def _should_notify_grott_downstream(self, *, force: bool = False) -> bool:
@@ -1948,36 +2381,84 @@ class GrowattTab(QWidget):
         return False
 
     def _record_grott_present(self, snap: dict) -> None:
-        self._last_grott_present = {
-            "status": set((snap.get("status") or {}).keys()),
-            "info": set((snap.get("info") or {}).keys()),
-            "totals": set((snap.get("totals") or {}).keys()),
-        }
+        """Mark registers this Grott frame published, keeping recent ones alive.
+
+        Shine/Grott often alternate a full status frame with a 5-key heartbeat
+        (SOC, grid V, grid Hz). Replacing the present-set with only the
+        heartbeat made every other register look "missing" and get cloud-patched
+        amber even though the full frame had just supplied them.
+        """
+        now = _time_mod.monotonic()
+        seen = getattr(self, "_grott_present_seen_at", None)
+        if not isinstance(seen, dict):
+            seen = {"status": {}, "info": {}, "totals": {}}
+            self._grott_present_seen_at = seen
+        for section in ("status", "info", "totals"):
+            bucket = seen.setdefault(section, {})
+            for key, val in dict(snap.get(section) or {}).items():
+                if _growatt_value_missing(val):
+                    continue
+                bucket[str(key)] = now
+        try:
+            fresh_s = float(self._grott_config().get("fresh_s", 120) or 120)
+        except (TypeError, ValueError):
+            fresh_s = 120.0
+        fresh_s = max(30.0, fresh_s)
+        present = {}
+        for section in ("status", "info", "totals"):
+            bucket = seen.get(section) or {}
+            kept = {
+                key: ts for key, ts in bucket.items()
+                if (now - float(ts)) <= fresh_s
+            }
+            seen[section] = kept
+            present[section] = set(kept.keys())
+        self._last_grott_present = present
 
     def _grott_snapshot_needs_api_gap_fill(self, snap: dict | None) -> bool:
-        """True when Grott left display fields empty that the cloud API can supply."""
+        """True when Grott still has display fields empty that the cloud can supply.
+
+        Uses the accumulated present-set plus merged display cache, not only this
+        MQTT frame — otherwise every sparse heartbeat looks like a full gap.
+        """
         if not isinstance(snap, dict):
             return False
-        st = snap.get("status") or {}
-        tot = snap.get("totals") or {}
-        info = snap.get("info") or {}
-        if _growatt_value_missing(st.get("pLocalLoad")):
-            if not st.get("gridPowerEstimated") and not (
-                "pactouser" in st or "pactogrid" in st
+        present = getattr(self, "_last_grott_present", None) or {}
+        st_p = set(present.get("status") or ())
+        info_p = set(present.get("info") or ())
+        tot_p = set(present.get("totals") or ())
+        cache = getattr(self, "_grott_display_cache", None) or {}
+        st = _merge_nonempty_dict(cache.get("status"), snap.get("status") or {})
+        tot = _merge_nonempty_dict(cache.get("totals"), snap.get("totals") or {})
+        info = _merge_nonempty_dict(cache.get("info"), snap.get("info") or {})
+
+        def _missing(d: dict, present_keys: set, *keys: str) -> bool:
+            for k in keys:
+                if k in present_keys:
+                    return False
+                if k in d and not _growatt_value_missing(d.get(k)):
+                    return False
+            return True
+
+        if _missing(st, st_p, "pLocalLoad"):
+            if not st.get("gridPowerEstimated") and _missing(
+                st, st_p, "pactouser", "pactogrid",
             ):
                 return True
         for key in (
-            "echargetoday", "edischarge1Today", "elocalLoadToday", "etoGridToday",
+            "echargetoday",
+            "edischarge1Today",
+            "elocalLoadToday",
+            "etouser",
+            "etoGridToday",
         ):
-            if _growatt_value_missing(tot.get(key)):
+            if _missing(tot, tot_p, key):
                 return True
-        if _growatt_value_missing(info.get("vbatdsp")) and _growatt_value_missing(
-            info.get("vBatDsp")
-        ):
+        if _missing(info, info_p, "vbatdsp", "vBatDsp"):
             return True
-        if _growatt_value_missing(st.get("pmax")):
+        if _missing(st, st_p, "pmax"):
             return True
-        if _growatt_value_missing(st.get("wBatteryType")):
+        if _missing(st, st_p, "wBatteryType"):
             return True
         return False
 
@@ -1995,6 +2476,8 @@ class GrowattTab(QWidget):
             skip_reason = "already_patching"
         elif _time_mod.monotonic() - self._last_grott_live_api_patch < _GROTT_LIVE_API_PATCH_INTERVAL_S:
             skip_reason = "local_patch_interval"
+        elif self._v1_poll_wait_s() > 0:
+            skip_reason = "v1_min_poll_interval"
         elif not (self.token_edit.text().strip() or self.username_edit.text().strip()):
             skip_reason = "no_credentials"
         debug_trace(
@@ -2021,9 +2504,8 @@ class GrowattTab(QWidget):
                     f"{msg}"
                 )
                 if self.token_edit.text().strip():
-                    method = self._growatt_auth_method_label(self.token_edit.text().strip())
                     self._apply_growatt_link_status(
-                        "warn",
+                        "ok",
                         self._grott_connection_method(),
                         f"Live Grott data; fill-missing paused ({msg})",
                         connected=True,
@@ -2034,6 +2516,10 @@ class GrowattTab(QWidget):
             return
         now = _time_mod.monotonic()
         if now - self._last_grott_live_api_patch < _GROTT_LIVE_API_PATCH_INTERVAL_S:
+            return
+        # Token sessions share the Open API V1 minimum poll interval with the
+        # cloud live poll — fill-missing at 60 s cadence was tripping 10012.
+        if self._v1_poll_wait_s() > 0:
             return
         if not (self.token_edit.text().strip() or self.username_edit.text().strip()):
             return
@@ -2092,7 +2578,7 @@ class GrowattTab(QWidget):
                 api_totals = result.get("live_totals")
             reused_probe = isinstance(api_status, dict)
             if not reused_probe:
-                api_status, api_info, api_totals = _growatt_fetch_mix_live(
+                api_status, api_info, api_totals = self._cloud_live_fetch(
                     api, device_sn, plant_id,
                 )
             grott_status = dict(self.mix_status_data or {})
@@ -2215,15 +2701,84 @@ class GrowattTab(QWidget):
                 lbl.setStyleSheet(f"color: {base};")
                 lbl.setToolTip("")
         for key, lbl in getattr(self, "physical_labels", {}).items():
-            if key in ("dash_kwh", "dash_kw", "dash_eff", "dash_soc_floor"):
+            if key in ("dash_kwh", "dash_kw", "dash_eff", "dash_soc_floor",
+                       "equip_modules", "equip_kwh", "bat_sns", "sys_faults",
+                       "sys_faults_dash"):
                 continue
             if key in api_filled:
                 lbl.setStyleSheet(border_style)
                 lbl.setToolTip(_GROTT_API_FILL_TIP)
             else:
                 lbl.setStyleSheet(f"color: #cdd6f4;")
-                if key not in ("sys_lost", "bat_type"):
+                if key not in ("sys_lost", "bat_type", "sys_faults",
+                               "sys_faults_dash", "bat_sns"):
                     lbl.setToolTip("")
+
+    def _sync_api_filled_after_grott_snap(self, api_filled: set, snap: dict) -> set:
+        """Drop API-fill markers for registers Grott has published recently.
+
+        Uses the accumulated present-set (union across recent frames) so a
+        sparse heartbeat does not re-amber fields a full frame already covered.
+        """
+        out = set(api_filled or set())
+        present = getattr(self, "_last_grott_present", None) or {}
+        st_p = set(present.get("status") or ())
+        info_p = set(present.get("info") or ())
+        tot_p = set(present.get("totals") or ())
+        # Also honour keys on this frame directly (covers first snap before
+        # present-set rebuild races).
+        st = snap.get("status") or {}
+        info = snap.get("info") or {}
+        tot = snap.get("totals") or {}
+
+        def _grott_has(d: dict, present_keys: set, *keys: str) -> bool:
+            for k in keys:
+                if k in present_keys:
+                    return True
+                if k in d and not _growatt_value_missing(d.get(k)):
+                    return True
+            return False
+
+        if _grott_has(st, st_p, "SOC"):
+            out.discard("soc")
+        if _grott_has(st, st_p, "ppv"):
+            out.discard("pv_power")
+        if _grott_has(st, st_p, "chargePower", "pdisCharge1"):
+            out.discard("bat_power")
+        if _grott_has(st, st_p, "pLocalLoad"):
+            out.discard("load_power")
+        if _grott_has(st, st_p, "pactouser", "pactogrid"):
+            out.discard("grid_power")
+        if _grott_has(st, st_p, "vAc1", "vac1"):
+            out.discard("grid_v")
+        if _grott_has(st, st_p, "fAc"):
+            out.discard("grid_hz")
+        if _grott_has(st, st_p, "vBat"):
+            out.discard("bat_v")
+        if _grott_has(st, st_p, "vPv1", "pPv1"):
+            out.discard("pv1")
+        if _grott_has(st, st_p, "vPv2", "pPv2"):
+            out.discard("pv2")
+        if _grott_has(st, st_p, "pmax"):
+            out.discard("pv_pmax")
+        if _grott_has(st, st_p, "wBatteryType"):
+            out.discard("bat_type")
+        if _grott_has(st, st_p, "lost", "status"):
+            out.discard("sys_lost")
+        if _grott_has(info, info_p, "vbatdsp", "vBatDsp"):
+            out.discard("bat_vdsp")
+        for ui_key, d, pset, keys in (
+            ("etoday", tot, tot_p, ("epvToday",)),
+            ("etotal", tot, tot_p, ("epvTotal",)),
+            ("echargetoday", tot, tot_p, ("echargetoday",)),
+            ("edischargetoday", tot, tot_p, ("edischarge1Today",)),
+            ("load_etoday", tot, tot_p, ("elocalLoadToday",)),
+            ("imp_etoday", tot, tot_p, ("etouser", "eToUser", "eToUserToday")),
+            ("exp_etoday", tot, tot_p, ("etoGridToday",)),
+        ):
+            if _grott_has(d, pset, *keys):
+                out.discard(ui_key)
+        return out
 
     def _apply_grott_snapshot_if_needed(self, *, force: bool = False, allow_stale: bool = True):
         snap, stale = self._grott_display_snapshot(allow_stale=allow_stale)
@@ -2248,7 +2803,35 @@ class GrowattTab(QWidget):
         if not self._uses_grott():
             return False
         self._record_grott_present(snap)
-        self._api_filled_fields = set()
+        prev_status, prev_info, prev_totals = self._grott_display_merge_base()
+        cache_status = dict((self._grott_display_cache or {}).get("status") or {})
+        new_status = snap.get("status") or {}
+        new_info = snap.get("info") or {}
+        new_totals = snap.get("totals") or {}
+        merged_status = _merge_nonempty_dict(prev_status, new_status)
+        merged_info = _merge_nonempty_dict(prev_info, new_info)
+        merged_totals = _merge_nonempty_dict(prev_totals, new_totals)
+        api_filled = self._sync_api_filled_after_grott_snap(
+            set(getattr(self, "_api_filled_fields", None) or set()),
+            snap,
+        )
+        # #region agent log
+        debug_trace(
+            "growatt.py:_apply_grott_snapshot_if_needed",
+            "grott display merge",
+            data={
+                "cache_status_keys": len(cache_status),
+                "prev_status_keys": len(prev_status),
+                "new_status_keys": len(new_status),
+                "merged_status_keys": len(merged_status),
+                "kept_load": "pLocalLoad" in merged_status,
+                "kept_ppv": "ppv" in merged_status,
+                "api_filled_count": len(api_filled),
+            },
+            hypothesis_id="H7",
+            run_id="post-fix",
+        )
+        # #endregion
         self.plant_name = snap.get("plant") or self.plant_name or "Grott MQTT"
         self.device_sn = snap.get("serial") or self.device_sn or self.serial_edit.text().strip() or "Grott"
         self.device_type = self.device_type or "mix"
@@ -2256,14 +2839,21 @@ class GrowattTab(QWidget):
         self.info_labels['serial'].setText(self.device_sn)
         self.info_labels['type'].setText(self.device_type)
         self.refresh_btn.setEnabled(True)
+        # A stale snapshot is still worth displaying, but it must not be
+        # announced as fresh data: doing so kept the tab bar green and the
+        # banner "complete" while the shown values had stopped moving.
+        notify = (
+            False if stale
+            else self._should_notify_grott_downstream(force=force)
+        )
         self._apply_live_bundle(
-            snap.get("status") or {},
-            snap.get("info") or {},
-            snap.get("totals") or {},
+            merged_status,
+            merged_info,
+            merged_totals,
             source="grott",
             from_worker=False,
-            notify_downstream=self._should_notify_grott_downstream(force=force),
-            api_filled_fields=set(),
+            notify_downstream=notify,
+            api_filled_fields=api_filled,
         )
         detail = "Live data from Grott MQTT"
         if stale:
@@ -2289,7 +2879,10 @@ class GrowattTab(QWidget):
             self._start_grott_live_api_patch()
         elif self._grott_snapshot_needs_api_gap_fill(snap):
             self._start_grott_live_api_patch(gap_fill_only=True)
-        return True
+        # Only a *fresh* payload counts as a completed refresh. Reporting True
+        # for a stale snapshot meant callers stopped trying to recover the feed
+        # and the tab sat on frozen values indefinitely.
+        return not stale
 
     @staticmethod
     def _grott_snapshot_age_s(snap: dict | None):
@@ -2313,37 +2906,56 @@ class GrowattTab(QWidget):
         if self._apply_grott_snapshot_if_needed(force=True):
             return
 
-        # Missing/stale snapshot: refresh the subscription itself. GROTT is a
-        # push feed, so there is no direct inverter poll here; resubscribing is
-        # the useful "refresh now" action available to the dashboard.
+        # Missing/stale snapshot: do NOT tear down a live MQTT session just
+        # because Grott has not published lately (Shine often waits 1–5 min).
+        # Full stop/start flapped the broker and looked like intermittent loss.
         status = self.grott_status()
-        if not status.get("connected") or not status.get("fresh"):
+        connected = bool(status.get("connected"))
+        now = _time_mod.monotonic()
+        if connected:
+            if now - self._last_grott_resubscribe >= _GROTT_RESUBSCRIBE_COOLDOWN_S:
+                self._last_grott_resubscribe = now
+                ok, msg = self._grott.soft_resubscribe()
+                self._set_grott_status(msg)
+                if not ok:
+                    self.set_status(f"Grott MQTT soft recovery failed: {msg}")
+        elif now - self._last_grott_resubscribe >= _GROTT_RESUBSCRIBE_COOLDOWN_S:
+            self._last_grott_resubscribe = now
             self.apply_grott_settings()
+
         status = self.grott_status()
         host = status.get("host") or self._grott_config().get("host") or "broker"
         port = status.get("port") or self._grott_config().get("port") or ""
         topic = status.get("topic") or self._grott_config().get("topic") or "energy/growatt"
+        age = status.get("age_s")
+        age_txt = f"{age:.0f}s since last payload" if age is not None else "no payload yet"
+        disc = int(status.get("disconnect_count") or 0)
+        rec = int(status.get("reconnect_count") or 0)
         self._apply_growatt_link_status(
             "checking" if status.get("connected") else "warn",
             self._grott_connection_method(),
-            "Waiting for the next fresh GROTT MQTT payload.",
+            "Waiting for the next fresh GROTT MQTT payload "
+            f"({age_txt}; disconnects={disc}, reconnects={rec}).",
             connected=bool(status.get("connected")),
         )
         self._maybe_grott_standby_api()
         self.last_refresh_label.setText(
             f"Last refresh: waiting for Grott payload ({datetime.now().strftime('%H:%M:%S')})"
         )
+        action = "kept MQTT session" if connected else "full reconnect"
         self.set_status(
-            f"Growatt: GROTT MQTT refreshed subscription {host}:{port} · {topic}; "
-            "waiting for next payload."
+            f"Growatt: GROTT MQTT {action} {host}:{port} · {topic}; "
+            f"waiting for next payload ({age_txt})."
         )
 
     def refresh_data(self):
         if self._uses_grott():
-            if self._apply_grott_snapshot_if_needed(force=True):
-                return
             if self._grott_only():
+                # Applies the newest snapshot, and resubscribes when the feed
+                # has gone quiet instead of re-rendering stale values.
                 self._refresh_grott_data()
+                return
+            if self._apply_grott_snapshot_if_needed(force=True):
                 return
         if not self.api or not self.device_sn:
             if self._hybrid_mode():
@@ -2356,6 +2968,19 @@ class GrowattTab(QWidget):
         if getattr(self, '_growatt_fetching', False):
             self._note_auto_refresh_busy()
             return
+        if _growatt_uses_open_api_v1(self.api):
+            wait = self._v1_poll_wait_s()
+            if wait > 0:
+                if self._growatt_v1_rate_limited():
+                    self._refresh_v1_pause_notice()
+                now = _time_mod.monotonic()
+                if now - self._v1_throttle_notice_ts >= 60.0:
+                    self._v1_throttle_notice_ts = now
+                    self.set_status(
+                        "Growatt: Open API V1 allows ~1 live poll per 5 min — "
+                        f"next cloud poll in {int(wait)}s."
+                    )
+                return
         self._growatt_fetching = True
         self.set_status("Refreshing Growatt data...")
         threading.Thread(target=self._fetch_live_data, daemon=True).start()
@@ -2370,7 +2995,7 @@ class GrowattTab(QWidget):
             return
         try:
             if self.device_type == 'mix':
-                status, mix_info, mix_totals = _growatt_fetch_mix_live(
+                status, mix_info, mix_totals = self._cloud_live_fetch(
                     self.api, self.device_sn, self.plant_id,
                 )
                 self._apply_live_bundle(status, mix_info, mix_totals, source="cloud")
@@ -2520,6 +3145,181 @@ class GrowattTab(QWidget):
         for lbl in self.physical_labels.values():
             lbl.setText("—")
 
+    def _apply_battery_modules_override(self):
+        spin = getattr(self, "equip_modules_spin", None)
+        if spin is None:
+            return
+        n = int(spin.value())
+        if n <= 0:
+            _growatt_set_battery_modules_override(None)
+            self.set_status("Growatt: battery module count set to Auto (telemetry only).")
+        else:
+            _growatt_set_battery_modules_override(n)
+            kwh = n * float(_GROWATT_BATTERY_UNIT_KWH)
+            self.set_status(
+                f"Growatt: manual equipage = {n} × {_GROWATT_BATTERY_UNIT_KWH:g} kWh "
+                f"(={kwh:g} kWh). Update Setup capacity if planners should use it."
+            )
+        self._refresh_physical_from_cache()
+
+    def _probe_battery_modules_modbus(self):
+        """Manual Probe packs — force an immediate Modbus SN/count read."""
+        self._schedule_modbus_battery_poll(force=True, status_msg=True)
+
+    def _modbus_battery_poll_wanted(self) -> bool:
+        p = self.app_params
+        if p is None:
+            return False
+        mode = str(getattr(p, "growatt_modbus_mode", "off") or "off").lower()
+        return mode in ("tcp", "tcp_rtu")
+
+    def _schedule_modbus_battery_poll(self, *, force: bool = False, status_msg: bool = False):
+        """Background Modbus pack SN / count poll (throttled unless force)."""
+        if not self._modbus_battery_poll_wanted():
+            if status_msg:
+                self.set_status(
+                    "Growatt Modbus probe — enable Modbus TCP (or RTU over TCP) "
+                    "in Setup → Growatt inverter first."
+                )
+            return
+        if getattr(self, "_modbus_battery_polling", False):
+            if status_msg:
+                self.set_status("Growatt Modbus probe — already running…")
+            return
+        now = _time_mod.monotonic()
+        last = float(getattr(self, "_modbus_battery_poll_ts", 0.0) or 0.0)
+        # Keep gateway traffic light: auto polls at most ~once per minute.
+        if not force and (now - last) < 55.0:
+            return
+        btn = getattr(self, "equip_modbus_probe_btn", None)
+        if btn is not None and status_msg:
+            btn.setEnabled(False)
+        self._modbus_battery_polling = True
+        threading.Thread(
+            target=self._modbus_battery_poll_worker,
+            kwargs={"status_msg": bool(status_msg)},
+            daemon=True,
+        ).start()
+
+    def _modbus_battery_poll_worker(self, *, status_msg: bool = False):
+        sns: list[str] = []
+        detail_s = ""
+        n = None
+        detail_n = ""
+        err = None
+        try:
+            sns, detail_s = _growatt_modbus_read_battery_serials(self.app_params)
+            n, detail_n = _growatt_modbus_read_battery_modules(
+                self.app_params,
+                serials=sns,
+                serials_detail=detail_s,
+            )
+            if n is None and sns:
+                n = len(sns)
+                detail_n = f"Modbus pack SNs → {n} module(s)"
+        except Exception as exc:  # noqa: BLE001
+            err = str(exc)
+        self._inv.invoke(
+            lambda: self._apply_modbus_battery_poll_result(
+                sns, detail_s, n, detail_n, err=err, status_msg=status_msg
+            )
+        )
+
+    def _apply_modbus_battery_poll_result(
+        self,
+        sns,
+        detail_s,
+        n,
+        detail_n,
+        *,
+        err=None,
+        status_msg: bool = False,
+    ):
+        self._modbus_battery_polling = False
+        self._modbus_battery_poll_ts = _time_mod.monotonic()
+        btn = getattr(self, "equip_modbus_probe_btn", None)
+        if btn is not None:
+            btn.setEnabled(True)
+        if err:
+            if status_msg:
+                self.set_status(f"Growatt Modbus probe failed: {err}")
+            return
+        self._modbus_modules = n
+        self._modbus_modules_detail = detail_n or ""
+        self._modbus_pack_serials = list(sns or [])
+        self._modbus_pack_serials_detail = detail_s or ""
+        if status_msg:
+            bits = []
+            if n is not None:
+                bits.append(f"{n} module(s)")
+                spin = getattr(self, "equip_modules_spin", None)
+                if spin is not None and int(spin.value()) <= 0:
+                    try:
+                        spin.setValue(int(n))
+                    except Exception:
+                        pass
+            else:
+                bits.append(f"count: {detail_n}")
+            if sns:
+                bits.append(f"SNs: {', '.join(sns)}")
+            else:
+                bits.append(f"SNs: {detail_s}")
+            self.set_status("Growatt Modbus probe — " + " | ".join(bits))
+        self._refresh_physical_from_cache()
+        if getattr(self, "_model_bat", "—") != "—" or (n is not None) or sns:
+            try:
+                self._apply_device_model_labels()
+            except Exception:
+                pass
+
+    def _refresh_physical_from_cache(self):
+        st = self.mix_status_data if isinstance(self.mix_status_data, dict) else {}
+        mi = self.mix_info_data if isinstance(self.mix_info_data, dict) else {}
+        mt = self.mix_totals_data if isinstance(self.mix_totals_data, dict) else {}
+        self._update_physical_display(
+            st, mi, mt,
+            api_filled_fields=getattr(self, "_api_filled_fields", None),
+        )
+
+    def _set_physical_wrap_label(
+        self, key, text, *, color, tip="", min_lines=2, max_lines=None,
+        soft_wrap=True,
+    ):
+        """Set a wrapping Physical value and reserve height for its rows."""
+        lbl = self.physical_labels.get(key)
+        if lbl is None:
+            return
+        text = (text or "").strip() or "—"
+        lbl.setText(text)
+        lbl.setToolTip(tip or text)
+        lbl.setStyleSheet(f"color: {color}; font-weight: bold;")
+        n = max(min_lines, text.count("\n") + 1)
+        fm = lbl.fontMetrics()
+        if soft_wrap:
+            # Estimate soft-wrap when a long single line must break.
+            try:
+                avail = max(160, int(lbl.width()) - 8)
+            except Exception:
+                avail = 280
+            for part in text.split("\n"):
+                if not part:
+                    continue
+                tw = fm.horizontalAdvance(part)
+                if tw > avail > 0:
+                    n += max(0, (tw - 1) // avail)
+        if max_lines is not None:
+            n = min(int(max_lines), max(1, n))
+        h = int(fm.lineSpacing() * n + 8)
+        lbl.setMinimumHeight(h)
+        if max_lines is not None:
+            lbl.setMaximumHeight(h)
+        else:
+            lbl.setMaximumHeight(16777215)
+        lbl.updateGeometry()
+        parent = lbl.parentWidget()
+        if parent is not None:
+            parent.updateGeometry()
+
     def _update_physical_display(self, status, info, totals, *, api_filled_fields=None):
         """Populate the Physical panel from status / mix_info / totals dicts."""
         if not getattr(self, 'physical_labels', None):
@@ -2541,6 +3341,76 @@ class GrowattTab(QWidget):
         else:
             for k in ('dash_kwh', 'dash_kw', 'dash_eff', 'dash_soc_floor'):
                 self.physical_labels[k].setText("—")
+
+        equip = getattr(self, '_battery_equipage', None) or {}
+        # Refresh detection on every physical update.
+        equip = _growatt_detect_battery_equipage(
+            devices=getattr(self, '_plant_devices', None),
+            status=status if isinstance(status, dict) else None,
+            info=info if isinstance(info, dict) else None,
+            app_params=self.app_params,
+            modbus_modules=getattr(self, '_modbus_modules', None),
+            modbus_detail=getattr(self, '_modbus_modules_detail', '') or '',
+            modbus_serials=getattr(self, '_modbus_pack_serials', None),
+        )
+        self._battery_equipage = equip
+        if equip.get('label'):
+            # Recompose display from a stripped base — never append onto a prior note.
+            base = _growatt_strip_equipage_from_model(getattr(self, '_model_bat', '—'))
+            self._model_bat = base
+            self._apply_device_model_labels()
+        mods = equip.get('modules')
+        if mods is not None and 'equip_modules' in self.physical_labels:
+            src = equip.get('source') or ''
+            suffix = ''
+            if src == 'manual_override':
+                suffix = ' (manual)'
+            elif src == 'modbus':
+                suffix = ' (Modbus)'
+            self.physical_labels['equip_modules'].setText(
+                f"{int(mods)} module{'s' if int(mods) != 1 else ''}{suffix}"
+            )
+            tip = equip.get('detail') or ''
+            if equip.get('mismatch'):
+                tip = f"{tip}\n{equip['mismatch']}".strip()
+            if equip.get('why_missing'):
+                tip = f"{tip}\n{equip['why_missing']}".strip()
+            self.physical_labels['equip_modules'].setToolTip(tip)
+            if equip.get('mismatch'):
+                self.physical_labels['equip_modules'].setStyleSheet(
+                    "color: #fab387; font-weight: bold;"
+                )
+            else:
+                self.physical_labels['equip_modules'].setStyleSheet("color: #a6e3a1;")
+        elif 'equip_modules' in self.physical_labels:
+            why = equip.get('why_missing') or equip.get('detail') or ''
+            label = equip.get('label') or 'count unknown'
+            self.physical_labels['equip_modules'].setText(label)
+            tip = why
+            if equip.get('mismatch'):
+                tip = f"{tip}\n{equip['mismatch']}".strip()
+            self.physical_labels['equip_modules'].setToolTip(tip)
+            self.physical_labels['equip_modules'].setStyleSheet(
+                "color: #fab387;" if why else "color: #cdd6f4;"
+            )
+        if equip.get('capacity_kwh') is not None and 'equip_kwh' in self.physical_labels:
+            self.physical_labels['equip_kwh'].setText(
+                f"{float(equip['capacity_kwh']):.1f} kWh"
+            )
+            self.physical_labels['equip_kwh'].setToolTip(
+                equip.get('detail') or 'modules × 6.5 kWh'
+            )
+        elif 'equip_kwh' in self.physical_labels:
+            setup_m = equip.get('setup_modules')
+            if setup_m:
+                self.physical_labels['equip_kwh'].setText(
+                    f"Setup implies {setup_m * float(equip.get('unit_kwh') or 6.5):.1f} kWh"
+                )
+            else:
+                self.physical_labels['equip_kwh'].setText("—")
+            self.physical_labels['equip_kwh'].setToolTip(
+                equip.get('mismatch') or equip.get('detail') or ''
+            )
 
         if not isinstance(status, dict):
             status = {}
@@ -2570,9 +3440,12 @@ class GrowattTab(QWidget):
                 return "—"
             try:
                 v = float(x)
-                if abs(v) >= 1000:
-                    return f"{v / 1000.0:.2f} kW"
-                return f"{v:.0f} W"
+                # mix_status string power is kW (Grott/cloud). Legacy watts
+                # (dawn 10–50 used to leak through) still display as W.
+                watts = v * 1000.0 if abs(v) < 50 else v
+                if abs(watts) >= 1000:
+                    return f"{watts / 1000.0:.2f} kW"
+                return f"{watts:.0f} W"
             except (TypeError, ValueError):
                 return _growatt_physical_str(x)
 
@@ -2591,12 +3464,101 @@ class GrowattTab(QWidget):
         self.physical_labels['bat_v'].setText(_fmt_v(status.get('vBat')))
         vdsp = info.get('vbatdsp') or info.get('vBatDsp')
         self.physical_labels['bat_vdsp'].setText(_fmt_v(vdsp))
+        tip_vdsp = "mix_info / Grott bat_dsp: display voltage (V), not a pack counter."
+        note = _growatt_anomalous_vdsp_note(status, info)
+        if note:
+            tip_vdsp = note
+            self.physical_labels['bat_vdsp'].setStyleSheet("color: #fab387;")
+        else:
+            self.physical_labels['bat_vdsp'].setStyleSheet("color: #cdd6f4;")
+        self.physical_labels['bat_vdsp'].setToolTip(tip_vdsp)
 
         disp_bt, tip_bt = _growatt_battery_chemistry_display(status, info)
         lbl_bt = self.physical_labels['bat_type']
         lbl_bt.setTextFormat(Qt.TextFormat.PlainText)
         lbl_bt.setText(disp_bt)
         lbl_bt.setToolTip(tip_bt)
+
+        sn_info = _growatt_collect_battery_serials(
+            devices=getattr(self, '_plant_devices', None),
+            status=status,
+            info=info,
+            modbus_sns=getattr(self, '_modbus_pack_serials', None),
+            modbus_detail=getattr(self, '_modbus_pack_serials_detail', '') or '',
+        )
+        if 'bat_sns' in self.physical_labels:
+            try:
+                sns = list(sn_info.get('serials') or [])
+                if sns:
+                    # One SN per line so the row grows instead of crowding Faults.
+                    sn_text = "\n".join(sns)
+                else:
+                    sn_text = sn_info.get('label') or '—'
+                sn_color = "#a6e3a1" if sn_info.get('count') else "#fab387"
+                n_lines = max(1, min(4, len(sns) if sns else 1))
+                self._set_physical_wrap_label(
+                    'bat_sns', sn_text,
+                    color=sn_color,
+                    tip=sn_info.get('detail') or sn_text,
+                    min_lines=n_lines,
+                    max_lines=4,
+                    soft_wrap=False,
+                )
+            except Exception:
+                pass
+
+        try:
+            alerts = _growatt_decode_inverter_alerts(status, info)
+        except Exception:
+            alerts = {
+                'summary': '—', 'detail': '', 'has_fault': False,
+                'has_warning': False, 'healthy': False,
+            }
+        dash_bits = []
+        try:
+            win = self.window()
+            mon = getattr(win, 'alarm_monitor', None)
+            if mon is not None:
+                for hit in list(getattr(mon, '_active', {}).values()):
+                    title = getattr(hit, 'title', None) or str(hit)
+                    dash_bits.append(title)
+        except Exception:
+            pass
+        inv_rows = [
+            str(x).strip() for x in (alerts.get('lines') or []) if str(x).strip()
+        ]
+        if not inv_rows:
+            for part in (alerts.get('summary') or '—').split(' | '):
+                part = part.strip()
+                if part:
+                    inv_rows.append(part)
+        inv_text = "\n".join(inv_rows) if inv_rows else "—"
+        if alerts.get('has_fault'):
+            inv_color = "#f38ba8"
+        elif alerts.get('has_warning'):
+            inv_color = "#fab387"
+        elif alerts.get('healthy'):
+            inv_color = "#a6e3a1"
+        else:
+            inv_color = "#cdd6f4"
+        self._set_physical_wrap_label(
+            'sys_faults', inv_text,
+            color=inv_color,
+            tip=alerts.get('detail') or inv_text,
+            min_lines=1,
+        )
+        dash_text = "\n".join(dash_bits) if dash_bits else "—"
+        dash_color = "#fab387" if dash_bits else "#cdd6f4"
+        dash_tip = (
+            "Active dashboard alarms (banner):\n" + "\n".join(dash_bits)
+            if dash_bits else "No dashboard alarms."
+        )
+        self._set_physical_wrap_label(
+            'sys_faults_dash', dash_text,
+            color=dash_color,
+            tip=dash_tip,
+            min_lines=2 if dash_bits else 1,
+        )
 
         v1, p1 = status.get('vPv1'), status.get('pPv1')
         v2, p2 = status.get('vPv2'), status.get('pPv2')
@@ -2617,7 +3579,7 @@ class GrowattTab(QWidget):
             self.physical_labels['pv_pmax'].setText("—")
 
         lost = status.get('lost') or status.get('status')
-        lost_txt = _growatt_physical_str(lost)
+        lost_txt, lost_tip = _growatt_system_status_display(status)
         lbl_lost = self.physical_labels['sys_lost']
         comms_lost, _ = _growatt_inverter_comms_lost(status)
         if comms_lost:
@@ -2628,15 +3590,35 @@ class GrowattTab(QWidget):
         else:
             lbl_lost.setTextFormat(Qt.TextFormat.PlainText)
             lbl_lost.setText(lost_txt)
+        if lost_tip:
+            lbl_lost.setToolTip(lost_tip)
 
         self.physical_labels['load_etoday'].setText(
             _fmt_kwh_day(totals.get('elocalLoadToday')))
+        imp_today = _growatt_grid_import_today_kwh(totals)
+        self.physical_labels['imp_etoday'].setText(
+            _fmt_kwh_day(imp_today if imp_today is not None else totals.get('etouser')))
         self.physical_labels['exp_etoday'].setText(
             _fmt_kwh_day(totals.get('etoGridToday')))
 
     def _on_auto_tick(self):
         if self._uses_grott() or (self.api and self.device_sn):
             self.refresh_data()
+
+    def live_refresh_expectation(self):
+        """(active, expected_seconds, detail) for the banner refresh pill."""
+        if self._uses_grott():
+            fresh_s = max(15, int(self._grott_config().get("fresh_s", 120) or 120))
+            return True, float(fresh_s), f"GROTT MQTT push, stale after {fresh_s}s"
+        if not (self.api and self.device_sn):
+            return False, 60.0, "cloud API not connected"
+        if not self._auto_timer.isActive():
+            return False, 60.0, "auto-refresh off"
+        sec = max(5, int(self._auto_timer.interval() // 1000))
+        if _growatt_uses_open_api_v1(self.api):
+            sec = max(sec, int(_GROWATT_V1_LIVE_MIN_POLL_S))
+            return True, float(sec), f"cloud Open API V1 poll every {sec}s (Growatt rate limit)"
+        return True, float(sec), f"cloud API poll every {sec}s"
 
     def _note_auto_refresh_busy(self):
         """If an auto tick fired during refresh, run again when this fetch finishes."""
@@ -2652,6 +3634,18 @@ class GrowattTab(QWidget):
         if rem_ms < 0:
             rem_ms = self._auto_timer.interval()
         rem_s = max(0, (rem_ms + 999) // 1000)
+        # Cloud V1 sessions poll no faster than the Open API allows — show the
+        # real time to the next API call, not the raw timer tick.
+        if not self._uses_grott() and _growatt_uses_open_api_v1(self.api):
+            wait = self._v1_poll_wait_s()
+            if wait > rem_s:
+                w = int(wait)
+                txt = f"{w // 60}m {w % 60:02d}s" if w >= 120 else f"{w}s"
+                self.countdown_label.setText(
+                    f"Next Open API poll in {txt} (~5 min rate limit)"
+                )
+                self.countdown_label.setStyleSheet("color: #fab387; font-size: 12px;")
+                return
         self.countdown_label.setText(f"Refreshing in {rem_s}s")
         self.countdown_label.setStyleSheet(f"color: {_UI_BLUE}; font-size: 12px;")
 
@@ -2678,9 +3672,17 @@ class GrowattTab(QWidget):
     def get_api(self):
         if self.api and self.device_sn and self.plant_id:
             return self.api, self.plant_id, self.device_sn
-        return None, None, None
+        # Still expose the serial when cloud auth is down (GROTT MQTT path) so
+        # Battery Analysis can load stored MIX-chart rows for this inverter.
+        sn = self.device_sn or (
+            self.serial_edit.text().strip() if hasattr(self, "serial_edit") else ""
+        )
+        if sn in ("Grott",):
+            sn = None
+        return None, None, sn or None
 
     def get_current_soc(self):
+        """Return cached SOC only — never block the GUI on a live Growatt HTTP call."""
         if self.mix_status_data:
             soc = self.mix_status_data.get('SOC')
             if soc is not None:
@@ -2688,16 +3690,113 @@ class GrowattTab(QWidget):
                     return float(soc)
                 except (TypeError, ValueError):
                     pass
-        if not self.api or not self.device_sn or not self.plant_id:
-            return None
-        try:
-            status, _, _ = _growatt_fetch_mix_live(self.api, self.device_sn, self.plant_id)
-            soc = status.get('SOC')
-            if soc is not None:
-                return float(soc)
-        except Exception:
-            pass
         return None
+
+    # ── Public contract for sibling tabs ─────────────────────────────────
+    # Other pages (Grott/API Align, …) must use ONLY these methods. Reaching
+    # into private attributes couples the pages: a rename here silently
+    # breaks the caller, and unmanaged cloud polls burn the shared Open API
+    # budget and can pause this page for 30 minutes.
+
+    def get_grott_snapshot(self, *, allow_stale: bool = True):
+        """Return ``(snapshot, stale)`` — raw Grott MQTT view, never API-patched."""
+        snap, stale = self._grott_display_snapshot(allow_stale=allow_stale)
+        if snap is None:
+            raw = self._grott.snapshot()
+            if raw:
+                return raw, True
+        return snap, stale
+
+    def get_live_battery_capacity_kwh(self):
+        """Nominal pack kWh as Growatt Live Status would show, or None.
+
+        Prefers detected equipage (modules × 6.5 kWh GBLI). Falls back to
+        Grott ``RatedBatCapacity`` when that field is a plausible kWh figure.
+        Does not return the Setup/dashboard-model number — callers that want
+        a default should use this first, then Setup.
+        """
+        equip = getattr(self, "_battery_equipage", None) or {}
+        cap = equip.get("capacity_kwh")
+        try:
+            if cap is not None and float(cap) > 0:
+                return float(cap)
+        except (TypeError, ValueError):
+            pass
+        snap = None
+        try:
+            snap, _stale = self.get_grott_snapshot(allow_stale=True)
+        except Exception:
+            snap = None
+        info = (snap or {}).get("info") if isinstance(snap, dict) else None
+        rated = None
+        if isinstance(info, dict):
+            rated = info.get("RatedBatCapacity") or info.get("ratedbatcapacity")
+            if rated in (None, ""):
+                rated = info.get("batteryCapacity")
+        parsed = _kwh_from_rated_bat_capacity(rated)
+        if parsed is not None:
+            return parsed
+        return None
+
+    def get_cloud_session(self):
+        """Return ``(api, device_sn, plant_id)`` from the live session or the
+        cached auth result. Never triggers a new login. GUI thread only."""
+        api, device_sn, plant_id = self.api, self.device_sn or "", self.plant_id
+        if api is None:
+            cached = self._cached_growatt_auth_result()
+            if isinstance(cached, dict):
+                api = cached.get("api")
+                device_sn = device_sn or cached.get("device_sn") or ""
+                if plant_id is None:
+                    plant_id = cached.get("plant_id")
+        if not str(device_sn).strip() and hasattr(self, "serial_edit"):
+            device_sn = self.serial_edit.text().strip()
+        return api, str(device_sn).strip(), plant_id
+
+    def get_recent_cloud_pair(self, max_age_s: float):
+        """Return the last raw cloud live read (with the Grott snapshot taken
+        at the same moment) if it is younger than ``max_age_s``, else None.
+
+        Reusing this pair costs zero Open API calls and never delays this
+        page's own polling — always prefer it over ``fetch_cloud_live_for_sibling``.
+        """
+        pair = self._last_cloud_pair
+        if not pair:
+            return None
+        age = _time_mod.monotonic() - pair["at"]
+        if age > max_age_s:
+            return None
+        out = dict(pair)
+        out["age_s"] = age
+        return out
+
+    def open_api_gate(self) -> dict:
+        """State of the shared Open API budget:
+        ``{"rate_limited": bool, "pause_s": float, "wait_s": float}``.
+        ``wait_s`` is seconds until the next V1 live poll is allowed (0 = now).
+        """
+        rem = self._growatt_v1_rate_limit_remaining()
+        pause_s = rem.total_seconds() if rem is not None else 0.0
+        return {
+            "rate_limited": pause_s > 0,
+            "pause_s": pause_s,
+            "wait_s": self._v1_poll_wait_s(),
+        }
+
+    def fetch_cloud_live_for_sibling(self, api, device_sn, plant_id):
+        """One raw cloud live read on behalf of another page.
+
+        Goes through this tab's poll gate and records rate-limit truth, so
+        both pages keep one consistent view of the shared budget. Callers
+        must check ``open_api_gate()`` first and prefer
+        ``get_recent_cloud_pair``. Raises on API failure (caller reports it).
+        Worker-thread safe.
+        """
+        try:
+            return self._cloud_live_fetch(api, device_sn, plant_id)
+        except Exception as exc:
+            self._note_growatt_v1_rate_limit(_growatt_v1_error_message(exc))
+            raise
 
 
 __all__ = [n for n in globals() if not n.startswith('__')]

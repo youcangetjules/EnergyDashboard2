@@ -12,7 +12,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from energy_dashboard.db.health_stats import _fetch_scalar, _open_db, _table_exists
+from energy_dashboard.db.health_stats import (
+    _fetch_scalar,
+    _fmt_size,
+    _open_db,
+    _relation_size_bytes,
+    _table_exists,
+)
 
 _SETTINGS_ORG = "PowerModel"
 _SETTINGS_APP = "EnergyDashboard2"
@@ -59,6 +65,19 @@ RETENTION_TARGETS: tuple[RetentionTarget, ...] = (
         "fetched_at",
         show_in_export=True,
         note="Upserted by tariff slot; row count tracks unique price slots.",
+    ),
+    RetentionTarget(
+        "agile_year_daily",
+        "Agile Year daily stats",
+        "day_date",
+        show_in_export=True,
+        note="One row per London day per tariff; keep long — since-start trend uses this.",
+    ),
+    RetentionTarget(
+        "pv_string_charge",
+        "PV string charge estimates",
+        "timestamp",
+        note="2-minute lots of per-string PV and attributed charge; chart shows last 6 hours.",
     ),
     RetentionTarget(
         "console_log",
@@ -119,7 +138,7 @@ def save_policy(key: str, policy: RetentionPolicy) -> None:
 
 
 def targets_for_box(box_key: str) -> list[RetentionTarget]:
-    if box_key == "database":
+    if box_key in ("database", "storage"):
         return [t for t in RETENTION_TARGETS if t.show_in_database]
     if box_key == "export":
         return [t for t in RETENTION_TARGETS if t.show_in_export]
@@ -160,20 +179,6 @@ def _delete_sql(dialect: str, table: str, ts_col: str, *, before_ts: str | None,
     where = " OR ".join(f"({c})" for c in clauses) if len(clauses) > 1 else clauses[0]
     sql = f"DELETE FROM {table} WHERE {where}"
     return sql, tuple(params)
-
-
-def _relation_size_bytes(cur, dialect: str, table: str) -> int | None:
-    if dialect == "pg":
-        try:
-            n = _fetch_scalar(
-                cur,
-                "SELECT pg_total_relation_size(%s::regclass)",
-                (table,),
-            )
-            return int(n) if n is not None else None
-        except Exception:
-            return None
-    return None
 
 
 def prune_table(

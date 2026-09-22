@@ -6,12 +6,17 @@ from __future__ import annotations
 import time as _time_mod
 
 from energy_dashboard.common import *
+from energy_dashboard.ui.buttons import _apply_primary_button_style
+from energy_dashboard.core.logging import _log
+
+_RS485_IO_LOCK = threading.Lock()
 # Appended to probe detail when Modbus TCP socket cannot connect (Growatt-specific).
 GROWATT_MODBUS_TCP_UNREACHABLE_HINT = (
-    "Nothing accepted TCP on this host:port. On Growatt, Modbus TCP is normally served "
-    "by a ShineWiFi‑X-class module with a fixed LAN IP (same subnet as this PC). "
-    "Many sticks only expose a web UI on :80 and do not listen on :502 — use Modbus RTU "
-    "(RS485) to the inverter in that case."
+    "Nothing accepted TCP on this host:port. For a USR/Waveshare RS485–Ethernet "
+    "box, either (1) set its Data Transfer Mode to Modbus TCP<=>Modbus RTU and "
+    "use dashboard Modbus TCP on port 502, or (2) leave Transparent Mode and use "
+    "dashboard RTU over TCP on the serial TCP port (USR default 8899). "
+    "ShineWiFi sticks often have no Modbus server at all."
 )
 GROWATT_SHINELAN_DEFAULT_CREDENTIALS = (("admin", "admin"), ("admin", "admion"))
 
@@ -195,17 +200,37 @@ def _command_sim_tcp_client_host(bind_address: str) -> str:
     return b if b else "127.0.0.1"
 
 
-def _command_sim_tcp_transaction(host, port, unit, op, addr, count, write_val):
+def _pymodbus_tcp_client(host, port, *, rtu=False, timeout=5.0, retries=0):
+    """Modbus TCP client; *rtu* uses RTU framing over a raw TCP serial tunnel."""
+    from pymodbus.client import ModbusTcpClient
+
+    kw = {
+        "port": int(port),
+        "timeout": float(timeout),
+        "retries": int(retries),
+        "reconnect_delay": 0,
+        "reconnect_delay_max": 0,
+    }
+    if rtu:
+        try:
+            from pymodbus.framer import FramerType
+            kw["framer"] = FramerType.RTU
+        except Exception:
+            pass
+    try:
+        return ModbusTcpClient(host, **kw)
+    except TypeError:
+        kw.pop("reconnect_delay", None)
+        kw.pop("reconnect_delay_max", None)
+        return ModbusTcpClient(host, **kw)
+
+
+def _command_sim_tcp_transaction(host, port, unit, op, addr, count, write_val, rtu=False):
     """
     Run one Modbus TCP client transaction against the simulator (or any slave).
     op: 'rh' holding read, 'ri' input read, 'wh' single holding write.
     Returns (ok: bool, message: str, registers: list|None).
     """
-    try:
-        from pymodbus.client import ModbusTcpClient
-    except ImportError:
-        return False, "pymodbus not installed", None
-
     unit = int(unit)
     addr = int(addr)
     count = max(1, int(count))
@@ -219,8 +244,12 @@ def _command_sim_tcp_transaction(host, port, unit, op, addr, count, write_val):
                 continue
         return fn(**kw)
 
+    try:
+        client = _pymodbus_tcp_client(host, port, rtu=bool(rtu), timeout=3.0, retries=0)
+    except ImportError:
+        return False, "pymodbus not installed", None
+
     with _SuppressPymodbusConsoleNoise():
-        client = ModbusTcpClient(host, port=port, timeout=5.0, retries=1)
         if not client.connect():
             return False, f"TCP connect failed ({host}:{port})", None
         try:
@@ -280,23 +309,39 @@ def _growatt_try_modbus_read(client, unit):
         except TypeError:
             return read_fn(address=addr, count=count, device_id=unit)
 
-    # Growatt inverter protocol PDFs use holding blocks e.g. 0–124 / 125–249 — try short blocks first.
-    for read_fn in (client.read_holding_registers, client.read_input_registers):
-        for addr, count in ((0, 20), (0, 10), (125, 10), (0, 5)):
-            try:
-                rr = _call(read_fn, addr, count)
-                if hasattr(rr, "isError") and not rr.isError():
-                    return True, f"read OK ({read_fn.__name__} @{addr}×{count})"
-            except Exception:
-                continue
-
-    for read_fn in (client.read_holding_registers, client.read_input_registers):
-        for addr in (0, 1, 3, 4, 5, 6):
-            for count in (1, 2):
-                rr = _call(read_fn, addr, count)
-                if hasattr(rr, "isError") and not rr.isError():
-                    return True, f"read OK ({read_fn.__name__} addr={addr} n={count})"
-    return False, "no register read succeeded (check unit ID or model map)"
+    # Growatt SPH via USR (HA-style): input regs 5 / 37 / 1014 answer reliably.
+    # Also try short holding/input blocks used by generic Growatt maps.
+    probes = (
+        ("read_input_registers", 5, 1),
+        ("read_input_registers", 1014, 1),
+        ("read_input_registers", 37, 1),
+        ("read_holding_registers", 0, 1),
+        ("read_input_registers", 0, 1),
+        ("read_holding_registers", 0, 10),
+        ("read_holding_registers", 125, 10),
+        ("read_input_registers", 0, 10),
+    )
+    for fn_name, addr, count in probes:
+        read_fn = getattr(client, fn_name)
+        tag = f"{fn_name} @{addr}×{count}"
+        try:
+            _log.debug("RS485", f"Modbus try {tag} unit={unit}")
+            rr = _call(read_fn, addr, count)
+            if hasattr(rr, "isError") and not rr.isError():
+                regs = list(getattr(rr, "registers", []) or [])
+                preview = regs[:6]
+                _log.info(
+                    "RS485",
+                    f"Modbus OK {tag} → {len(regs)} reg(s) {preview}"
+                    + ("…" if len(regs) > 6 else ""),
+                )
+                return True, f"read OK ({tag})"
+            err = getattr(rr, "exception_code", None) or getattr(rr, "message", None) or rr
+            _log.debug("RS485", f"Modbus no-reply/err {tag}: {err}")
+        except Exception as exc:
+            _log.debug("RS485", f"Modbus exception {tag}: {exc}")
+            continue
+    return False, "no register read succeeded (check unit ID, baud, or gateway mode)"
 
 
 def _growatt_http_probe_sync(host, port, username="", password=""):
@@ -412,9 +457,25 @@ def _growatt_http_probe_sync(host, port, username="", password=""):
 def _growatt_modbus_probe_sync(mode, tcp_host, tcp_port, serial_path, baud, unit):
     """Run a short Modbus transport test. Returns dict: state_key, state_text, detail."""
     fresh = datetime.now().strftime("%H:%M:%S")
+    mode_l = (mode or "off").lower()
+    if mode_l in ("tcp", "tcp_rtu"):
+        _log.info(
+            "RS485",
+            f"Probe start mode={mode_l} target={(tcp_host or '').strip()}:{int(tcp_port or 502)} "
+            f"unit={unit}",
+        )
+    elif mode_l == "serial":
+        _log.info(
+            "RS485",
+            f"Probe start mode=serial path={(serial_path or '').strip()} "
+            f"baud={baud} unit={unit}",
+        )
+    else:
+        _log.info("RS485", "Probe skipped — Modbus disabled in Setup")
     try:
         from pymodbus.client import ModbusSerialClient, ModbusTcpClient
     except ImportError:
+        _log.warn("RS485", "pymodbus not installed")
         return {
             "state_key": "warn",
             "state_text": "No pymodbus",
@@ -422,8 +483,8 @@ def _growatt_modbus_probe_sync(mode, tcp_host, tcp_port, serial_path, baud, unit
             "fresh": fresh,
         }
 
-    mode = (mode or "off").lower()
-    if mode not in ("tcp", "serial"):
+    mode = mode_l
+    if mode not in ("tcp", "tcp_rtu", "serial"):
         return {
             "state_key": "off",
             "state_text": "Disabled",
@@ -431,18 +492,136 @@ def _growatt_modbus_probe_sync(mode, tcp_host, tcp_port, serial_path, baud, unit
             "fresh": fresh,
         }
 
-    with _SuppressPymodbusConsoleNoise():
-        return _growatt_modbus_probe_core(
-            mode, tcp_host, tcp_port, serial_path, baud, unit, fresh,
-            ModbusSerialClient, ModbusTcpClient,
-        )
+    if not _RS485_IO_LOCK.acquire(timeout=20.0):
+        _log.warn("RS485", "Probe skipped — bus busy")
+        return {
+            "state_key": "warn",
+            "state_text": "Busy",
+            "detail": "Another RS485 probe or heartbeat is in flight",
+            "fresh": fresh,
+        }
+    try:
+        with _SuppressPymodbusConsoleNoise():
+            result = _growatt_modbus_probe_core(
+                mode, tcp_host, tcp_port, serial_path, baud, unit, fresh,
+                ModbusSerialClient, ModbusTcpClient,
+            )
+    finally:
+        _RS485_IO_LOCK.release()
+    sk = result.get("state_key")
+    detail = result.get("detail") or result.get("state_text") or ""
+    if sk == "ok":
+        _log.info("RS485", f"Probe OK — {detail}")
+    elif sk == "off":
+        _log.info("RS485", f"Probe off — {detail}")
+    else:
+        _log.warn("RS485", f"Probe {result.get('state_text', sk)} — {detail}")
+    return result
+
+
+def _growatt_modbus_heartbeat_sync(mode, tcp_host, tcp_port, serial_path, baud, unit):
+    """One TCP/serial connect + one holding-register read. Logs a single RS485 line."""
+    mode = (mode or "off").lower()
+    unit = max(1, min(247, int(unit or 1)))
+    if mode not in ("tcp", "tcp_rtu", "serial"):
+        return {"state_key": "off", "detail": "Modbus disabled"}
+    if not _RS485_IO_LOCK.acquire(blocking=False):
+        _log.debug("RS485", "Heartbeat skipped — bus busy")
+        return {"state_key": "idle", "detail": "busy"}
+
+    client = None
+    try:
+        with _SuppressPymodbusConsoleNoise():
+            if mode in ("tcp", "tcp_rtu"):
+                host = (tcp_host or "").strip()
+                if not host:
+                    _log.warn("RS485", "Heartbeat skipped — no LAN IP")
+                    return {"state_key": "warn", "detail": "no host"}
+                port = int(tcp_port or 502)
+                rtu = mode == "tcp_rtu"
+                kind = "RTU/TCP" if rtu else "TCP"
+                client = _pymodbus_tcp_client(
+                    host, port, rtu=rtu, timeout=2.0, retries=0)
+                if not client.connect():
+                    _log.warn(
+                        "RS485",
+                        f"Heartbeat gateway DOWN {kind} {host}:{port}",
+                    )
+                    return {"state_key": "bad", "detail": "tcp fail"}
+                target = f"{host}:{port}"
+            else:
+                from pymodbus.client import ModbusSerialClient
+                path = (serial_path or "").strip()
+                if not path:
+                    _log.warn("RS485", "Heartbeat skipped — no serial path")
+                    return {"state_key": "warn", "detail": "no path"}
+                kind = "RTU"
+                client = ModbusSerialClient(
+                    port=path,
+                    baudrate=int(baud or 9600),
+                    bytesize=8,
+                    parity="N",
+                    stopbits=1,
+                    timeout=2.0,
+                )
+                if not client.connect():
+                    _log.warn("RS485", f"Heartbeat serial DOWN {path}")
+                    return {"state_key": "bad", "detail": "serial fail"}
+                target = path
+
+            def _call(fn, **kw):
+                for arg in ("slave", "device_id"):
+                    try:
+                        return fn(**{arg: unit, **kw})
+                    except TypeError:
+                        continue
+                return fn(**kw)
+
+            # Prefer the same input registers Home Assistant uses for SPH.
+            last_err = "no reply"
+            for fn, addr, n, label in (
+                (client.read_input_registers, 5, 1, "input@5"),
+                (client.read_input_registers, 1014, 1, "input@1014"),
+                (client.read_holding_registers, 0, 1, "holding@0"),
+            ):
+                try:
+                    rr = _call(fn, address=addr, count=n)
+                except Exception as exc:
+                    last_err = exc
+                    continue
+                if hasattr(rr, "isError") and not rr.isError():
+                    regs = list(getattr(rr, "registers", []) or [])
+                    _log.info(
+                        "RS485",
+                        f"Heartbeat OK {kind} {target} unit={unit} {label}={regs[:1]}",
+                    )
+                    return {"state_key": "ok", "detail": "ok"}
+                last_err = getattr(rr, "exception_code", None) or getattr(rr, "message", None) or rr
+            _log.warn(
+                "RS485",
+                f"Heartbeat {kind} {target} unit={unit} — inverter silent ({last_err})",
+            )
+            return {"state_key": "bad", "detail": str(last_err)}
+    except Exception as exc:
+        _log.warn("RS485", f"Heartbeat error: {exc}")
+        return {"state_key": "bad", "detail": str(exc)}
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        try:
+            _RS485_IO_LOCK.release()
+        except Exception:
+            pass
 
 
 def _growatt_modbus_probe_core(mode, tcp_host, tcp_port, serial_path, baud, unit, fresh,
                                ModbusSerialClient, ModbusTcpClient):
     unit = max(1, min(247, int(unit)))
     timeout = 5.0
-    if mode == "tcp":
+    if mode in ("tcp", "tcp_rtu"):
         host = (tcp_host or "").strip()
         if not host:
             return {
@@ -452,10 +631,13 @@ def _growatt_modbus_probe_core(mode, tcp_host, tcp_port, serial_path, baud, unit
                 "fresh": fresh,
             }
         port = int(tcp_port) if tcp_port else 502
+        rtu = mode == "tcp_rtu"
+        kind = "RTU/TCP" if rtu else "TCP"
+        timeout = 2.5 if rtu else 3.0
         client = None
         connected = False
         for attempt in range(2):
-            c = ModbusTcpClient(host, port=port, timeout=timeout, retries=1)
+            c = _pymodbus_tcp_client(host, port, rtu=rtu, timeout=timeout, retries=0)
             if c.connect():
                 client = c
                 connected = True
@@ -466,28 +648,30 @@ def _growatt_modbus_probe_core(mode, tcp_host, tcp_port, serial_path, baud, unit
                 pass
             _time_mod.sleep(0.35)
         if not connected:
+            _log.warn("RS485", f"{kind} connect failed {host}:{port}")
             return {
                 "state_key": "bad",
                 "state_text": "Unreachable",
                 "detail": (
-                    f"TCP connect failed ({host}:{port}). "
+                    f"{kind} connect failed ({host}:{port}). "
                     f"{GROWATT_MODBUS_TCP_UNREACHABLE_HINT}"
                 ),
                 "fresh": fresh,
             }
+        _log.info("RS485", f"{kind} connected {host}:{port} unit={unit}")
         try:
             ok, msg = _growatt_try_modbus_read(client, unit)
             if ok:
                 return {
                     "state_key": "ok",
                     "state_text": "OK",
-                    "detail": f"{host}:{port} unit {unit} | {msg}",
+                    "detail": f"{host}:{port} {kind} unit {unit} | {msg}",
                     "fresh": fresh,
                 }
             return {
                 "state_key": "bad",
                 "state_text": "Modbus error",
-                "detail": f"{host}:{port} unit {unit} — {msg}",
+                "detail": f"{host}:{port} {kind} unit {unit} — {msg}",
                 "fresh": fresh,
             }
         except Exception as e:
@@ -533,12 +717,14 @@ def _growatt_modbus_probe_core(mode, tcp_host, tcp_port, serial_path, baud, unit
             client.close()
         except Exception:
             pass
+        _log.warn("RS485", f"Serial open failed {path} @ {baud}")
         return {
             "state_key": "bad",
             "state_text": "Unreachable",
             "detail": f"Could not open {path} @ {baud} baud",
             "fresh": fresh,
         }
+    _log.info("RS485", f"Serial open {path} @ {baud} baud unit={unit}")
     try:
         ok, msg = _growatt_try_modbus_read(client, unit)
         if ok:
@@ -678,6 +864,8 @@ class CommandSimTab(QWidget):
         self.stop_btn.setEnabled(False)
         self.start_btn.clicked.connect(self._on_start)
         self.stop_btn.clicked.connect(self._on_stop)
+        _apply_primary_button_style(self.start_btn)
+        _apply_primary_button_style(self.stop_btn)
         row.addWidget(self.start_btn)
         row.addWidget(self.stop_btn)
         row.addStretch(1)
@@ -707,6 +895,7 @@ class CommandSimTab(QWidget):
         )
         self.client_test_btn.setEnabled(False)
         self.client_test_btn.clicked.connect(self._on_client_test_read)
+        _apply_primary_button_style(self.client_test_btn)
         quick_row.addWidget(self.client_test_btn)
         quick_row.addStretch(1)
         client_lay.addLayout(quick_row)
@@ -756,6 +945,7 @@ class CommandSimTab(QWidget):
         self.client_exec_btn = QPushButton("Run manual command")
         self.client_exec_btn.setEnabled(False)
         self.client_exec_btn.clicked.connect(self._on_client_manual_exec)
+        _apply_primary_button_style(self.client_exec_btn)
         client_lay.addWidget(self.client_exec_btn)
 
         self.client_log = QTextEdit()
@@ -1009,6 +1199,8 @@ _CONNECTIVITY_ROW_TO_HEALTH = {
     "Octopus live": "octopus_live",
     "Tasmota devices": "tasmota",
     "Forecast.solar": "forecast",
+    "PVOutput.org": "pvoutput",
+    "Wonderwatt.com": "wonderwatt",
     "Databases": "database",
 }
 

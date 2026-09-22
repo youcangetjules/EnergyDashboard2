@@ -13,19 +13,9 @@ from energy_dashboard.db.connect_probe import (
 )
 from energy_dashboard.config import *
 from energy_dashboard.db.mix_chart import (
-    _GROWATT_MIX_CHART_DDL,
-    _GROWATT_MIX_CHART_DDL_MY,
-    _GROWATT_MIX_CHART_DDL_PG,
-    _GROWATT_MIX_CHART_IDX,
     upsert_mix_chart_rows,
 )
 from energy_dashboard.db.shadow_trial import (
-    _SHADOW_PLAN_DDL,
-    _SHADOW_PLAN_DDL_MY,
-    _SHADOW_PLAN_DDL_PG,
-    _SHADOW_SCORE_DDL,
-    _SHADOW_SCORE_DDL_MY,
-    _SHADOW_SCORE_DDL_PG,
     upsert_shadow_plan,
     upsert_shadow_score,
 )
@@ -369,6 +359,14 @@ def _relay_to_db_int(relay_on):
     return None
 
 
+class _BackendCooling(Exception):
+    """MySQL/PostgreSQL skipped while reconnect backoff is active."""
+
+
+_DB_BACKOFF_START_S = 5.0
+_DB_BACKOFF_MAX_S = 60.0
+
+
 class DataLogger:
     """Threaded writer that logs readings to SQLite / MySQL / PostgreSQL."""
 
@@ -393,9 +391,21 @@ class DataLogger:
         self._sqlite_conn = None
         self._mysql_conn = None
         self._pg_conn = None
+        self._backend_fail_until = {"mysql": 0.0, "pg": 0.0}
+        self._backend_backoff = {
+            "mysql": _DB_BACKOFF_START_S,
+            "pg": _DB_BACKOFF_START_S,
+        }
+        self._backend_had_outage = {"mysql": False, "pg": False}
         self._thread = threading.Thread(target=self._writer_loop, daemon=True)
         self._thread.start()
         self._retention_write_ticks = 0
+        # Last Growatt sample signature — identical re-logs of a stale GROTT
+        # snapshot used to flood growatt_readings (e.g. 588 bit-identical rows
+        # spanning ~30 h on 2026-08-18..20).
+        self._last_growatt_sig = None
+        self._growatt_dup_skips = 0
+        self._last_growatt_write_at = None
 
     def _status(self, msg):
         if self.status_callback:
@@ -406,6 +416,7 @@ class DataLogger:
 
     def reconfigure(self):
         self._close_all()
+        self._clear_backend_cooldown()
 
     def _close_all(self):
         for attr in ('_sqlite_conn', '_mysql_conn', '_pg_conn'):
@@ -417,72 +428,124 @@ class DataLogger:
                     pass
                 setattr(self, attr, None)
 
+    def backend_ready(self, name: str) -> bool:
+        """True unless this network engine is in reconnect backoff."""
+        if name == "sqlite":
+            return True
+        until = float(self._backend_fail_until.get(name, 0.0) or 0.0)
+        return _time_mod.monotonic() >= until
+
+    def _clear_backend_cooldown(self, name: str | None = None, *, reset_outage: bool = True) -> None:
+        names = (name,) if name else ("mysql", "pg")
+        for n in names:
+            self._backend_fail_until[n] = 0.0
+            self._backend_backoff[n] = _DB_BACKOFF_START_S
+            if reset_outage:
+                self._backend_had_outage[n] = False
+
+    def _mark_backend_up(self, name: str) -> None:
+        if self._backend_had_outage.get(name):
+            label = "MySQL" if name == "mysql" else "PostgreSQL"
+            self._status(f"{label} reachable again.")
+        self._backend_had_outage[name] = False
+        self._backend_fail_until[name] = 0.0
+        self._backend_backoff[name] = _DB_BACKOFF_START_S
+
+    def _mark_backend_down(self, name: str) -> None:
+        now = _time_mod.monotonic()
+        delay = float(self._backend_backoff.get(name, _DB_BACKOFF_START_S))
+        delay = min(max(delay, _DB_BACKOFF_START_S), _DB_BACKOFF_MAX_S)
+        self._backend_fail_until[name] = now + delay
+        self._backend_backoff[name] = min(delay * 2.0, _DB_BACKOFF_MAX_S)
+        first = not self._backend_had_outage.get(name)
+        self._backend_had_outage[name] = True
+        if first:
+            label = "MySQL" if name == "mysql" else "PostgreSQL"
+            self._status(
+                f"{label} unreachable — retrying in {delay:.0f}s (app stays live)."
+            )
+
+    def _raise_if_cooling(self, name: str) -> None:
+        if not self.backend_ready(name):
+            raise _BackendCooling(name)
+
+    def _fail_mysql(self, err: BaseException, msg: str) -> None:
+        self._engine_write_failed("_mysql_conn", err, msg)
+
+    def _fail_pg(self, err: BaseException, msg: str) -> None:
+        self._engine_write_failed("_pg_conn", err, msg)
+
+    def _note_read_error(self, err: BaseException, label: str) -> None:
+        self._last_read_error = str(err)
+        if isinstance(err, _BackendCooling):
+            return
+        self._status(f"DB read error ({label}): {err}")
+
+    def _engine_write_failed(self, attr: str, err: BaseException, msg: str) -> None:
+        if isinstance(err, _BackendCooling):
+            return
+        try:
+            conn = getattr(self, attr, None)
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
+        setattr(self, attr, None)
+        self._status(msg)
+
     def _ensure_sqlite(self):
         if self._sqlite_conn is None:
+            from energy_dashboard.db.full_schema import apply_full_schema
             self._sqlite_conn = sqlite3.connect(self.sqlite_path)
-            self._sqlite_conn.execute(_GROWATT_DDL)
-            self._sqlite_conn.execute(_TASMOTA_DDL)
-            self._sqlite_conn.execute(_OCTOPUS_DDL)
-            self._sqlite_conn.execute(_SOLAR_FC_DDL)
-            for sql in _SOLAR_FC_IDX_DDL:
-                self._sqlite_conn.execute(sql)
-            self._sqlite_conn.execute(_AGILE_FC_DDL)
-            for sql in _AGILE_FC_IDX_DDL:
-                self._sqlite_conn.execute(sql)
-            self._sqlite_conn.execute(_GROWATT_MIX_CHART_DDL)
-            for sql in _GROWATT_MIX_CHART_IDX:
-                self._sqlite_conn.execute(sql)
-            self._sqlite_conn.execute(_SHADOW_PLAN_DDL)
-            self._sqlite_conn.execute(_SHADOW_SCORE_DDL)
-            self._sqlite_conn.commit()
+            apply_full_schema(self._sqlite_conn, "sqlite")
         return self._sqlite_conn
 
     def _ensure_mysql(self):
+        from energy_dashboard.db.connect_probe import mysql_connect
+        from energy_dashboard.db.full_schema import apply_full_schema
+
+        self._raise_if_cooling("mysql")
         if self._mysql_conn is None:
-            import pymysql
-            self._mysql_conn = pymysql.connect(
-                host=self.mysql_host, port=int(self.mysql_port),
-                user=self.mysql_user, password=self.mysql_pass,
-                database=self.mysql_db, autocommit=True,
-            )
-            with self._mysql_conn.cursor() as cur:
-                cur.execute(_GROWATT_DDL_MY)
-                cur.execute(_TASMOTA_DDL_MY)
-                cur.execute(_TASMOTA_DEVICES_DDL_MY)
-                cur.execute(_OCTOPUS_DDL_MY)
-                cur.execute(_SOLAR_FC_DDL_MY)
-                cur.execute(_AGILE_FC_DDL_MY)
-                cur.execute(_GROWATT_MIX_CHART_DDL_MY)
-                for stmt in _GROWATT_MIX_CHART_IDX:
-                    cur.execute(stmt)
-                cur.execute(_SHADOW_PLAN_DDL_MY)
-                cur.execute(_SHADOW_SCORE_DDL_MY)
+            try:
+                self._mysql_conn = mysql_connect(
+                    self.mysql_host, self.mysql_port,
+                    self.mysql_user, self.mysql_pass, self.mysql_db,
+                    autocommit=True,
+                )
+                apply_full_schema(self._mysql_conn, "mysql")
+                self._mark_backend_up("mysql")
+            except _BackendCooling:
+                raise
+            except Exception:
+                self._mysql_conn = None
+                self._mark_backend_down("mysql")
+                raise
         return self._mysql_conn
 
     def _ensure_pg(self):
+        """Open PostgreSQL. Does not create tables — the owner runs that SQL by hand."""
+        from energy_dashboard.db.connect_probe import postgresql_connect
+
+        self._raise_if_cooling("pg")
         if self._pg_conn is None:
-            import psycopg2
-            self._pg_conn = psycopg2.connect(
-                host=self.pg_host, port=int(self.pg_port),
-                dbname=self.pg_db, user=self.pg_user, password=self.pg_pass,
-            )
-            self._pg_conn.autocommit = True
-            with self._pg_conn.cursor() as cur:
-                cur.execute(_GROWATT_DDL_PG)
-                cur.execute(_TASMOTA_DDL_PG)
-                cur.execute(_TASMOTA_DEVICES_DDL_PG)
-                cur.execute(_OCTOPUS_DDL_PG)
-                cur.execute(_SOLAR_FC_DDL_PG)
-                cur.execute(_AGILE_FC_DDL_PG)
-                cur.execute(_GROWATT_MIX_CHART_DDL_PG)
-                for stmt in _GROWATT_MIX_CHART_IDX:
-                    cur.execute(stmt)
-                cur.execute(_SHADOW_PLAN_DDL_PG)
-                cur.execute(_SHADOW_SCORE_DDL_PG)
-                for stmt in _SOLAR_FC_IDX_DDL:
-                    cur.execute(stmt)
-                for stmt in _AGILE_FC_IDX_DDL:
-                    cur.execute(stmt)
+            try:
+                self._pg_conn = postgresql_connect(
+                    self.pg_host, self.pg_port,
+                    self.pg_user, self.pg_pass, self.pg_db,
+                    autocommit=True,
+                )
+                self._mark_backend_up("pg")
+            except _BackendCooling:
+                raise
+            except Exception:
+                try:
+                    if self._pg_conn is not None:
+                        self._pg_conn.close()
+                except Exception:
+                    pass
+                self._pg_conn = None
+                self._mark_backend_down("pg")
+                raise
         return self._pg_conn
 
     def _primary_storage_backend(self):
@@ -496,7 +559,13 @@ class DataLogger:
         return None
 
     def _query_pl(self, backend: str, sql: str, params) -> pl.DataFrame:
-        """Parameterized SELECT → Polars DataFrame on the given storage backend."""
+        """Parameterized SELECT → Polars DataFrame on the given storage backend.
+
+        Always opens a short-lived connection for reads. Sharing the writer
+        thread's ``_pg_conn`` from Battery Analysis (and other UI workers)
+        caused hangs and ``connection pointer is NULL`` once the writer
+        reset the handle after a failed upsert.
+        """
         q = sql.replace("%s", "?") if backend == "sqlite" else sql
         p = list(params) if params else None
         # Scan all rows for dtypes. Default inference (first 100 rows) breaks on
@@ -509,26 +578,56 @@ class DataLogger:
                 return pl.read_database(q, connection=conn, **_read_kw)
             finally:
                 conn.close()
+        if backend in ("mysql", "pg"):
+            self._raise_if_cooling(backend)
         if backend == "mysql":
-            import pymysql
-            conn = pymysql.connect(
-                host=self.mysql_host,
-                port=int(self.mysql_port),
-                user=self.mysql_user,
-                password=self.mysql_pass,
-                database=self.mysql_db,
-                charset="utf8mb4",
-            )
+            from energy_dashboard.db.connect_probe import mysql_connect
             try:
-                return pl.read_database(q, connection=conn, **_read_kw)
+                conn = mysql_connect(
+                    self.mysql_host, self.mysql_port,
+                    self.mysql_user, self.mysql_pass, self.mysql_db,
+                )
+            except Exception:
+                self._mark_backend_down("mysql")
+                raise
+            try:
+                df = pl.read_database(q, connection=conn, **_read_kw)
+                self._mark_backend_up("mysql")
+                return df
             finally:
                 conn.close()
-        conn = self._ensure_pg()
-        return pl.read_database(q, connection=conn, **_read_kw)
+        from energy_dashboard.db.connect_probe import postgresql_connect
+        try:
+            conn = postgresql_connect(
+                self.pg_host, self.pg_port,
+                self.pg_user, self.pg_pass, self.pg_db,
+                autocommit=True,
+            )
+        except Exception:
+            self._mark_backend_down("pg")
+            raise
+        try:
+            df = pl.read_database(q, connection=conn, **_read_kw)
+            self._mark_backend_up("pg")
+            return df
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def log_growatt(self, data):
         if not (self.sqlite_enabled or self.mysql_enabled or self.pg_enabled):
             return
+        if not isinstance(data, dict):
+            return
+        # Cap write rate (~3/min). Never skip because values look unchanged —
+        # a live Grott feed is continuous even when SOC/power sit still.
+        now = datetime.now(timezone.utc)
+        last_write = getattr(self, '_last_growatt_write_at', None)
+        if last_write is not None and (now - last_write).total_seconds() < 20:
+            return
+        self._last_growatt_write_at = now
         self._q.put(('growatt', data))
 
     def log_growatt_mix_chart(self, device_sn, records):
@@ -572,6 +671,14 @@ class DataLogger:
             return
         self._q.put(('agile_forecast', (df, tariff_code, direction)))
 
+    def log_agile_year_daily(self, rows, tariff_code, direction):
+        """Persist Agile Year daily high / low / average (UPSERT per tariff/day)."""
+        if not (self.sqlite_enabled or self.mysql_enabled or self.pg_enabled):
+            return
+        if not rows or not tariff_code:
+            return
+        self._q.put(('agile_year_daily', (list(rows), tariff_code, direction)))
+
     def log_shadow_plan(self, row: dict):
         """Persist a frozen Shadow Trial plan (UPSERT keyed on day_date)."""
         if not (self.sqlite_enabled or self.mysql_enabled or self.pg_enabled):
@@ -579,6 +686,26 @@ class DataLogger:
         if not row or not row.get('day_date') or not row.get('plan_json'):
             return
         self._q.put(('shadow_plan', dict(row)))
+
+    def enqueue_connectivity_event(self, row) -> None:
+        if not (self.sqlite_enabled or self.mysql_enabled or self.pg_enabled):
+            return
+        self._q.put(('connectivity_event', row))
+
+    def enqueue_pv_string_charge(self, row) -> None:
+        if not (self.sqlite_enabled or self.mysql_enabled or self.pg_enabled):
+            return
+        self._q.put(('pv_string_charge', row))
+
+    def _write_connectivity_event(self, row):
+        from energy_dashboard.db.connectivity_events import write_connectivity_event
+
+        write_connectivity_event(self, row)
+
+    def _write_pv_string_charge(self, row):
+        from energy_dashboard.db.pv_string_charge import write_pv_string_charge
+
+        write_pv_string_charge(self, row)
 
     def log_shadow_score(self, row: dict):
         """Persist a Shadow Trial daily score (UPSERT keyed on day_date)."""
@@ -606,13 +733,21 @@ class DataLogger:
                     self._write_solar_forecast(*payload)
                 elif kind == 'agile_forecast':
                     self._write_agile_forecast(*payload)
+                elif kind == 'agile_year_daily':
+                    self._write_agile_year_daily(*payload)
                 elif kind == 'growatt_mix_chart':
                     self._write_growatt_mix_chart(*payload)
                 elif kind == 'shadow_plan':
                     self._write_shadow_row(upsert_shadow_plan, payload, 'shadow plan')
                 elif kind == 'shadow_score':
                     self._write_shadow_row(upsert_shadow_score, payload, 'shadow score')
+                elif kind == 'connectivity_event':
+                    self._write_connectivity_event(payload)
+                elif kind == 'pv_string_charge':
+                    self._write_pv_string_charge(payload)
                 self._maybe_run_retention()
+            except _BackendCooling:
+                pass
             except Exception as e:
                 self._status(f"DB write error: {e}")
 
@@ -643,22 +778,40 @@ class DataLogger:
                 with conn.cursor() as cur:
                     upsert_mix_chart_rows(cur, 'mysql', device_sn, records)
             except Exception as e:
-                self._mysql_conn = None
-                self._status(f"MySQL mix chart error: {e}")
+                self._fail_mysql(e, f"MySQL mix chart error: {e}")
         if self.pg_enabled:
             try:
                 conn = self._ensure_pg()
                 with conn.cursor() as cur:
                     upsert_mix_chart_rows(cur, 'pg', device_sn, records)
             except Exception as e:
-                self._pg_conn = None
-                self._status(f"PostgreSQL mix chart error: {e}")
+                self._fail_pg(e, f"PostgreSQL mix chart error: {e}")
+
+    @staticmethod
+    def _sql_scalar(v):
+        """Coerce values for DB drivers (plain Python types only — no numpy)."""
+        if v is None or isinstance(v, (str, bytes, bool)):
+            return v
+        try:
+            if hasattr(v, "item"):
+                v = v.item()
+        except Exception:
+            pass
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, int) and not isinstance(v, bool):
+            return int(v)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return v
 
     def _write_shadow_row(self, upsert_fn, row, label):
+        clean = {k: self._sql_scalar(v) for k, v in (row or {}).items()}
         if self.sqlite_enabled:
             try:
                 conn = self._ensure_sqlite()
-                upsert_fn(conn.cursor(), 'sqlite', row)
+                upsert_fn(conn.cursor(), 'sqlite', clean)
                 conn.commit()
             except Exception as e:
                 self._sqlite_conn = None
@@ -667,18 +820,16 @@ class DataLogger:
             try:
                 conn = self._ensure_mysql()
                 with conn.cursor() as cur:
-                    upsert_fn(cur, 'mysql', row)
+                    upsert_fn(cur, 'mysql', clean)
             except Exception as e:
-                self._mysql_conn = None
-                self._status(f"MySQL {label} error: {e}")
+                self._fail_mysql(e, f"MySQL {label} error: {e}")
         if self.pg_enabled:
             try:
                 conn = self._ensure_pg()
                 with conn.cursor() as cur:
-                    upsert_fn(cur, 'pg', row)
+                    upsert_fn(cur, 'pg', clean)
             except Exception as e:
-                self._pg_conn = None
-                self._status(f"PostgreSQL {label} error: {e}")
+                self._fail_pg(e, f"PostgreSQL {label} error: {e}")
 
     def query_shadow_plan(self, day_date: str):
         """Return the frozen Shadow Trial plan row for a London day, or None."""
@@ -692,7 +843,7 @@ class DataLogger:
         try:
             df = self._query_pl(backend, q, (str(day_date),))
         except Exception as e:
-            self._status(f"DB read error (shadow plan): {e}")
+            self._note_read_error(e, "shadow plan")
             return None
         if df.is_empty():
             return None
@@ -708,7 +859,7 @@ class DataLogger:
         try:
             df = self._query_pl(backend, q, (int(limit_days),))
         except Exception as e:
-            self._status(f"DB read error (shadow plan days): {e}")
+            self._note_read_error(e, "shadow plan days")
             return []
         return sorted(df.get_column('day_date').to_list()) if not df.is_empty() else []
 
@@ -726,7 +877,7 @@ class DataLogger:
         try:
             return self._query_pl(backend, q, (int(limit_days),))
         except Exception as e:
-            self._status(f"DB read error (shadow scores): {e}")
+            self._note_read_error(e, "shadow scores")
             return empty
 
     def query_growatt_mix_chart(self, device_sn, days, *, end_dt=None):
@@ -754,7 +905,7 @@ class DataLogger:
         try:
             df = self._query_pl(backend, q, params)
         except Exception as e:
-            self._status(f"Mix chart read error: {e}")
+            self._note_read_error(e, "mix chart")
             return []
         if df.is_empty():
             return []
@@ -884,16 +1035,14 @@ class DataLogger:
                 with conn.cursor() as cur:
                     cur.execute(_GROWATT_INSERT_MY, row)
             except Exception as e:
-                self._mysql_conn = None
-                self._status(f"MySQL error: {e}")
+                self._fail_mysql(e, f"MySQL error: {e}")
         if self.pg_enabled:
             try:
                 conn = self._ensure_pg()
                 with conn.cursor() as cur:
                     cur.execute(_GROWATT_INSERT_PG, row)
             except Exception as e:
-                self._pg_conn = None
-                self._status(f"PostgreSQL error: {e}")
+                self._fail_pg(e, f"PostgreSQL error: {e}")
 
     def _write_tasmota(self, records):
         ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
@@ -935,8 +1084,7 @@ class DataLogger:
                     if dev_rows:
                         cur.executemany(_TASMOTA_DEVICE_UPSERT_MY, dev_rows)
             except Exception as e:
-                self._mysql_conn = None
-                self._status(f"MySQL error: {e}")
+                self._fail_mysql(e, f"MySQL error: {e}")
         if self.pg_enabled:
             try:
                 conn = self._ensure_pg()
@@ -945,8 +1093,7 @@ class DataLogger:
                     if dev_rows:
                         cur.executemany(_TASMOTA_DEVICE_UPSERT_PG, dev_rows)
             except Exception as e:
-                self._pg_conn = None
-                self._status(f"PostgreSQL error: {e}")
+                self._fail_pg(e, f"PostgreSQL error: {e}")
 
     def _write_octopus(self, records):
         ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
@@ -977,16 +1124,14 @@ class DataLogger:
                 with conn.cursor() as cur:
                     cur.executemany(_OCTOPUS_UPSERT_MY, rows)
             except Exception as e:
-                self._mysql_conn = None
-                self._status(f"MySQL error: {e}")
+                self._fail_mysql(e, f"MySQL error: {e}")
         if self.pg_enabled:
             try:
                 conn = self._ensure_pg()
                 with conn.cursor() as cur:
                     cur.executemany(_OCTOPUS_UPSERT_PG, rows)
             except Exception as e:
-                self._pg_conn = None
-                self._status(f"PostgreSQL error: {e}")
+                self._fail_pg(e, f"PostgreSQL error: {e}")
 
     def _write_solar_forecast(self, df, params):
         ts_now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
@@ -1026,16 +1171,14 @@ class DataLogger:
                 with conn.cursor() as cur:
                     cur.executemany(_SOLAR_FC_INSERT_MY, rows)
             except Exception as e:
-                self._mysql_conn = None
-                self._status(f"MySQL error: {e}")
+                self._fail_mysql(e, f"MySQL error: {e}")
         if self.pg_enabled:
             try:
                 conn = self._ensure_pg()
                 with conn.cursor() as cur:
                     cur.executemany(_SOLAR_FC_INSERT_PG, rows)
             except Exception as e:
-                self._pg_conn = None
-                self._status(f"PostgreSQL error: {e}")
+                self._fail_pg(e, f"PostgreSQL error: {e}")
 
     def _write_agile_forecast(self, df, tariff_code, direction):
         ts_now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
@@ -1070,16 +1213,25 @@ class DataLogger:
                 with conn.cursor() as cur:
                     cur.executemany(_AGILE_FC_UPSERT_MY, rows)
             except Exception as e:
-                self._mysql_conn = None
-                self._status(f"MySQL error: {e}")
+                self._fail_mysql(e, f"MySQL error: {e}")
         if self.pg_enabled:
             try:
                 conn = self._ensure_pg()
                 with conn.cursor() as cur:
                     cur.executemany(_AGILE_FC_UPSERT_PG, rows)
             except Exception as e:
-                self._pg_conn = None
-                self._status(f"PostgreSQL error: {e}")
+                self._fail_pg(e, f"PostgreSQL error: {e}")
+
+    def _write_agile_year_daily(self, rows, tariff_code, direction):
+        from energy_dashboard.db.agile_year_daily import write_agile_year_daily
+
+        write_agile_year_daily(self, rows, tariff_code, direction)
+
+    def query_agile_year_daily(self, tariff_code, direction='import'):
+        """Newest-first daily Agile Year rows from ``agile_year_daily``."""
+        from energy_dashboard.db.agile_year_daily import query_agile_year_daily
+
+        return query_agile_year_daily(self, tariff_code, direction)
 
     # ── Read-side helpers (used by ForecastsTab to overlay history) ────
 
@@ -1122,12 +1274,16 @@ class DataLogger:
                 pl.col('kw').cast(pl.Float64, strict=False),
             )
         except Exception as e:
-            self._status(f"DB read error (solar snapshot): {e}")
+            self._note_read_error(e, "solar snapshot")
             return empty
 
     def query_growatt_pv_actual(self, start_utc, end_utc):
         """Return Polars (timestamp UTC, pv_kw) from growatt_readings in range."""
+        from energy_dashboard.db.connect_probe import is_table_privilege_error
         flows = self.query_growatt_power_flows(start_utc, end_utc)
+        err = getattr(self, "_last_read_error", "") or ""
+        if flows.is_empty() and is_table_privilege_error(err):
+            raise PermissionError(err)
         if flows.is_empty():
             return pl.DataFrame(schema={'timestamp': pl.Datetime('us', 'UTC'), 'pv_kw': pl.Float64})
         return flows.select('timestamp', 'pv_kw')
@@ -1146,6 +1302,7 @@ class DataLogger:
         backend = self._primary_storage_backend()
         if backend is None:
             return empty
+        self._last_read_error = None
         s_start = _utc_sql_str(start_utc)
         s_end = _utc_sql_str(end_utc)
         # Multiply by 1.0 so drivers/Polars always see floats — mixed int/float
@@ -1180,7 +1337,7 @@ class DataLogger:
                 _sanitize_power_kw_expr('grid_power_kw'),
             )
         except Exception as e:
-            self._status(f"DB read error (growatt flows): {e}")
+            self._note_read_error(e, "growatt flows")
             return empty
 
     def query_growatt_soc(self, start_utc, end_utc):
@@ -1229,7 +1386,7 @@ class DataLogger:
         try:
             df = self._query_pl(backend, q, (_utc_sql_str(center - half), _utc_sql_str(center + half)))
         except Exception as e:
-            self._status(f"DB read error (soc near): {e}")
+            self._note_read_error(e, "soc near")
             return None
         if df.is_empty():
             return None
@@ -1274,7 +1431,7 @@ class DataLogger:
                 pl.col('export_kwh').cast(pl.Float64, strict=False),
             )
         except Exception as e:
-            self._status(f"DB read error (octopus any): {e}")
+            self._note_read_error(e, "octopus any")
             return empty
 
     def query_tasmota_power_history(self, window_minutes: int) -> list:
@@ -1299,28 +1456,51 @@ class DataLogger:
                 finally:
                     conn.close()
             if self.mysql_enabled:
-                import pymysql
-                conn = pymysql.connect(
-                    host=self.mysql_host,
-                    port=int(self.mysql_port),
-                    user=self.mysql_user,
-                    password=self.mysql_pass,
-                    database=self.mysql_db,
-                    charset="utf8mb4",
-                )
+                if not self.backend_ready("mysql"):
+                    return []
+                from energy_dashboard.db.connect_probe import mysql_connect
+                try:
+                    conn = mysql_connect(
+                        self.mysql_host, self.mysql_port,
+                        self.mysql_user, self.mysql_pass, self.mysql_db,
+                    )
+                except Exception:
+                    self._mark_backend_down("mysql")
+                    raise
                 try:
                     with conn.cursor() as cur:
                         cur.execute(q, (cutoff_str,))
-                        return cur.fetchall()
+                        rows = cur.fetchall()
+                    self._mark_backend_up("mysql")
+                    return rows
                 finally:
                     conn.close()
             if self.pg_enabled:
-                conn = self._ensure_pg()
-                with conn.cursor() as cur:
-                    cur.execute(q, (cutoff_str,))
-                    return cur.fetchall()
+                if not self.backend_ready("pg"):
+                    return []
+                from energy_dashboard.db.connect_probe import postgresql_connect
+                try:
+                    conn = postgresql_connect(
+                        self.pg_host, self.pg_port,
+                        self.pg_user, self.pg_pass, self.pg_db,
+                        autocommit=True,
+                    )
+                except Exception:
+                    self._mark_backend_down("pg")
+                    raise
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(q, (cutoff_str,))
+                        rows = cur.fetchall()
+                    self._mark_backend_up("pg")
+                    return rows
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
         except Exception as e:
-            self._status(f"DB read error (tasmota history): {e}")
+            self._note_read_error(e, "tasmota history")
         return []
 
     def query_octopus_consumption(self, start_utc, end_utc):
@@ -1395,7 +1575,7 @@ class DataLogger:
                 )
             return df.select('valid_from', 'valid_to', 'price_pence')
         except Exception as e:
-            self._status(f"DB read error (agile prices): {e}")
+            self._note_read_error(e, "agile prices")
             return empty
 
     @staticmethod
@@ -1407,23 +1587,43 @@ class DataLogger:
         except (TypeError, ValueError):
             return None
 
+    def note_connect_result(self, name: str, ok: bool) -> None:
+        """Record a Setup / Test Connection outcome for reconnect backoff."""
+        if name not in ("mysql", "pg"):
+            return
+        self._clear_backend_cooldown(name, reset_outage=False)
+        if ok:
+            self._mark_backend_up(name)
+        else:
+            self._mark_backend_down(name)
+
     def test_connections(self):
         results = {}
         if self.sqlite_enabled:
             ok, detail = probe_sqlite(self.sqlite_path)
             results["SQLite"] = (ok, detail)
         if self.mysql_enabled:
+            self._clear_backend_cooldown("mysql", reset_outage=False)
             ok, detail = probe_mysql(
                 self.mysql_host, self.mysql_port, self.mysql_user,
                 self.mysql_pass, self.mysql_db,
             )
             results["MySQL"] = (ok, detail)
+            if ok:
+                self._mark_backend_up("mysql")
+            else:
+                self._mark_backend_down("mysql")
         if self.pg_enabled:
+            self._clear_backend_cooldown("pg", reset_outage=False)
             ok, detail = probe_postgresql(
                 self.pg_host, self.pg_port, self.pg_user,
                 self.pg_pass, self.pg_db,
             )
             results["PostgreSQL"] = (ok, detail)
+            if ok:
+                self._mark_backend_up("pg")
+            else:
+                self._mark_backend_down("pg")
         return results
 
     def shutdown(self):

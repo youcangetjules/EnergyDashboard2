@@ -100,10 +100,12 @@ class ExportTab(QWidget):
         self.btn_preview = QPushButton("Preview")
         self.btn_preview.setToolTip("Build the dataset in memory and show a summary below — does not write a file.")
         self.btn_preview.clicked.connect(self._on_preview_clicked)
+        _apply_primary_button_style(self.btn_preview)
         ctrl.addWidget(self.btn_preview)
 
         self.btn_export = QPushButton("Export .xlsx…")
         self.btn_export.clicked.connect(self._on_export_clicked)
+        _apply_primary_button_style(self.btn_export)
         ctrl.addWidget(self.btn_export)
 
         layout.addLayout(ctrl)
@@ -223,12 +225,12 @@ class ExportTab(QWidget):
             df = fetch_agile_prices(p.agile_product, p.agile_tariff)
             out['import'] = df
         except Exception as e:
-            _log.warn(f"ExportTab: live Agile import fetch failed: {e}")
+            _log.warn("Export", f"live Agile import fetch failed: {e}")
         try:
             df = fetch_agile_standard_unit_rates(p.agile_product, p.agile_export_tariff)
             out['export'] = df
         except Exception as e:
-            _log.warn(f"ExportTab: live Agile export fetch failed: {e}")
+            _log.warn("Export", f"live Agile export fetch failed: {e}")
         return out
 
     def _coerce_agile_to_series(self, df, idx_london):
@@ -277,7 +279,7 @@ class ExportTab(QWidget):
                 idx_utc[-1] + pd.Timedelta(minutes=30),
             )
         except Exception as e:
-            _log.warn(f"ExportTab: octopus_readings query failed: {e}")
+            _log.warn("Export", f"octopus_readings query failed: {e}")
             oct_db = pl.DataFrame(schema={
                 'interval_start': pl.Datetime('us', 'UTC'),
                 'import_kwh': pl.Float64,
@@ -288,7 +290,7 @@ class ExportTab(QWidget):
                 idx_utc[0], idx_utc[-1] + pd.Timedelta(minutes=30),
             )
         except Exception as e:
-            _log.warn(f"ExportTab: growatt SOC query failed: {e}")
+            _log.warn("Export", f"growatt SOC query failed: {e}")
             soc_db = pl.DataFrame(schema={
                 'timestamp': pl.Datetime('us', 'UTC'),
                 'soc_pct': pl.Float64,
@@ -412,7 +414,7 @@ class ExportTab(QWidget):
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
-            _log.warn(f"ExportTab preview failed: {e}\n{tb}")
+            _log.warn("Export", f"preview failed: {e}\n{tb}")
             self._inv.invoke(lambda msg=str(e): self._show_error(msg))
             return
         self._inv.invoke(lambda d=df, s=summary: self._apply_preview(d, s))
@@ -455,7 +457,7 @@ class ExportTab(QWidget):
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
-            _log.warn(f"ExportTab build failed: {e}\n{tb}")
+            _log.warn("Export", f"build failed: {e}\n{tb}")
             self._inv.invoke(lambda msg=str(e): self._show_error(msg))
             return
         self._inv.invoke(lambda d=df, s=summary: self._after_build_save(d, s))
@@ -482,7 +484,7 @@ class ExportTab(QWidget):
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
-            _log.warn(f"ExportTab save failed: {e}\n{tb}")
+            _log.warn("Export", f"save failed: {e}\n{tb}")
             QMessageBox.critical(self, "Export failed",
                                  f"Couldn't write the workbook:\n\n{e}")
             self.set_status(f"Export: failed — {e}")

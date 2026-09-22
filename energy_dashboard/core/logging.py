@@ -100,7 +100,28 @@ class LogManager(QObject):
                     )
                 except OSError:
                     self._persist_fh = None
-        self._new_entry.emit()
+        self._emit_new_entry()
+
+    def _emit_new_entry(self) -> None:
+        """Notify Console of a new line — never raise into worker threads.
+
+        Background fetch threads (Octopus Live, etc.) keep logging after the
+        GUI/QApplication tears down LogManager's C++ QObject on exit/restart.
+        Emitting then raises ``RuntimeError: Signal source has been deleted``
+        and can cascade through nested except handlers.
+        """
+        try:
+            from shiboken6 import isValid as _qt_alive
+        except Exception:
+            _qt_alive = None
+        try:
+            if _qt_alive is not None and not _qt_alive(self):
+                return
+            if QApplication.instance() is None:
+                return
+            self._new_entry.emit()
+        except RuntimeError:
+            return
 
     def debug(self, source, msg):
         self.log(self.DEBUG, source, msg)

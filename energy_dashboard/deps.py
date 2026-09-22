@@ -38,13 +38,18 @@ from PySide6.QtWidgets import (
     QHeaderView, QFrame, QSlider, QDoubleSpinBox, QSpinBox, QScrollArea,
     QTableWidget, QTableWidgetItem, QComboBox, QAbstractItemView, QTimeEdit,
     QDialog, QDialogButtonBox, QMenu, QTabBar, QStyle, QStyleOptionTab,
-    QGraphicsDropShadowEffect,
+    QStackedWidget, QSystemTrayIcon,
+    QGraphicsDropShadowEffect, QGraphicsView, QGraphicsScene,
+    QGraphicsPixmapItem, QGraphicsPolygonItem, QGraphicsPathItem,
 )
-from PySide6.QtCore import Qt, QTime, QTimer, Signal, QObject, Slot, QSettings, QUrl, QPointF, QRectF, QEvent
+from PySide6.QtCore import (
+    Qt, QTime, QTimer, Signal, QObject, Slot, QSettings, QUrl, QPointF, QRectF,
+    QSize, QEvent, QThread, QRunnable, QThreadPool,
+)
 from PySide6.QtGui import (
     QFont, QBrush, QColor, QPixmap, QDesktopServices, QFontMetrics,
     QPainter, QPen, QPainterPath, QLinearGradient, QCursor, QPalette, QIcon,
-    QTextCursor, QTransform,
+    QTextCursor, QTransform, QPolygonF,
 )
 
 __all__ = [n for n in globals() if not n.startswith("__")]

@@ -5,6 +5,11 @@ from __future__ import annotations
 
 from energy_dashboard.common import *
 from energy_dashboard.db.logger import _utc_to_london_cols
+from energy_dashboard.dialogs.map_picker import (
+    _forecast_w3w_api_key,
+    _open_forecast_location_dialog,
+    _sync_forecasts_tab_latlon,
+)
 
 
 def _merge_agile_forecast_frames(live_df, db_df):
@@ -45,15 +50,26 @@ def _coerce_agile_frame(df):
     if 'price_pence' in df.columns:
         df = df.filter(pl.col('price_pence').is_not_null())
     return df
-_FORECAST_LOCALE_CACHE_VER = 2
+
+
+_FORECAST_LOCALE_CACHE_VER = 3
 # Chart window and Nominatim zoom for locale label (Forecasts tab).
 _FORECAST_CHART_DAYS_MAX = 7
 _FORECAST_CHART_DAYS_DEFAULT = 4
 _FORECAST_CHART_DAYS_SETTINGS_KEY = "forecasts/chart_days"
 _FORECAST_NOMINATIM_LOCALE_ZOOM = 16
+_QS_LOCALE_PLACE = "forecasts/locale_place"
+_QS_LOCALE_LAT = "forecasts/locale_lat"
+_QS_LOCALE_LON = "forecasts/locale_lon"
 
 
 class ForecastsTab(QWidget):
+    # Figure margins shared by first build and every redraw. Kept tight so the
+    # two panes own nearly all of the canvas; `top` and `bottom` are sized per
+    # redraw from the canvas height, the pane titles, and the day-label band.
+    _FC_AXES_MARGINS = dict(left=0.055, right=0.985, hspace=0.18)
+    _FC_TITLE_BAND_PX = 24
+
     def __init__(self, status_callback, data_logger=None):
         super().__init__()
         self.set_status = status_callback
@@ -66,7 +82,10 @@ class ForecastsTab(QWidget):
         # ConnectivityStatusTab reads these after each forecast refresh.
         self._solar_last_msg = ""
         self._solar_last_refresh_local = None
+        self._solar_overlay_cache = None
         self.on_data_updated = None
+        # Set by EnergyDashboard so multi-plane Roof layout can be resolved.
+        self.dash = None
         # Reverse-geocode cache so we don't hammer Nominatim while the user
         # is editing lat/lon or repeatedly opening the map picker. Keyed on
         # rounded lat/lon plus _FORECAST_LOCALE_CACHE_VER so display ↔ cache
@@ -81,6 +100,25 @@ class ForecastsTab(QWidget):
         self._load_saved_chart_days()
         # Kick off an initial reverse-geocode for whatever defaults shipped.
         QTimer.singleShot(0, self._refresh_locale_label)
+
+    def _roof_planes_for_fetch(self):
+        """Return multi-plane roof faces when Roof layout has been applied."""
+        s = QSettings("PowerModel", "EnergyDashboard2")
+        if not s.value("forecasts/use_roof_layout", False, type=bool):
+            return []
+        rt = getattr(self.dash, "roof_layout_tab", None) if self.dash else None
+        if rt is not None and hasattr(rt, "active_planes_for_forecast"):
+            try:
+                planes = rt.active_planes_for_forecast()
+            except Exception:
+                planes = []
+            if planes:
+                return planes
+        try:
+            from energy_dashboard.tabs.roof_layout import active_roof_planes_from_settings
+            return active_roof_planes_from_settings()
+        except Exception:
+            return []
 
     def build_ui(self):
         main_layout = QVBoxLayout(self)
@@ -114,6 +152,7 @@ class ForecastsTab(QWidget):
         row_agile.addWidget(self.export_tariff_edit)
         self.fetch_btn = QPushButton("Fetch Forecasts")
         self.fetch_btn.clicked.connect(self.fetch_forecasts)
+        _apply_primary_button_style(self.fetch_btn)
         row_agile.addWidget(self.fetch_btn)
         row_agile.addWidget(QLabel("Chart days:"))
         self.chart_days_combo = QComboBox()
@@ -124,8 +163,9 @@ class ForecastsTab(QWidget):
         self.chart_days_combo.setCurrentIndex(_FORECAST_CHART_DAYS_DEFAULT - 1)
         self.chart_days_combo.setFixedWidth(88)
         self.chart_days_combo.setToolTip(
-            f"Past days to show on the charts (1–{_FORECAST_CHART_DAYS_MAX}). "
-            "History is loaded from the database; each fetch also saves new snapshots."
+            f"Visible chart window in calendar days (1–{_FORECAST_CHART_DAYS_MAX}): "
+            "today plus the previous N−1 days. Longer Forecast.Solar / Open-Meteo "
+            "tails are clipped to this window."
         )
         self.chart_days_combo.currentIndexChanged.connect(self._on_chart_days_changed)
         row_agile.addWidget(self.chart_days_combo)
@@ -186,6 +226,7 @@ class ForecastsTab(QWidget):
             "Set POWERMODEL_MAP_WEBENGINE=0 to force the text-only dialog."
         )
         self.map_btn.clicked.connect(self._open_map_picker)
+        _apply_primary_button_style(self.map_btn)
         row_solar.addWidget(self.map_btn)
         row_solar.addStretch()
         ctrl_vlayout.addLayout(row_solar)
@@ -202,7 +243,9 @@ class ForecastsTab(QWidget):
         self.ax_price.tick_params(labelbottom=False)
         for ax in (self.ax_price, self.ax_solar):
             _style_ax_dark(ax, self.fig)
-        self.fig.tight_layout(pad=3.0)
+        # Explicit margins (not tight_layout) so both panes keep the same tall
+        # plot area the redraw path sets — see _FC_AXES_MARGINS.
+        self.fig.subplots_adjust(**self._FC_AXES_MARGINS, top=0.95, bottom=0.13)
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.canvas.setMinimumHeight(500)
@@ -238,7 +281,7 @@ class ForecastsTab(QWidget):
             te = QTextEdit()
             te.setReadOnly(True)
             te.setFont(QFont('Helvetica', 10))
-            te.setMinimumHeight(96)
+            te.setMinimumHeight(72)
             te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             pl.addWidget(te)
             return pane, te
@@ -255,9 +298,9 @@ class ForecastsTab(QWidget):
         self.summary_text = self.summary_imp
         bottom_layout.addWidget(summary_box)
         splitter.addWidget(bottom_widget)
-        splitter.setStretchFactor(0, 5)
+        splitter.setStretchFactor(0, 8)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([820, 220])
+        splitter.setSizes([900, 160])
         main_layout.addWidget(splitter, 1)
         self.fc_cursor_label = QLabel("Hover charts: time, Agile import/export (top), solar kW (bottom).")
         self.fc_cursor_label.setStyleSheet(
@@ -307,6 +350,7 @@ class ForecastsTab(QWidget):
         import_tariff = self.tariff_edit.text().strip()
         export_tariff = self.export_tariff_edit.text().strip()
         t0, t1 = self._forecast_db_time_bounds()
+        chart_days = self._chart_days()
 
         def _worker():
             db_imp = pl.DataFrame()
@@ -319,13 +363,94 @@ class ForecastsTab(QWidget):
                 db_ex = logger.query_agile_prices(t0, t1, export_tariff, 'export')
             except Exception as e:
                 _log.warn("Forecasts", f"Agile export DB read failed: {e}")
+            overlays = self._load_solar_overlay_bundle(chart_days)
             self._inv.invoke(
-                lambda imp=db_imp, ex=db_ex, rp=replot: self._apply_db_forecast_history(
-                    imp, ex, replot=rp,
-                )
+                lambda imp=db_imp, ex=db_ex, ov=overlays, rp=replot:
+                self._apply_db_forecast_history_with_overlays(imp, ex, ov, replot=rp)
             )
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _apply_db_forecast_history_with_overlays(self, db_imp, db_ex, overlays, *, replot=False):
+        self._solar_overlay_cache = overlays
+        self._apply_db_forecast_history(db_imp, db_ex, replot=replot)
+
+    def _load_solar_overlay_bundle(self, chart_days):
+        """Worker-safe DB reads for measured PV / planned forecast / power flows.
+
+        Keep these off the GUI thread — multi-day windows used to freeze the
+        event loop inside ``_plot_charts``.
+        """
+        import pytz
+        london = pytz.timezone('Europe/London')
+        now = datetime.now(london)
+        days = max(1, int(chart_days))
+        today_local = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        window_start = today_local - timedelta(days=days - 1)
+        bundle = {
+            'chart_days': days,
+            'measured': None,
+            'planned': [],
+            'flows': None,
+            'forecast_kwh': {},
+        }
+        logger = self.data_logger
+        if logger is None:
+            return bundle
+        try:
+            t_loc, y = self._smooth_growatt_pv_window(
+                window_start.astimezone(timezone.utc),
+                now.astimezone(timezone.utc),
+            )
+            if t_loc is not None and y is not None and len(y) >= 2:
+                bundle['measured'] = (t_loc, y)
+        except Exception as e:
+            _log.warn("Forecasts", f"Measured PV overlay load failed: {e}")
+        for day_offset in range(1, days):
+            day_start = today_local - timedelta(days=day_offset)
+            day_end = day_start + timedelta(days=1)
+            before_utc = day_end.astimezone(timezone.utc)
+            try:
+                planned = logger.query_solar_forecast_snapshot(
+                    day_start.astimezone(timezone.utc),
+                    day_end.astimezone(timezone.utc),
+                    before_utc=before_utc,
+                )
+            except Exception as e:
+                _log.warn("Forecasts", f"Snapshot query failed: {e}")
+                continue
+            if planned is None or planned.is_empty():
+                continue
+            t_loc = (
+                planned['interval_start']
+                .dt.convert_time_zone('Europe/London')
+                .to_numpy()
+            )
+            kw = planned['kw'].cast(pl.Float64).to_numpy()
+            bundle['planned'].append((t_loc, kw))
+        try:
+            start_utc = pd.Timestamp(window_start).tz_convert(timezone.utc)
+            end_utc = pd.Timestamp(now).tz_convert(timezone.utc)
+            if end_utc > start_utc:
+                bundle['flows'] = logger.query_growatt_power_flows(start_utc, end_utc)
+        except Exception as e:
+            _log.warn("Forecasts", f"Growatt flows query failed: {e}")
+        day = pd.Timestamp(window_start)
+        if day.tzinfo is None:
+            day = day.tz_localize(london)
+        else:
+            day = day.tz_convert(london)
+        while day <= today_local:
+            try:
+                fc = self._solar_forecast_kwh_for_day(london, day)
+            except Exception as e:
+                _log.warn("Forecasts", f"Day forecast kWh failed: {e}")
+                fc = None
+            if fc is not None:
+                dkey = day.date() if hasattr(day, 'date') else day
+                bundle['forecast_kwh'][dkey] = fc
+            day += timedelta(days=1)
+        return bundle
 
     def _apply_db_forecast_history(self, db_imp, db_ex, *, replot=False):
         """Merge DB rows into in-memory frames (main thread only)."""
@@ -386,10 +511,16 @@ class ForecastsTab(QWidget):
             'kwp': self.solar_edits['kwp'].text(),
         }
         try:
-            solar_df, solar_msg = fetch_solar_forecast(
-                solar_params['lat'], solar_params['lon'],
-                solar_params['tilt'], solar_params['azimuth'],
-                solar_params['kwp'])
+            planes = self._roof_planes_for_fetch()
+            if planes:
+                solar_df, solar_msg = fetch_solar_forecast_planes(
+                    solar_params['lat'], solar_params['lon'], planes,
+                )
+            else:
+                solar_df, solar_msg = fetch_solar_forecast(
+                    solar_params['lat'], solar_params['lon'],
+                    solar_params['tilt'], solar_params['azimuth'],
+                    solar_params['kwp'])
         except Exception as e:
             solar_msg = f"Solar error: {e}"
         agile_c = _coerce_agile_frame(agile_df)
@@ -423,14 +554,18 @@ class ForecastsTab(QWidget):
             except Exception as e:
                 _log.warn("Forecasts", f"Agile export snapshot save failed: {e}")
 
+        overlays = self._load_solar_overlay_bundle(self._chart_days())
         self._inv.invoke(
             lambda: self._finish_fetch(
-                agile_c, agile_ex_c, solar_df, solar_msg, db_imp, db_ex,
+                agile_c, agile_ex_c, solar_df, solar_msg, db_imp, db_ex, overlays,
             )
         )
 
-    def _finish_fetch(self, agile_df, agile_export_df, solar_df, solar_msg, db_imp, db_ex):
+    def _finish_fetch(self, agile_df, agile_export_df, solar_df, solar_msg, db_imp, db_ex,
+                      overlays=None):
         """Apply fetch results on the GUI thread."""
+        if overlays is not None:
+            self._solar_overlay_cache = overlays
         self.agile_df = agile_df
         self.agile_export_df = agile_export_df
         self.solar_df = solar_df
@@ -487,6 +622,8 @@ class ForecastsTab(QWidget):
         chart_days = self._chart_days()
         today_local = now.replace(hour=0, minute=0, second=0, microsecond=0)
         window_start = today_local - timedelta(days=chart_days - 1)
+        # Exclusive end: midnight after the last visible day (for 4d = tomorrow 00:00).
+        window_end = window_start + timedelta(days=chart_days)
         self._fc_plot_df = None
         self._fc_agile_xnum = None
         self._fc_solar_tnums = None
@@ -503,7 +640,10 @@ class ForecastsTab(QWidget):
             df = (
                 self.agile_df.sort('valid_from')
                 .unique(subset=['valid_from'], keep='first')
-                .filter(pl.col('valid_from') >= ws)
+                .filter(
+                    (pl.col('valid_from') >= ws)
+                    & (pl.col('valid_from') < window_end)
+                )
             )
             if df.is_empty():
                 self.ax_price.text(
@@ -601,7 +741,9 @@ class ForecastsTab(QWidget):
         if self.solar_df is not None and not self.solar_df.empty:
             sdf = self.solar_df.copy()
             t_london = pd.to_datetime(sdf['timestamp'], utc=True).dt.tz_convert(london)
-            mask_fc = t_london >= today_local
+            # From start of today through end of the selected window (not the
+            # full 16-day Forecast.Solar / Open-Meteo tail).
+            mask_fc = (t_london >= today_local) & (t_london < window_end)
             if mask_fc.any():
                 fc = sdf.loc[mask_fc].copy()
                 ts_fc = t_london.loc[mask_fc].to_numpy()
@@ -654,23 +796,18 @@ class ForecastsTab(QWidget):
         sol_handles, _ = self.ax_solar.get_legend_handles_labels()
         if sol_handles:
             self.ax_solar.legend(**_FC_LEGEND)
-        # Clip both panels to the selected day window (history + forward forecast).
+        # Clip both panels to the selected N-day calendar window.
         x_start_num = float(mdates.date2num(window_start))
-        x_candidates = [x_start_num]
-        if self._fc_agile_xnum is not None and len(self._fc_agile_xnum) > 0:
-            x_candidates.append(float(self._fc_agile_xnum.max()))
-        if self._fc_solar_tnums is not None and len(self._fc_solar_tnums) > 0:
-            x_candidates.append(float(self._fc_solar_tnums.max()))
-        x_end_num = max(x_candidates)
+        x_end_num = float(mdates.date2num(window_end))
         if x_end_num <= x_start_num:
-            x_end_num = float(mdates.date2num(now + timedelta(days=2)))
+            x_end_num = float(mdates.date2num(now + timedelta(days=1)))
         self.ax_price.set_xlim(x_start_num, x_end_num)
         self.ax_solar.set_xlim(x_start_num, x_end_num)
         _draw_history_future_shading(self.ax_price, now)
         _draw_history_future_shading(self.ax_solar, now)
         _draw_6h_vertical_grid(self.ax_price, london, force_intraday_secondary=True)
         _draw_6h_vertical_grid(self.ax_solar, london, force_intraday_secondary=True)
-        _draw_day_date_labels(self.ax_price, london, anchor='top')
+        price_label_band = _draw_day_date_labels(self.ax_price, london, anchor='top')
         solar_label_band = _draw_day_date_labels(
             self.ax_solar, london, anchor='bottom',
         )
@@ -681,7 +818,7 @@ class ForecastsTab(QWidget):
             anchor='top',
         )
         self._add_forecast_day_markers(
-            london, window_start,
+            london, window_start, window_end,
             label_band_px=solar_label_band,
             totals_band_px=0,
         )
@@ -704,16 +841,34 @@ class ForecastsTab(QWidget):
         )
         for ax in (self.ax_price, self.ax_solar):
             _style_ax_dark(ax, self.fig)
-        fig_h_px = max(self.fig.get_figheight() * self.fig.dpi, 400)
-        bottom_px = 52 + solar_label_band
-        bottom_frac = min(0.28, max(0.12, bottom_px / fig_h_px))
-        top_frac = 0.96
-        if hist_band:
-            top_frac = max(0.82, 0.96 - hist_band / fig_h_px)
+        # Day labels and the per-day kWh totals are drawn inside the axes, so
+        # buy them clearance from the data with extra y-headroom rather than by
+        # shrinking the figure (which just left dead space above the charts).
+        self._add_axes_headroom_px(self.ax_price, price_label_band)
+        self._add_axes_headroom_px(self.ax_solar, hist_band + 6 if hist_band else 0)
+        canvas_h_px = max(float(self.canvas.height()), 360.0)
+        bottom_px = 46 + solar_label_band
+        bottom_frac = min(0.18, max(0.085, bottom_px / canvas_h_px))
+        top_frac = 1.0 - min(0.07, max(0.025, self._FC_TITLE_BAND_PX / canvas_h_px))
         self.fig.subplots_adjust(
-            left=0.07, right=0.98, top=top_frac, bottom=bottom_frac, hspace=0.30,
+            **self._FC_AXES_MARGINS, top=top_frac, bottom=bottom_frac,
         )
-        self.canvas.draw()
+        self.canvas.draw_idle()
+
+    @staticmethod
+    def _add_axes_headroom_px(ax, band_px):
+        """Raise the top y-limit by roughly ``band_px`` pixels of data space."""
+        if not band_px or band_px <= 0:
+            return
+        try:
+            h_px = float(ax.bbox.height)
+            y_lo, y_hi = (float(v) for v in ax.get_ylim())
+        except Exception:
+            return
+        span = y_hi - y_lo
+        if h_px <= 0 or span <= 0:
+            return
+        ax.set_ylim(y_lo, y_hi + span * min(0.35, float(band_px) / h_px))
 
     def _hide_forecast_cursor(self):
         if not getattr(self, '_fc_vline_price', None):
@@ -769,76 +924,43 @@ class ForecastsTab(QWidget):
         return t_loc, y
 
     def _draw_solar_measured_history(self, london, now_london, days_back, fill_color):
-        """Measured PV (Growatt) for each day in the chart window up to now.
+        """Measured PV (Growatt) for the chart window up to now.
 
+        Uses ``_solar_overlay_cache`` filled on a worker — never queries DB here.
         Returns merged (mdates nums, kw) for hover interpolation, or (None, None).
         """
         import matplotlib.dates as mdates
-        today_local = now_london.replace(hour=0, minute=0, second=0, microsecond=0)
-        all_nums = []
-        all_kw = []
-        labelled = False
-        for day_offset in range(days_back - 1, -1, -1):
-            day_start = today_local - timedelta(days=day_offset)
-            if day_offset == 0:
-                end_local = now_london
-            else:
-                end_local = day_start + timedelta(days=1)
-            t_loc, y = self._smooth_growatt_pv_window(
-                day_start.astimezone(timezone.utc),
-                end_local.astimezone(timezone.utc),
-            )
-            if t_loc is None or len(y) < 2:
-                continue
-            lbl = None if labelled else 'Measured (Growatt)'
-            labelled = True
-            self.ax_solar.fill_between(
-                t_loc, y, color=fill_color, alpha=0.45, zorder=2.1,
-            )
-            self.ax_solar.plot(
-                t_loc, y, color='#89dceb', linewidth=1.5, alpha=0.95,
-                label=lbl, zorder=3.5,
-            )
-            nums = mdates.date2num(t_loc)
-            all_nums.append(nums)
-            all_kw.append(y.astype(float))
-        if not all_nums:
+        cache = getattr(self, '_solar_overlay_cache', None) or {}
+        measured = cache.get('measured')
+        if measured is None:
             return None, None
-        comb_t = np.concatenate(all_nums)
-        comb_kw = np.concatenate(all_kw)
-        order = np.argsort(comb_t)
-        return comb_t[order], comb_kw[order]
+        t_loc, y = measured
+        if t_loc is None or y is None or len(y) < 2:
+            return None, None
+        self.ax_solar.fill_between(
+            t_loc, y, color=fill_color, alpha=0.45, zorder=2.1,
+        )
+        self.ax_solar.plot(
+            t_loc, y, color='#89dceb', linewidth=1.5, alpha=0.95,
+            label='Measured (Growatt)', zorder=3.5,
+        )
+        nums = mdates.date2num(t_loc)
+        return nums.astype(float), y.astype(float)
 
     def _draw_solar_planned_history(self, london, now_london, days_back):
-        """Stored solar forecast snapshots for past days in the chart window."""
-        if self.data_logger is None:
+        """Stored solar forecast snapshots for past days (from worker cache)."""
+        cache = getattr(self, '_solar_overlay_cache', None) or {}
+        planned_rows = cache.get('planned') or []
+        if not planned_rows:
             return
-        today_local = now_london.replace(hour=0, minute=0, second=0, microsecond=0)
         labelled = False
-        for day_offset in range(1, days_back):
-            day_start = today_local - timedelta(days=day_offset)
-            day_end = day_start + timedelta(days=1)
-            before_utc = day_end.astimezone(timezone.utc)
-            try:
-                planned = self.data_logger.query_solar_forecast_snapshot(
-                    day_start.astimezone(timezone.utc),
-                    day_end.astimezone(timezone.utc),
-                    before_utc=before_utc,
-                )
-            except Exception as e:
-                _log.warn("Forecasts", f"Snapshot query failed: {e}")
+        for t_loc, kw in planned_rows:
+            if t_loc is None or kw is None or len(kw) < 2:
                 continue
-            if planned.is_empty():
-                continue
-            t_loc = (
-                planned['interval_start']
-                .dt.convert_time_zone('Europe/London')
-                .to_numpy()
-            )
             lbl = None if labelled else 'Planned (saved forecast)'
             labelled = True
             self.ax_solar.plot(
-                t_loc, planned['kw'],
+                t_loc, kw,
                 color='#cba6f7', linewidth=1.2, linestyle='--',
                 alpha=0.8, label=lbl, zorder=3.2,
             )
@@ -918,18 +1040,21 @@ class ForecastsTab(QWidget):
         self.fc_cursor_label.setText("  |  ".join(parts))
         self.canvas.draw_idle()
 
-    def _forecast_solar_daily_kwh_entries(self, london, window_start):
+    def _forecast_solar_daily_kwh_entries(self, london, window_start, window_end=None):
         """List of (matplotlib date num at 12:00 London, kWh trapezoid) per calendar day."""
         import matplotlib.dates as mdates
         trap = getattr(np, 'trapezoid', None)
         out = []
         days_in_fc = set()
+        if window_end is None:
+            window_end = window_start + timedelta(days=max(1, self._chart_days()))
         if self.solar_df is not None and not self.solar_df.empty:
             sdf = self.solar_df.copy()
             sdf['_ts'] = pd.to_datetime(sdf['timestamp'], utc=True).dt.tz_convert(london)
             for day_date in sorted(sdf['_ts'].dt.date.unique()):
                 days_in_fc.add(day_date)
-                if pd.Timestamp(day_date, tz=london) < window_start:
+                day_ts = pd.Timestamp(day_date, tz=london)
+                if day_ts < window_start or day_ts >= window_end:
                     continue
                 day_df = sdf[sdf['_ts'].dt.date == day_date].sort_values('_ts')
                 if day_df.empty:
@@ -958,7 +1083,12 @@ class ForecastsTab(QWidget):
 
         now = datetime.now(london)
         yesterday_date = now.date() - timedelta(days=1)
-        if yesterday_date not in days_in_fc:
+        y_ts = pd.Timestamp(yesterday_date, tz=london)
+        if (
+            yesterday_date not in days_in_fc
+            and y_ts >= window_start
+            and y_ts < window_end
+        ):
             y0 = datetime.combine(yesterday_date, time.min, tzinfo=london)
             y1 = datetime.combine(now.date(), time.min, tzinfo=london)
             t_loc, y = self._smooth_growatt_pv_window(
@@ -1047,16 +1177,9 @@ class ForecastsTab(QWidget):
         else:
             day = day.tz_convert(london)
 
-        flows = None
-        if self.data_logger is not None:
-            start_utc = pd.Timestamp(window_start).tz_convert(timezone.utc)
-            end_utc = pd.Timestamp(now_london).tz_convert(timezone.utc)
-            if end_utc > start_utc:
-                try:
-                    flows = self.data_logger.query_growatt_power_flows(start_utc, end_utc)
-                except Exception as e:
-                    _log.warn("Forecasts", f"Growatt flows query failed: {e}")
-                    flows = None
+        cache = getattr(self, '_solar_overlay_cache', None) or {}
+        flows = cache.get('flows')
+        forecast_kwh = cache.get('forecast_kwh') or {}
         if flows is not None and not flows.is_empty():
             df = flows.with_columns(
                 pl.col('timestamp').dt.convert_time_zone('Europe/London').alias('_ts_local'),
@@ -1103,11 +1226,8 @@ class ForecastsTab(QWidget):
                         totals['generated'] = float(np.trapz(pv, h_hours))
                         totals['used'] = float(np.trapz(load, h_hours))
                         totals['imported'] = float(np.trapz(import_kw, h_hours))
-            try:
-                fc = self._solar_forecast_kwh_for_day(london, day)
-            except Exception as e:
-                _log.warn("Forecasts", f"Day forecast kWh failed: {e}")
-                fc = None
+            dkey = day.date() if hasattr(day, 'date') else day
+            fc = forecast_kwh.get(dkey)
             if fc is not None:
                 totals['forecast'] = fc
             if totals:
@@ -1117,10 +1237,12 @@ class ForecastsTab(QWidget):
         return entries
 
     def _add_forecast_day_markers(
-        self, london, window_start, *, label_band_px=0, totals_band_px=0,
+        self, london, window_start, window_end=None, *, label_band_px=0, totals_band_px=0,
     ):
         """Per-day forecast solar kWh badges below date labels and hist totals."""
-        kwh_entries = self._forecast_solar_daily_kwh_entries(london, window_start)
+        kwh_entries = self._forecast_solar_daily_kwh_entries(
+            london, window_start, window_end,
+        )
         if not kwh_entries:
             return
         base_y = 6 + label_band_px + totals_band_px + 4
@@ -1290,9 +1412,16 @@ class ForecastsTab(QWidget):
                 sol_lines.append(y_summary_line)
                 sol_lines.append("")
             if has_fc:
+                chart_days = self._chart_days()
+                today_local = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                win_start = today_local - timedelta(days=chart_days - 1)
+                win_end = win_start + timedelta(days=chart_days)
                 sdf = self.solar_df.copy()
                 sdf['_ts'] = pd.to_datetime(sdf['timestamp'], utc=True).dt.tz_convert(london)
                 for day_date in sorted(sdf['_ts'].dt.date.unique()):
+                    day_ts = pd.Timestamp(day_date, tz=london)
+                    if day_ts < win_start or day_ts >= win_end:
+                        continue
                     if day_date == yesterday and y_summary_line is not None:
                         continue
                     day_df = sdf[sdf['_ts'].dt.date == day_date].sort_values('_ts')
@@ -1434,7 +1563,7 @@ class ForecastsTab(QWidget):
                     pass
         except Exception as e:
             try:
-                _log.warn(f"ForecastsTab: failed to persist solar params: {e}")
+                _log.warn("Forecasts", f"failed to persist solar params: {e}")
             except Exception:
                 pass
 
@@ -1460,7 +1589,7 @@ class ForecastsTab(QWidget):
                         self.solar_edits[ekey].setText(val)
         except Exception as e:
             try:
-                _log.warn(f"ForecastsTab: failed to load saved solar params: {e}")
+                _log.warn("Forecasts", f"failed to load saved solar params: {e}")
             except Exception:
                 pass
 
@@ -1477,12 +1606,15 @@ class ForecastsTab(QWidget):
             self.chart_days_combo.blockSignals(False)
         except Exception as e:
             try:
-                _log.warn(f"ForecastsTab: failed to load saved chart days: {e}")
+                _log.warn("Forecasts", f"failed to load saved chart days: {e}")
             except Exception:
                 pass
 
     def _find_dashboard(self):
         """Walk up the parent chain to find the EnergyDashboard host."""
+        dash = getattr(self, "dash", None)
+        if dash is not None and hasattr(dash, "app_params"):
+            return dash
         w = self.parent()
         while w is not None:
             if hasattr(w, 'app_params') and hasattr(w, 'parameters_tab'):
@@ -1494,7 +1626,7 @@ class ForecastsTab(QWidget):
 
     def _apply_locale_display(self, text):
         """Update the global locale bar (above the main tab bar)."""
-        dash = self._find_dashboard()
+        dash = getattr(self, "dash", None) or self._find_dashboard()
         if dash is not None and hasattr(dash, "update_banner_locale_place"):
             dash.update_banner_locale_place(text)
 
@@ -1508,11 +1640,40 @@ class ForecastsTab(QWidget):
             return None, None
         return lat, lon
 
-    def _refresh_locale_label(self):
+    @staticmethod
+    def _locale_text_usable(text) -> bool:
+        t = str(text or "").strip()
+        return bool(t) and t not in ("—", "-", "Looking up…", "Unknown locale")
+
+    def _load_persisted_locale(self, lat, lon) -> str | None:
+        try:
+            s = QSettings("PowerModel", "EnergyDashboard2")
+            plat = round(float(s.value(_QS_LOCALE_LAT, "") or "nan"), 5)
+            plon = round(float(s.value(_QS_LOCALE_LON, "") or "nan"), 5)
+            if plat != lat or plon != lon:
+                return None
+            place = str(s.value(_QS_LOCALE_PLACE, "") or "").strip()
+            return place if self._locale_text_usable(place) else None
+        except (TypeError, ValueError):
+            return None
+
+    def _persist_locale(self, lat, lon, text: str) -> None:
+        if not self._locale_text_usable(text):
+            return
+        try:
+            s = QSettings("PowerModel", "EnergyDashboard2")
+            s.setValue(_QS_LOCALE_PLACE, text)
+            s.setValue(_QS_LOCALE_LAT, f"{lat:.5f}")
+            s.setValue(_QS_LOCALE_LON, f"{lon:.5f}")
+            s.sync()
+        except Exception:
+            pass
+
+    def _refresh_locale_label(self, *, force: bool = False):
         """Update the banner locale label to match current Lat/Lon. Uses an
         in-process cache plus a background Nominatim lookup so we never
         block the UI and never hammer the public service."""
-        dash = self._find_dashboard()
+        dash = getattr(self, "dash", None) or self._find_dashboard()
         if dash is not None and hasattr(dash, "sync_banner_locale_coords"):
             dash.sync_banner_locale_coords()
         lat, lon = self._current_latlon_5dp()
@@ -1520,21 +1681,37 @@ class ForecastsTab(QWidget):
             self._apply_locale_display("—")
             return
         key = (lat, lon, _FORECAST_LOCALE_CACHE_VER)
+        if force:
+            self._locale_cache.pop(key, None)
+            if self._locale_in_flight_key == key:
+                self._locale_in_flight_key = None
         cached = self._locale_cache.get(key)
-        if cached is not None:
+        if self._locale_text_usable(cached):
             self._apply_locale_display(cached)
             return
+        # Drop failed cache entries so we can retry.
+        if cached is not None:
+            self._locale_cache.pop(key, None)
+        persisted = self._load_persisted_locale(lat, lon)
+        if persisted:
+            self._locale_cache[key] = persisted
+            self._apply_locale_display(persisted)
+            # Still refresh from Nominatim in the background unless forced-only.
         if self._locale_in_flight_key == key:
-            return  # already looking this up; let it finish
+            if persisted:
+                return
+            # Stale in-flight with no usable text — allow a new attempt.
+            self._locale_in_flight_key = None
         self._locale_in_flight_key = key
-        self._apply_locale_display("Looking up…")
+        if not persisted:
+            self._apply_locale_display("Looking up…")
         threading.Thread(
             target=self._locale_thread, args=(lat, lon), daemon=True
         ).start()
 
     def _locale_thread(self, lat, lon):
         lookup_key = (lat, lon, _FORECAST_LOCALE_CACHE_VER)
-        text = "—"
+        text = ""
         try:
             r = requests.get(
                 "https://nominatim.openstreetmap.org/reverse",
@@ -1588,12 +1765,28 @@ class ForecastsTab(QWidget):
             _log.debug("Locale", f"Nominatim request failed: {e}")
         except Exception as e:  # noqa: BLE001
             _log.exception("Locale", f"Reverse-geocode failed: {e}")
+        # QSettings + banner widgets only on the GUI thread (_locale_done).
         self._inv.invoke(
-            lambda t=text, k=lookup_key: self._locale_done(k, t)
+            lambda t=text, k=lookup_key, la=lat, lo=lon: self._locale_done(
+                k, t, lat=la, lon=lo
+            )
         )
 
-    def _locale_done(self, key, text):
-        self._locale_cache[key] = text
+    def _locale_done(self, key, text, *, lat=None, lon=None):
+        if self._locale_text_usable(text):
+            if lat is not None and lon is not None:
+                self._persist_locale(lat, lon, text)
+            self._locale_cache[key] = text
+        else:
+            # Keep any previously persisted/usable label; do not cache failure.
+            if lat is not None and lon is not None:
+                text = self._load_persisted_locale(lat, lon) or "—"
+            else:
+                text = "—"
+            if key in self._locale_cache and not self._locale_text_usable(
+                self._locale_cache.get(key)
+            ):
+                self._locale_cache.pop(key, None)
         # Only paint if the current Lat/Lon still match the lookup we ran;
         # otherwise the user has edited again and another lookup is queued.
         cur = self._current_latlon_5dp()
@@ -1603,7 +1796,7 @@ class ForecastsTab(QWidget):
             else None
         )
         if cur_key == key:
-            self._apply_locale_display(text)
+            self._apply_locale_display(text if self._locale_text_usable(text) else "—")
         if self._locale_in_flight_key == key:
             self._locale_in_flight_key = None
 

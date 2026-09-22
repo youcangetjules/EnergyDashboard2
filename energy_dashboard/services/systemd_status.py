@@ -278,13 +278,36 @@ def broker_unreachable_hint(broker_url: str, primary: dict | None, http: dict) -
     return None
 
 
-def pick_control_scope(status: dict) -> tuple[bool, dict, str]:
-    """Return ``(user_scope, unit_dict, label)`` for systemd control commands."""
+def pick_control_scope(status: dict, *, for_control: bool = False) -> tuple[bool, dict, str]:
+    """Return ``(user_scope, unit_dict, label)`` for systemd control commands.
+
+    When ``for_control`` is true, prefer the user-session unit whenever it is
+    installed so Start/Stop/Restart work without sudo. The boot (system) unit
+    still needs a terminal ``sudo systemctl`` when both copies are installed.
+    """
     system = status.get("system_unit") or {}
     user = status.get("user_unit") or {}
-    if system.get("installed"):
+    sys_inst = bool(system.get("installed"))
+    usr_inst = bool(user.get("installed"))
+    sys_active = system.get("active_state") == "active"
+    usr_active = user.get("active_state") == "active"
+
+    if for_control:
+        if usr_active and not sys_active:
+            return True, user, "user"
+        if sys_active and not usr_active:
+            return False, system, "system"
+        if usr_active and sys_active:
+            return True, user, "user"
+        if usr_inst:
+            return True, user, "user"
+        if sys_inst:
+            return False, system, "system"
+        return False, {}, "none"
+
+    if sys_inst:
         return False, system, "system"
-    if user.get("installed"):
+    if usr_inst:
         return True, user, "user"
     return False, {}, "none"
 
@@ -324,12 +347,27 @@ def _run_systemctl_privileged(args: list[str], *, user: bool, timeout: float = 1
     return -1, "", last_err or "permission denied (try sudo)"
 
 
+def _is_privilege_failure(msg: str) -> bool:
+    low = (msg or "").lower()
+    return any(
+        tok in low
+        for tok in (
+            "not authorized",
+            "permission denied",
+            "a password is required",
+            "interactive authentication",
+            "no new privileges",
+            "authentication required",
+        )
+    )
+
+
 def control_collector_service(action: str, status: dict) -> tuple[bool, str]:
     """Start/stop/restart/enable/disable the installed collector unit.
 
     ``action`` is one of ``start``, ``stop``, ``restart``, ``enable``, ``disable``.
     """
-    user_scope, unit, label = pick_control_scope(status)
+    user_scope, unit, label = pick_control_scope(status, for_control=True)
     if not unit.get("installed"):
         return False, "Collector service is not installed."
     action = action.strip().lower()
@@ -337,6 +375,24 @@ def control_collector_service(action: str, status: dict) -> tuple[bool, str]:
         return False, f"Unknown action: {action}"
 
     rc, out, err = _run_systemctl_privileged([action, SERVICE_NAME], user=user_scope)
+    if rc != 0 and not user_scope:
+        user_unit = status.get("user_unit") or {}
+        fail_msg = err or out or f"systemctl {action} failed (exit {rc})"
+        if user_unit.get("installed") and _is_privilege_failure(fail_msg):
+            rc_u, out_u, err_u = _run_systemctl([action, SERVICE_NAME], user=True)
+            if rc_u == 0:
+                verb = {
+                    "start": "started",
+                    "stop": "stopped",
+                    "restart": "restarted",
+                    "enable": "enabled at boot",
+                    "disable": "disabled at boot",
+                }.get(action, action)
+                return True, (
+                    f"User-session unit {verb} (no sudo). "
+                    "The boot service is installed but needs a terminal: "
+                    f"sudo systemctl {action} energy-collector"
+                )
     if rc == 0:
         verb = {
             "start": "started",
@@ -348,8 +404,17 @@ def control_collector_service(action: str, status: dict) -> tuple[bool, str]:
         return True, f"{label} unit {verb}."
     msg = err or out or f"systemctl {action} failed (exit {rc})"
     if not user_scope and rc != 0:
-        msg += (
-            " — system units need root: "
-            f"sudo systemctl {action} energy-collector"
-        )
+        if _is_privilege_failure(msg):
+            msg = (
+                f"{msg}\n\n"
+                "The boot service needs root. Either run in a terminal:\n"
+                f"  sudo systemctl {action} energy-collector\n\n"
+                "Or install the user-session copy (no sudo from this UI):\n"
+                "  ./services/install-powermon-broker-user.sh"
+            )
+        else:
+            msg += (
+                " — system units need root: "
+                f"sudo systemctl {action} energy-collector"
+            )
     return False, msg

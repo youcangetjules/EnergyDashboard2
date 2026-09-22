@@ -42,6 +42,7 @@ class CombinedTab(QWidget):
         self.flow_fig = Figure(figsize=(6, 5), dpi=100)
         self.flow_ax = self.flow_fig.add_subplot(111)
         self.flow_canvas = FigureCanvas(self.flow_fig)
+        enable_bar_value_hover(self.flow_canvas)
         left_layout.addWidget(self.flow_canvas)
         splitter.addWidget(left_widget)
 
@@ -52,6 +53,7 @@ class CombinedTab(QWidget):
         self.trend_fig = Figure(figsize=(6, 5), dpi=100)
         self.trend_ax = self.trend_fig.add_subplot(111)
         self.trend_canvas = FigureCanvas(self.trend_fig)
+        enable_bar_value_hover(self.trend_canvas)
         right_layout.addWidget(self.trend_canvas)
         splitter.addWidget(right_widget)
 

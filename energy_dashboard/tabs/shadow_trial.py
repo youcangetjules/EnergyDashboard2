@@ -598,7 +598,8 @@ class ShadowTrialTab(QWidget):
                 total += imp * p_in[i] - exp * p_ex[i]
                 octopus_slots += 1
             if octopus_slots:
-                actual_cost = total
+                # p_in/p_ex are numpy arrays — keep a plain float for psycopg2.
+                actual_cost = float(total)
         octopus_complete = int(octopus_slots >= expected)
 
         return {
@@ -608,7 +609,7 @@ class ShadowTrialTab(QWidget):
             'telemetry_slots': telemetry_slots,
             'expected_slots': expected,
             'soc_start_pct': float(soc_start),
-            'actual_cost_p': actual_cost,
+            'actual_cost_p': None if actual_cost is None else float(actual_cost),
             'shadow_cost_p': shadow_cost,
             'baseline_cost_p': baseline_cost,
             'perfect_cost_p': perfect_cost,

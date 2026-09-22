@@ -29,8 +29,6 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from energy_dashboard.db.mix_chart import (  # noqa: E402
-    _GROWATT_MIX_CHART_DDL_PG,
-    _GROWATT_MIX_CHART_IDX,
     fetch_mix_chart_for_date,
     upsert_mix_chart_rows,
 )
@@ -41,44 +39,7 @@ from energy_dashboard.ui.cards import (  # noqa: E402
     _growatt_v1_plant_devices,
 )
 
-# --- PostgreSQL DDL / DML (aligned with energy_dashboard/db/logger.py) ---
-_GROWATT_DDL_PG = """
-CREATE TABLE IF NOT EXISTS growatt_readings (
-    id SERIAL PRIMARY KEY,
-    timestamp TEXT NOT NULL,
-    soc_pct REAL,
-    battery_power_kw REAL,
-    pv_power_kw REAL,
-    grid_power_kw REAL,
-    load_power_kw REAL,
-    charge_today_kwh REAL,
-    discharge_today_kwh REAL,
-    pv_today_kwh REAL
-)"""
-
-_TASMOTA_DDL_PG = """
-CREATE TABLE IF NOT EXISTS tasmota_readings (
-    id SERIAL PRIMARY KEY,
-    timestamp TEXT NOT NULL,
-    device_ip TEXT,
-    device_name TEXT,
-    power_w REAL,
-    voltage_v REAL,
-    current_a REAL,
-    today_kwh REAL,
-    total_kwh REAL
-)"""
-
-_TASMOTA_DEVICES_DDL_PG = """
-CREATE TABLE IF NOT EXISTS tasmota_devices (
-    id SERIAL PRIMARY KEY,
-    device_ip TEXT NOT NULL UNIQUE,
-    device_name TEXT,
-    relay_on INTEGER,
-    first_seen TEXT NOT NULL,
-    last_seen TEXT NOT NULL
-)"""
-
+# --- PostgreSQL DML (tables are created by the hand-run CREATE script) ---
 _GROWATT_INSERT_PG = """
 INSERT INTO growatt_readings
     (timestamp, soc_pct, battery_power_kw, pv_power_kw, grid_power_kw,
@@ -457,13 +418,6 @@ def run_poll_loop(
                 password=args.pg_pass or None,
             )
             pg_conn_holder[0].autocommit = True
-            with pg_conn_holder[0].cursor() as cur:
-                cur.execute(_GROWATT_DDL_PG)
-                cur.execute(_TASMOTA_DDL_PG)
-                cur.execute(_TASMOTA_DEVICES_DDL_PG)
-                cur.execute(_GROWATT_MIX_CHART_DDL_PG)
-                for stmt in _GROWATT_MIX_CHART_IDX:
-                    cur.execute(stmt)
         return pg_conn_holder[0]
 
     while True:
@@ -570,8 +524,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--tasmota-ips",
-        default=os.environ.get("POWERMON_TASMOTA_IPS", "222.20.20.211"),
-        help="Comma-separated Tasmota IPs (overrides --ip-start/--ip-end).",
+        default=os.environ.get("POWERMON_TASMOTA_IPS", ""),
+        help="Comma-separated Tasmota IPs (overrides --ip-start/--ip-end when non-empty).",
     )
     p.add_argument(
         "--ip-start",
@@ -579,7 +533,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--ip-end",
-        default=os.environ.get("POWERMON_IP_END", "222.20.20.112"),
+        default=os.environ.get("POWERMON_IP_END", "222.20.20.116"),
     )
     p.add_argument(
         "--tasmota-interval",

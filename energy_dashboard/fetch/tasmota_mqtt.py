@@ -136,7 +136,6 @@ class TasmotaMqttSubscriber:
         self._on_update = on_update
         self._on_status = on_status
         self._lock = threading.Lock()
-        self._client: Any = None
         self._running = False
         self._connected = False
         self._by_ip: dict[str, dict] = {}
@@ -147,7 +146,8 @@ class TasmotaMqttSubscriber:
         self._prefix = ""
         self._state_queried: set[str] = set()
         self._last_emit = 0.0
-        self._emit_interval = 0.25
+        # 1 Hz UI callbacks — 4 Hz + full matplotlib redraw froze the GUI.
+        self._emit_interval = 1.0
 
     @property
     def connected(self) -> bool:
@@ -170,20 +170,15 @@ class TasmotaMqttSubscriber:
                 firmware = {k: v for k, v in firmware.items() if k in allowed}
         return readings, names, firmware
 
+    def _filters(self) -> tuple[str, ...]:
+        return tuple(f"{self._prefix}{tpl}" for tpl in self._SUB_TOPICS)
+
     def stop(self) -> None:
         self._running = False
         self._connected = False
-        client = self._client
-        self._client = None
-        if client is not None:
-            try:
-                client.loop_stop()
-            except Exception:
-                pass
-            try:
-                client.disconnect()
-            except Exception:
-                pass
+        from energy_dashboard.fetch.mqtt_session import broker_session
+
+        broker_session().unbind("tasmota")
         self._on_status("MQTT stopped")
 
     def start(
@@ -194,61 +189,63 @@ class TasmotaMqttSubscriber:
         username: str = "",
         password: str = "",
         topic_prefix: str = "",
-        client_id: str = "energy_dashboard_tasmota",
+        client_id: str = "energy_dashboard",
     ) -> tuple[bool, str]:
+        # client_id is ignored. Tasmota shares the dashboard's one broker session.
+        del client_id
         if mqtt is None:
             return False, "paho-mqtt not installed (pip install paho-mqtt)"
         host = (host or "").strip()
         if not host:
             return False, "MQTT broker host is required"
-        self.stop()
         prefix = (topic_prefix or "").strip()
         if prefix and not prefix.endswith("/"):
             prefix += "/"
-
-        try:
-            try:
-                client = mqtt.Client(
-                    mqtt.CallbackAPIVersion.VERSION1,
-                    client_id=client_id,
-                )
-            except (TypeError, AttributeError):
-                client = mqtt.Client(client_id=client_id)
-        except Exception as e:
-            return False, f"MQTT client: {e}"
-
-        if username:
-            client.username_pw_set(username, password or None)
-
-        client.on_connect = self._mk_on_connect(prefix)
-        client.on_disconnect = self._mk_on_disconnect()
-        client.on_message = self._mk_on_message()
-        self._client = client
+        self._prefix = prefix
         self._running = True
-        self._on_status(f"MQTT connecting to {host}:{port}…")
+        from energy_dashboard.fetch.mqtt_session import broker_session
 
-        try:
-            client.connect(host, int(port), keepalive=60)
-            client.loop_start()
-        except Exception as e:
-            self.stop()
-            return False, str(e)
-        return True, f"MQTT connecting to {host}:{port}"
+        session = broker_session()
+        ok, msg = session.bind(
+            "tasmota",
+            host,
+            int(port),
+            username=username,
+            password=password,
+            filters=self._filters(),
+            on_message=self._handle_message,
+            on_state=self._on_session_state,
+        )
+        if not ok:
+            self._running = False
+            self._connected = False
+            self._on_status(msg)
+            return False, msg
+        if session.connected:
+            self._connected = True
+            msg = f"MQTT subscribed ({prefix or ''}tele/+, stat/+) on the shared connection"
+        else:
+            msg = f"MQTT connecting to {host}:{port}"
+        self._on_status(msg)
+        return True, msg
 
-    def _mk_on_connect(self, prefix: str):
-        def _on_connect(client, userdata, flags, rc, *args):
-            ok = rc == 0
-            self._connected = ok
-            if not ok:
-                self._on_status(f"MQTT connect failed (rc={rc})")
-                return
-            self._prefix = prefix
+    def _on_session_state(self, connected: bool, kind: str, detail: str) -> None:
+        if kind == "connect_fail":
+            self._connected = False
+            self._on_status(f"MQTT connect failed ({detail})")
+            return
+        if kind == "disconnect":
+            self._connected = False
+            if self._running:
+                self._on_status(
+                    "MQTT disconnected" if "rc=0" in (detail or "") or detail == "clean disconnect"
+                    else f"MQTT disconnected ({detail})"
+                )
+            return
+        if kind in ("connect", "joined") and self._running:
+            self._connected = True
             self._state_queried.clear()
-            for tpl in self._SUB_TOPICS:
-                topic = f"{prefix}{tpl}"
-                client.subscribe(topic)
-            self._on_status(f"MQTT subscribed ({prefix or ''}tele/+, stat/+)")
-        return _on_connect
+            self._on_status(f"MQTT subscribed ({self._prefix or ''}tele/+, stat/+)")
 
     def _query_relay_state(self, device_topic: str) -> None:
         """Ask a device for its current relay state (one-shot per topic).
@@ -259,30 +256,12 @@ class TasmotaMqttSubscriber:
         """
         if not device_topic or device_topic in self._state_queried:
             return
-        client = self._client
-        if client is None or not self._connected:
+        if not self._connected:
             return
         self._state_queried.add(device_topic)
-        try:
-            client.publish(f"{self._prefix}cmnd/{device_topic}/POWER", "")
-        except Exception:
-            pass
+        from energy_dashboard.fetch.mqtt_session import broker_session
 
-    def _mk_on_disconnect(self):
-        def _on_disconnect(client, userdata, rc, *args):
-            self._connected = False
-            if self._running:
-                self._on_status(
-                    "MQTT disconnected"
-                    if rc == 0
-                    else f"MQTT disconnected (rc={rc})"
-                )
-        return _on_disconnect
-
-    def _mk_on_message(self):
-        def _on_message(client, userdata, msg):
-            self._handle_message(msg.topic, msg.payload)
-        return _on_message
+        broker_session().publish(f"{self._prefix}cmnd/{device_topic}/POWER", "")
 
     def _set_relay(self, key: str, relay: bool, *, ip: str | None = None) -> None:
         """Store relay state on the row for *key* (and mirror to *ip*).
@@ -404,6 +383,11 @@ def test_tasmota_mqtt_connection(
     if not host:
         return False, "MQTT host is required"
     port = int(port)
+    from energy_dashboard.fetch.mqtt_session import broker_session
+
+    if broker_session().shares_broker(host, port):
+        auth = f" as {username}" if username else ""
+        return True, f"OK — already connected to {host}:{port}{auth} (shared session)"
     done = threading.Event()
     outcome: dict[str, Any] = {"ok": False, "msg": "timeout"}
 

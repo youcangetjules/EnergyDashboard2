@@ -12,6 +12,8 @@ from pathlib import Path
 
 from energy_dashboard.db.connect_probe import (
     format_probe_summary,
+    mysql_connect,
+    postgresql_connect,
     probe_mysql,
     probe_postgresql,
     probe_sqlite,
@@ -25,6 +27,9 @@ KNOWN_TABLES = (
     ("octopus_readings", "logged_at"),
     ("solar_forecast_snapshots", "fetched_at"),
     ("agile_price_snapshots", "fetched_at"),
+    ("agile_year_daily", "fetched_at"),
+    ("connectivity_events", "timestamp"),
+    ("pv_string_charge", "timestamp"),
 )
 
 GROWTH_TABLES = (
@@ -34,6 +39,8 @@ GROWTH_TABLES = (
     ("octopus_readings", "logged_at"),
     ("solar_forecast_snapshots", "fetched_at"),
     ("agile_price_snapshots", "fetched_at"),
+    ("agile_year_daily", "fetched_at"),
+    ("pv_string_charge", "timestamp"),
 )
 
 
@@ -106,29 +113,24 @@ def _open_db(backend: str, cap: dict):
         finally:
             conn.close()
     elif backend == "MySQL":
-        import pymysql
-
-        conn = pymysql.connect(
-            host=cap.get("mysql_host") or "localhost",
-            port=int(cap.get("mysql_port") or 3306),
-            user=cap.get("mysql_user") or "",
-            password=cap.get("mysql_pass") or "",
-            database=cap.get("mysql_db") or "energy",
-            charset="utf8mb4",
+        conn = mysql_connect(
+            cap.get("mysql_host") or "localhost",
+            cap.get("mysql_port") or 3306,
+            cap.get("mysql_user") or "",
+            cap.get("mysql_pass") or "",
+            cap.get("mysql_db") or "energy",
         )
         try:
             yield conn, "mysql", None
         finally:
             conn.close()
     else:
-        import psycopg2
-
-        conn = psycopg2.connect(
-            host=cap.get("pg_host") or "localhost",
-            port=int(cap.get("pg_port") or 5432),
-            dbname=cap.get("pg_db") or "powermon",
-            user=cap.get("pg_user") or "",
-            password=cap.get("pg_pass") or "",
+        conn = postgresql_connect(
+            cap.get("pg_host") or "localhost",
+            cap.get("pg_port") or 5432,
+            cap.get("pg_user") or "",
+            cap.get("pg_pass") or "",
+            cap.get("pg_db") or "powermon",
         )
         try:
             yield conn, "pg", None
@@ -168,6 +170,42 @@ def _db_size(cur, dialect: str, sqlite_path: str | None) -> str:
         return _fmt_size(n)
     n = _fetch_scalar(cur, "SELECT pg_database_size(current_database())")
     return _fmt_size(n)
+
+
+def _relation_size_bytes(cur, dialect: str, table: str) -> int | None:
+    """Best-effort on-disk size for a table (PG / MySQL / SQLite dbstat)."""
+    if dialect == "pg":
+        try:
+            n = _fetch_scalar(
+                cur,
+                "SELECT pg_total_relation_size(%s::regclass)",
+                (table,),
+            )
+            return int(n) if n is not None else None
+        except Exception:
+            return None
+    if dialect == "mysql":
+        try:
+            n = _fetch_scalar(
+                cur,
+                "SELECT data_length + index_length FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() AND table_name = %s",
+                (table,),
+            )
+            return int(n) if n is not None else None
+        except Exception:
+            return None
+    if dialect == "sqlite":
+        try:
+            n = _fetch_scalar(
+                cur,
+                "SELECT SUM(pgsize) FROM dbstat WHERE name = ?",
+                (table,),
+            )
+            return int(n) if n is not None else None
+        except Exception:
+            return None
+    return None
 
 
 def _daily_counts(cur, dialect: str, table: str, ts_col: str, days: int) -> dict[str, int]:
@@ -279,7 +317,13 @@ def collect_health_stats(backend: str, cap: dict) -> dict:
 
             latest_ts: datetime | None = None
             for table, ts_col in KNOWN_TABLES:
-                info = {"exists": False, "row_count": 0, "last_activity": None}
+                info = {
+                    "exists": False,
+                    "row_count": 0,
+                    "last_activity": None,
+                    "size_bytes": None,
+                    "size_human": None,
+                }
                 if _table_exists(cur, dialect, table):
                     info["exists"] = True
                     try:
@@ -293,6 +337,10 @@ def collect_health_stats(backend: str, cap: dict) -> dict:
                         parsed = _parse_ts(raw_last)
                         if parsed and (latest_ts is None or parsed > latest_ts):
                             latest_ts = parsed
+                        sz = _relation_size_bytes(cur, dialect, table)
+                        if sz is not None:
+                            info["size_bytes"] = int(sz)
+                            info["size_human"] = _fmt_size(sz)
                     except Exception as exc:
                         info["error"] = str(exc)
                 out["tables"][table] = info

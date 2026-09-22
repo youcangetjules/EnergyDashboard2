@@ -152,7 +152,33 @@ def apply_spin_field_motif(
         le_pal.setColor(QPalette.ColorRole.Window, QColor(_SPIN_FIELD_BG))
         le_pal.setColor(QPalette.ColorRole.Text, QColor(_DARK_TEXT))
         line_edit.setPalette(le_pal)
-    spin.setProperty("_pm_spin_motif", True)
+
+
+def apply_setup_info_line_field_motif(
+    edit: QLineEdit,
+    *,
+    width: int | None = None,
+    expand: bool = False,
+) -> None:
+    """Setup & Info line edits — same electric-blue field as spin boxes."""
+    w = int(width if width is not None else _SPIN_FIELD_MOTIF_W)
+    edit.setObjectName("paramsDbField")
+    edit.setFixedHeight(_SPIN_FIELD_MOTIF_H)
+    edit.setAttribute(Qt.WA_StyledBackground, True)
+    edit.setAutoFillBackground(True)
+    edit.setStyleSheet(_setup_info_db_field_qss())
+    pal = edit.palette()
+    pal.setColor(QPalette.ColorRole.Base, QColor(_SPIN_FIELD_BG))
+    pal.setColor(QPalette.ColorRole.Window, QColor(_SPIN_FIELD_BG))
+    pal.setColor(QPalette.ColorRole.Text, QColor(_DARK_TEXT))
+    edit.setPalette(pal)
+    if expand:
+        edit.setMinimumWidth(w)
+        edit.setMaximumWidth(16777215)
+        edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    else:
+        edit.setFixedWidth(w)
+        edit.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
 
 def apply_spin_field_motif_tree(root) -> None:
@@ -308,6 +334,54 @@ def _checkbox_qss() -> str:
     )
 
 
+def _radio_indicator_qss(selector: str = "QRadioButton") -> str:
+    """Round indicator — white 1px halo; filled when selected."""
+    return (
+        f"{selector}::indicator {{"
+        f"  width: 15px;"
+        f"  height: 15px;"
+        f"  border-radius: 8px;"
+        f"  background: #313244;"
+        f"  border: 1px solid #ffffff;"
+        f"  image: none;"
+        f"}}"
+        f"{selector}::indicator:unchecked:hover {{"
+        f"  background: #3b3d52;"
+        f"  border: 1px solid #ffffff;"
+        f"}}"
+        f"{selector}::indicator:checked {{"
+        f"  background: #cdd6f4;"
+        f"  border: 1px solid #ffffff;"
+        f"  image: none;"
+        f"}}"
+        f"{selector}::indicator:checked:hover {{"
+        f"  background: #e6e9f5;"
+        f"  border: 1px solid #ffffff;"
+        f"}}"
+        f"{selector}::indicator:disabled {{"
+        f"  background: #313244;"
+        f"  border: 1px solid #6c7086;"
+        f"}}"
+        f"{selector}::indicator:checked:disabled {{"
+        f"  background: #585b70;"
+        f"  border: 1px solid #6c7086;"
+        f"}}"
+    )
+
+
+def _radio_qss() -> str:
+    """App-wide QRadioButton chrome (all tabs inherit via application stylesheet)."""
+    return (
+        f"QRadioButton {{"
+        f"  background-color: transparent;"
+        f"  color: {_DARK_TEXT};"
+        f"  spacing: 8px;"
+        f"}}"
+        f"QRadioButton:disabled {{ color: {_DARK_OVERLAY}; }}"
+        + _radio_indicator_qss("QRadioButton")
+    )
+
+
 def _text_panel_qss():
     """Read-only / editable multiline panels (summary boxes, client log, etc.)."""
     return (
@@ -369,15 +443,15 @@ def _configure_app_input_palette(app):
 
 
 def _tab_freshness_background(last_update, now=None):
-    """Tab background: light green when fresh, linear fade to _DARK_BG by 10 min."""
+    """Updateable page tab: solid green when fresh → black over 20 min; never updated = black."""
     if last_update is None:
-        return _DARK_BG
+        return _TAB_PAGE_NOT_UPDATED
     if now is None:
         now = datetime.now()
     age = (now - last_update).total_seconds()
     if age >= _TAB_FRESH_MAX_AGE_SEC:
-        return _DARK_BG
-    return _lerp_hex(_TAB_FRESH_TINT, _DARK_BG, age / _TAB_FRESH_MAX_AGE_SEC)
+        return _TAB_PAGE_NOT_UPDATED
+    return _lerp_hex(_TAB_FRESH_TINT, _TAB_PAGE_NOT_UPDATED, age / _TAB_FRESH_MAX_AGE_SEC)
 
 
 def _relative_luminance(hex_color):
@@ -401,28 +475,23 @@ def _contrast_ratio(bg_hex, fg_hex):
 def _contrasting_tab_text(bg_hex):
     """Pick black or white label — whichever has higher contrast on this tab tint."""
     if _contrast_ratio(bg_hex, _TAB_TEXT_ON_LIGHT_BG) >= _contrast_ratio(
-        bg_hex, _TAB_TEXT_ON_DARK_BG
+        bg_hex, _TAB_PAGE_NOT_UPDATED_TEXT
     ):
         return _TAB_TEXT_ON_LIGHT_BG
-    return _TAB_TEXT_ON_DARK_BG
+    return _TAB_PAGE_NOT_UPDATED_TEXT
 
 
-def _tab_freshness_text_color(last_update, now, selected):
-    """Tab label colour; selected tab tracks background luminance as freshness fades."""
+def _tab_freshness_text_color(last_update, now, selected=False):
+    """Label colour for updateable pages (white on black when not updated)."""
     bg = _tab_freshness_background(last_update, now)
-    if selected:
-        return _contrasting_tab_text(bg)
     if last_update is None:
-        return _DARK_OVERLAY
+        return _TAB_PAGE_NOT_UPDATED_TEXT
     if now is None:
         now = datetime.now()
     age = (now - last_update).total_seconds()
     if age >= _TAB_FRESH_MAX_AGE_SEC:
-        return _DARK_OVERLAY
-    freshness = 1.0 - (age / _TAB_FRESH_MAX_AGE_SEC)
-    if freshness > 0.25:
-        return '#3d7a4a'
-    return _DARK_OVERLAY
+        return _TAB_PAGE_NOT_UPDATED_TEXT
+    return _contrasting_tab_text(bg)
 
 
 # Window chrome (Catppuccin Mocha). Nested QWidget is transparent so read-only
@@ -459,6 +528,59 @@ QStatusBar {{
     background-color: {_DARK_BG};
     color: {_DARK_TEXT};
     border-top: 1px solid {_DARK_GRID};
+}}
+QFrame#systemStatusBar {{
+    background-color: {_DARK_MANTLE};
+    border: none;
+    border-top: 1px solid {_DARK_GRID};
+}}
+QFrame#systemStatusBar QLabel {{
+    color: {_DARK_SUBTEXT};
+    font-size: 11px;
+    background: transparent;
+    border: none;
+    padding: 0px;
+}}
+QFrame#systemStatusBar QLabel#dbStatus {{
+    font-weight: 600;
+    color: {_DARK_TEXT};
+}}
+QFrame#systemStatusBar QLabel#dbStatus[dbHealth="ok"] {{
+    color: #a6e3a1;
+}}
+QFrame#systemStatusBar QLabel#dbStatus[dbHealth="bad"] {{
+    color: #f38ba8;
+}}
+QFrame#systemStatusBar QLabel#octopusStatus {{
+    font-weight: 600;
+}}
+QFrame#systemStatusBar QLabel#octopusStatus[octopusHealth="ok"] {{
+    color: #a6e3a1;
+}}
+QFrame#systemStatusBar QLabel#octopusStatus[octopusHealth="warn"] {{
+    color: #fab387;
+}}
+QFrame#systemStatusBar QLabel#octopusStatus[octopusHealth="bad"] {{
+    color: #f38ba8;
+}}
+QFrame#systemStatusBar QLabel#octopusStatus[octopusHealth="busy"] {{
+    color: #b8dcff;
+}}
+QFrame#systemStatusBar QLabel#octopusStatus[octopusHealth="idle"] {{
+    color: #6c7086;
+}}
+QFrame#systemStatusBar QLabel[ingestHealth="dry"] {{
+    color: #fab387;
+}}
+QFrame#systemStatusBar QLabel[ingestHealth="bad"] {{
+    color: #f38ba8;
+}}
+QStatusBar QLabel#procStatsLabel {{
+    color: {_DARK_SUBTEXT};
+    font-size: 11px;
+    padding: 0 12px;
+    background: transparent;
+    border: none;
 }}
 QGroupBox {{
     background-color: {_DARK_SURFACE_BG};
@@ -536,12 +658,8 @@ QScrollArea, QScrollArea > QWidget > QWidget {{
 """
     + _text_panel_qss()
     + _checkbox_qss()
+    + _radio_qss()
     + f"""
-QRadioButton {{
-    background-color: transparent;
-    color: {_DARK_TEXT};
-    spacing: 6px;
-}}
 QSplitter::handle {{
     background-color: #585b70;
 }}

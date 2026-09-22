@@ -10,7 +10,13 @@ from __future__ import annotations
 import json
 import threading
 import time
-from typing import Any, Callable
+from datetime import datetime, timezone
+from typing import Any
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None  # type: ignore, Callable
 
 try:
     import paho.mqtt.client as mqtt
@@ -20,12 +26,19 @@ except ImportError:
 
 _BAD = {"", "--", "none", "null", "unknown"}
 _DEFAULT_GROTT_TOPIC = "energy/growatt"
+_BUFFERED_YES = {"yes", "true", "1", "y"}
+# Grott `time = server` stamps live frames with "now". Older than this is a
+# Shine buffer dump (often midnight) and must not become live telemetry.
+_HISTORICAL_MAX_AGE_S = 180.0
+_GROTT_TIMEZONE = "Europe/London"
 _GROTT_TELEMETRY_KEYS = {
     # Standard Grott status fields.
     "pvpowerin", "pvpowerout", "pvgridpower", "pvgridpowerin",
     "pvgridpowerout", "pv1watt", "pv2watt", "pvloadpower",
     "loadpower", "pvgridvoltage", "pvfrequentie", "vbat", "vbatdsp",
     "soc", "batpower", "pcharge1", "pdischarge1",
+    "pactousertot", "pactogridtot", "plocaloadtot", "ptousertotal",
+    "ptogridtotal", "ptoloadtotal",
     # Pre-normalised / OpenAPI-ish names that some MQTT bridges emit.
     "ppv", "ppv1", "ppv2", "ppv1", "ppv2", "pPv1", "pPv2",
     "chargePower", "pdisCharge1", "pactouser", "pactogrid",
@@ -53,6 +66,54 @@ def _first_nonempty(d: dict, keys: tuple[str, ...]):
         if text.lower() not in _BAD:
             return val
     return ""
+
+
+def _grott_payload_event_epoch(data: dict) -> float | None:
+    """Unix time from Grott JSON ``time``, or None if missing/unparseable."""
+    if not isinstance(data, dict):
+        return None
+    text = str(data.get("time") or "").strip()
+    if not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        tz = None
+        if ZoneInfo is not None:
+            try:
+                tz = ZoneInfo(_GROTT_TIMEZONE)
+            except Exception:
+                tz = None
+        dt = dt.replace(tzinfo=tz or timezone.utc)
+    return dt.timestamp()
+
+
+def grott_payload_is_historical(
+    data: dict,
+    *,
+    now: float | None = None,
+    max_age_s: float = _HISTORICAL_MAX_AGE_S,
+) -> bool:
+    """True for Shine buffer dumps that must not overwrite live cards.
+
+    Grott sets ``buffered: yes`` on historical frames. Its ini ``sendbuf =
+    False`` is supposed to suppress MQTT for those, but Grott 2.8 still
+    publishes them (boolean parsed as the string ``"False"``). A midnight
+    dump arriving at 10:00 would otherwise merge 00:10 SOC/power into the
+    live snapshot while looking fresh.
+    """
+    if not isinstance(data, dict):
+        return False
+    flag = str(data.get("buffered") or "").strip().lower()
+    if flag in _BUFFERED_YES:
+        return True
+    epoch = _grott_payload_event_epoch(data)
+    if epoch is None:
+        return False
+    age = float(now if now is not None else time.time()) - epoch
+    return age > float(max_age_s)
 
 
 def _has_meaningful_telemetry(flat: dict) -> bool:
@@ -200,6 +261,9 @@ def _inject_grott_standard(flat: dict) -> None:
             "elocalloadtoday",
             "eactoday",
             "etogridtoday",
+            "etousertoday",
+            "efromgridtoday",
+            "import_from_grid_energy_today",
         )
     ):
         return  # not a standard-grott payload — leave existing logic untouched
@@ -228,9 +292,18 @@ def _inject_grott_standard(flat: dict) -> None:
         ("inverterOutputPower", "pvpowerout", 10),
         ("pLocalLoad", "pvloadpower", 10),
         ("pLocalLoad", "loadpower", 10),
+        ("pLocalLoad", "plocaloadtot", 10),
+        ("pLocalLoad", "plocaloadr", 10),
+        ("pLocalLoad", "ptoloadtotal", 10),
         ("gridPower", "pvgridpower", 10),
         ("pactouser", "pvgridpowerin", 10),
+        ("pactouser", "pactousertot", 10),
+        ("pactouser", "pactouserr", 10),
+        ("pactouser", "ptousertotal", 10),
         ("pactogrid", "pvgridpowerout", 10),
+        ("pactogrid", "pactogridtot", 10),
+        ("pactogrid", "pactogridr", 10),
+        ("pactogrid", "ptogridtotal", 10),
     ):
         val = num(key, div)
         if val is not None:
@@ -279,16 +352,25 @@ def _inject_grott_standard(flat: dict) -> None:
     # 0x36 status record: a single *signed* battery power (raw unsigned from grott
     # since the layout can't express signed). Decode 32-bit two's complement,
     # then split: negative = discharging, positive = charging.
+    # Only apply when this payload has no explicit charge/discharge registers —
+    # otherwise a 0x36 heartbeat can fight a 0x0104 status frame. Zero the
+    # unused side so merge does not keep the previous direction.
+    has_explicit_battery = ("pcharge1" in flat) or ("pdischarge1" in flat)
     bp = _as_float(flat.get("batpower"), None)
-    if bp is not None:
+    if bp is not None and not has_explicit_battery:
         bp = int(bp)
         if bp >= 2 ** 31:
             bp -= 2 ** 32
         bp_w = bp / 10.0  # watts
         if bp_w < 0:
-            flat.setdefault("pdisCharge1", -bp_w)
+            flat["pdisCharge1"] = -bp_w
+            flat["chargePower"] = 0.0
         elif bp_w > 0:
-            flat.setdefault("chargePower", bp_w)
+            flat["chargePower"] = bp_w
+            flat["pdisCharge1"] = 0.0
+        else:
+            flat["chargePower"] = 0.0
+            flat["pdisCharge1"] = 0.0
 
     # Energy counters in kWh.
     for canon, key, div in (
@@ -302,8 +384,16 @@ def _inject_grott_standard(flat: dict) -> None:
         ("edischarge1Today", "edischargetoday", 10),
         ("elocalLoadToday", "elocalloadtoday", 10),
         ("elocalLoadToday", "eactoday", 10),
+        ("etouser", "etousertoday", 10),
+        ("etouser", "etouser_tod", 10),
+        ("etouser", "efromgridtoday", 10),
+        ("etouser", "import_from_grid_energy_today", 1),
         ("etoGridToday", "etogridtoday", 10),
+        ("etoGridToday", "etogrid_tod", 10),
         ("etoGridToday", "eto_grid_today", 1),
+        ("elocalLoadToday", "elocalload_tod", 10),
+        ("echargetoday", "eharge1_tod", 10),
+        ("edischarge1Today", "edischarge1_tod", 10),
     ):
         val = num(key, div)
         if val is not None:
@@ -346,15 +436,18 @@ def _normalize_grott_payload(payload: dict, *, topic: str = "") -> dict | None:
     import_keys = (
         "pactouser", "pacToUser", "pacToUserR", "grid_import",
         "importPower", "gridImportPower", "pvgridpowerin",
+        "pactousertot", "pactouserr", "ptousertotal",
     )
     export_keys = (
         "pactogrid", "pacToGrid", "pacToGridTotal", "grid_export",
         "exportPower", "gridExportPower", "pvgridpowerout",
+        "pactogridtot", "pactogridr", "ptogridtotal",
     )
     signed_grid_keys = ("gridPower", "pvgridpower", "grid_power")
     load_keys = (
         "pLocalLoad", "plocalLoad", "loadPower", "load_power",
         "houseLoad", "sysOut", "pvloadpower", "loadpower",
+        "plocaloadtot", "plocaloadr", "ptoloadtotal",
     )
 
     pv_kw = _maybe_w_to_kw(
@@ -425,10 +518,20 @@ def _normalize_grott_payload(payload: dict, *, topic: str = "") -> dict | None:
     # Many Grott layouts publish pvpowerout (inverter AC output) but omit pvloadpower /
     # grid registers entirely.  Use AC output as an approximate house load so merge
     # can back-solve grid from PV + battery instead of leaving both as "--".
+    # Skip when pvpowerout is just an alias of pvpowerin (seen in custom T060104X
+    # maps) — that makes Load = PV and fabricates grid import = charge.
+    inv_w = _as_float(flat.get("inverterOutputPower"), None)
+    pv_w_raw = _as_float(flat.get("ppv"), None)
+    inv_is_pv_alias = (
+        inv_w is not None and pv_w_raw is not None
+        and abs(pv_w_raw) > 1.0
+        and abs(inv_w - pv_w_raw) <= max(1.0, 0.02 * abs(pv_w_raw))
+    )
     load_from_inverter_out = (
         not load_data_present
         and not load_can_estimate
-        and _as_float(flat.get("inverterOutputPower"), None) is not None
+        and inv_w is not None
+        and not inv_is_pv_alias
     )
     load_from_pv_balance = False
     if load_from_inverter_out:
@@ -483,12 +586,24 @@ def _normalize_grott_payload(payload: dict, *, topic: str = "") -> dict | None:
         ("lost", ("lost", "statusText", "status", "pvstatus")),
         ("status", ("status", "lost", "pvstatus")),
         ("wBatteryType", ("wBatteryType", "batteryType", "battery_type", "batterytype", "batttype")),
+        ("faultBit", ("faultBit", "faultbit", "FaultBit")),
+        ("warningBit", ("warningBit", "warningbit", "WarningBit")),
+        ("faultValue", ("faultValue", "faultvalue", "FaultValue", "faultcode", "faultCode")),
+        ("warningValue", ("warningValue", "warningvalue", "WarningValue")),
+        ("systemfaultword0", ("systemfaultword0", "systemFaultWord0")),
+        ("systemfaultword1", ("systemfaultword1", "systemFaultWord1")),
+        ("systemfaultword2", ("systemfaultword2", "systemFaultWord2")),
+        ("systemfaultword3", ("systemfaultword3", "systemFaultWord3")),
+        ("systemfaultword4", ("systemfaultword4", "systemFaultWord4")),
+        ("systemfaultword5", ("systemfaultword5", "systemFaultWord5")),
+        ("systemfaultword6", ("systemfaultword6", "systemFaultWord6")),
+        ("systemfaultword7", ("systemfaultword7", "systemFaultWord7")),
     ):
         _set_if_present(status, key, _first_nonempty(flat, keys), flat, keys)
     if _has_any(flat, pv1_power_keys):
-        status["pPv1"] = _as_float(_first_nonempty(flat, pv1_power_keys), "")
+        status["pPv1"] = _maybe_w_to_kw(_first_nonempty(flat, pv1_power_keys))
     if _has_any(flat, pv2_power_keys):
-        status["pPv2"] = _as_float(_first_nonempty(flat, pv2_power_keys), "")
+        status["pPv2"] = _maybe_w_to_kw(_first_nonempty(flat, pv2_power_keys))
 
     totals = {}
     for key, keys in (
@@ -497,11 +612,25 @@ def _normalize_grott_payload(payload: dict, *, topic: str = "") -> dict | None:
         ("echargetoday", ("echargetoday", "echargeToday", "echarge1Today", "echarge1today")),
         ("edischarge1Today", ("edischarge1Today", "edischargeToday", "edischargetoday", "edischarge1today")),
         ("elocalLoadToday", ("elocalLoadToday", "loadToday", "load_today", "eactoday", "elocalloadtoday")),
+        ("etouser", (
+            "etouser", "eToUser", "eToUserToday", "etousertoday", "efromgridtoday",
+            "import_from_grid_energy_today", "import_from_grid_today",
+            "importFromGridToday",
+        )),
         ("etoGridToday", ("etoGridToday", "exportToday", "export_today", "etogridtoday")),
     ):
         _set_if_present(totals, key, _first_nonempty(flat, keys), flat, keys)
     info = dict(flat)
     info.setdefault("vbatdsp", _first_nonempty(flat, ("vbatdsp", "vBatDsp", "batteryDisplayVoltage")))
+    # Optional BMS / pack-count fields when Grott or a bridge publishes them.
+    for canon, keys in (
+        ("batteryNum", ("batteryNum", "batterynum", "batNum", "batnum", "packNum")),
+        ("bmsBatNum", ("bmsBatNum", "bmsbatnum", "bmsBatteryNum")),
+        ("RatedBatCapacity", ("RatedBatCapacity", "ratedbatcapacity", "batteryCapacity")),
+    ):
+        val = _first_nonempty(flat, keys)
+        if val != "":
+            info.setdefault(canon, val)
     info.setdefault(
         "inverterModel",
         _first_nonempty(
@@ -734,21 +863,35 @@ class GrottMqttSubscriber:
         self,
         on_update: Callable[[], None],
         on_status: Callable[[str], None],
+        on_link_event: Callable[[str, str], None] | None = None,
     ):
         self._on_update = on_update
         self._on_status = on_status
+        # Optional (event_type, detail) for disconnect / reconnect logging.
+        self._on_link_event = on_link_event
         self._lock = threading.Lock()
-        self._client: Any = None
         self._running = False
         self._connected = False
         self._snapshot: dict | None = None
         self._last_emit = 0.0
         self._last_payload_status = 0.0
-        self._emit_interval = 0.25
+        self._last_mqtt_at: float | None = None
+        self._ignored_historical = 0
+        self._ignored_non_telemetry = 0
+        # Coalesce MQTT → UI to ~1 Hz; 4 Hz full Growatt rebuilds made the app laggy.
+        self._emit_interval = 1.0
         self._topic = _DEFAULT_GROTT_TOPIC
         self._topic_filters: tuple[str, ...] = (_DEFAULT_GROTT_TOPIC,)
         self._host = ""
         self._port = 1883
+        self._disconnect_count = 0
+        self._reconnect_count = 0
+        self._connect_count = 0
+        self._last_disconnect_rc: int | None = None
+        self._last_disconnect_at: float | None = None
+        self._last_connect_at: float | None = None
+        self._last_event_detail = ""
+        self._ever_connected = False
 
     @property
     def connected(self) -> bool:
@@ -774,23 +917,35 @@ class GrottMqttSubscriber:
             "topic": self._topic,
             "age_s": age,
             "fresh": grott_snapshot_fresh(snap),
+            "last_mqtt_at": self._last_mqtt_at,
+            "ignored_historical": self._ignored_historical,
+            "ignored_non_telemetry": self._ignored_non_telemetry,
             "serial": (snap or {}).get("serial", ""),
+            "disconnect_count": self._disconnect_count,
+            "reconnect_count": self._reconnect_count,
+            "connect_count": self._connect_count,
+            "last_disconnect_rc": self._last_disconnect_rc,
+            "last_disconnect_at": self._last_disconnect_at,
+            "last_connect_at": self._last_connect_at,
+            "last_event": self._last_event_detail,
         }
+
+    def _emit_link_event(self, event_type: str, detail: str) -> None:
+        self._last_event_detail = f"{event_type}: {detail}"
+        cb = self._on_link_event
+        if cb is None:
+            return
+        try:
+            cb(event_type, detail)
+        except Exception:
+            pass
 
     def stop(self) -> None:
         self._running = False
         self._connected = False
-        client = self._client
-        self._client = None
-        if client is not None:
-            try:
-                client.loop_stop()
-            except Exception:
-                pass
-            try:
-                client.disconnect()
-            except Exception:
-                pass
+        from energy_dashboard.fetch.mqtt_session import broker_session
+
+        broker_session().unbind("grott")
         self._on_status("Grott MQTT stopped")
 
     def start(
@@ -803,81 +958,105 @@ class GrottMqttSubscriber:
         topic: str = _DEFAULT_GROTT_TOPIC,
         client_id: str = "",
     ) -> tuple[bool, str]:
+        # client_id is ignored. The dashboard uses one shared broker session.
+        del client_id
         if mqtt is None:
             return False, "paho-mqtt not installed (pip install paho-mqtt)"
         host = (host or "").strip()
         if not host:
             return False, "Grott MQTT host is required"
         topic = (topic or _DEFAULT_GROTT_TOPIC).strip() or _DEFAULT_GROTT_TOPIC
-        if not (client_id or "").strip():
-            client_id = f"energy_dashboard_grott_{int(time.time())}"
         self._topic_filters = _topic_filters(topic)
-        self.stop()
-
-        try:
-            try:
-                client = mqtt.Client(
-                    mqtt.CallbackAPIVersion.VERSION1,
-                    client_id=client_id,
-                    clean_session=True,
-                )
-            except (TypeError, AttributeError):
-                try:
-                    client = mqtt.Client(client_id=client_id, clean_session=True)
-                except TypeError:
-                    client = mqtt.Client(client_id=client_id)
-        except Exception as e:
-            return False, f"MQTT client: {e}"
-
-        if username:
-            client.username_pw_set(username, password or None)
-
         self._host = host
         self._port = int(port)
         self._topic = topic
-        client.on_connect = self._mk_on_connect(topic)
-        client.on_disconnect = self._mk_on_disconnect()
-        client.on_message = self._mk_on_message()
-        self._client = client
         self._running = True
-        self._on_status(f"Grott MQTT connecting to {host}:{port}…")
+        from energy_dashboard.fetch.mqtt_session import broker_session
 
-        try:
-            client.connect(host, int(port), keepalive=60)
-            client.loop_start()
-        except Exception as e:
-            self.stop()
-            return False, str(e)
-        return True, f"Grott MQTT connecting to {host}:{port}"
-
-    def _mk_on_connect(self, topic: str):
-        def _on_connect(client, userdata, flags, rc, *args):
-            ok = rc == 0
-            self._connected = ok
-            if not ok:
-                self._on_status(f"Grott MQTT connect failed (rc={rc})")
-                return
-            filters = _topic_filters(topic)
-            for filt in filters:
-                client.subscribe(filt)
-            self._on_status(f"Grott MQTT subscribed ({', '.join(filters)})")
-        return _on_connect
-
-    def _mk_on_disconnect(self):
-        def _on_disconnect(client, userdata, rc, *args):
+        session = broker_session()
+        ok, msg = session.bind(
+            "grott",
+            host,
+            int(port),
+            username=username,
+            password=password,
+            filters=self._topic_filters,
+            on_message=self._handle_message,
+            on_state=self._on_session_state,
+        )
+        if not ok:
+            self._running = False
             self._connected = False
-            if self._running:
-                self._on_status(
-                    "Grott MQTT disconnected"
-                    if rc == 0
-                    else f"Grott MQTT disconnected (rc={rc})"
-                )
-        return _on_disconnect
+            self._on_status(msg)
+            return False, msg
+        if session.connected:
+            self._connected = True
+            filters = ", ".join(self._topic_filters)
+            msg = f"Grott MQTT on the shared broker connection ({filters})"
+        else:
+            msg = f"Grott MQTT connecting to {host}:{port}"
+        self._on_status(msg)
+        return True, msg
 
-    def _mk_on_message(self):
-        def _on_message(client, userdata, msg):
-            self._handle_message(msg.topic, msg.payload)
-        return _on_message
+    def soft_resubscribe(self) -> tuple[bool, str]:
+        """Re-subscribe topics without opening another broker connection."""
+        if not self._running:
+            return False, "Grott MQTT not running"
+        from energy_dashboard.fetch.mqtt_session import broker_session
+
+        ok, msg = broker_session().resubscribe("grott")
+        if ok:
+            self._on_status(
+                f"Grott MQTT re-subscribed ({', '.join(self._topic_filters)})"
+            )
+            return True, "Grott MQTT topics re-subscribed (shared connection kept)"
+        return False, msg
+
+    def _on_session_state(self, connected: bool, kind: str, detail: str) -> None:
+        if kind == "connect_fail":
+            self._connected = False
+            self._on_status(f"Grott MQTT connect failed ({detail})")
+            self._emit_link_event("connect_fail", detail)
+            return
+        if kind == "disconnect":
+            self._connected = False
+            if not self._running:
+                return
+            self._disconnect_count += 1
+            rc = None
+            if "rc=" in (detail or ""):
+                try:
+                    rc = int(detail.split("rc=")[1].split(")")[0].split(";")[0])
+                except (TypeError, ValueError):
+                    rc = None
+            self._last_disconnect_rc = rc
+            self._last_disconnect_at = time.time()
+            self._on_status(
+                "Grott MQTT disconnected" if rc in (None, 0) and "another" not in detail
+                else f"Grott MQTT disconnected ({detail})"
+            )
+            self._emit_link_event("disconnect", detail)
+            return
+        if kind not in ("connect", "joined") or not self._running:
+            return
+        self._connected = True
+        filters = ", ".join(self._topic_filters)
+        if kind == "joined" and self._ever_connected:
+            self._on_status(f"Grott MQTT on the shared broker connection ({filters})")
+            return
+        self._connect_count += 1
+        self._last_connect_at = time.time()
+        if self._ever_connected and kind == "connect":
+            self._reconnect_count += 1
+            self._on_status(f"Grott MQTT reconnected — subscribed ({filters})")
+            self._emit_link_event(
+                "reconnect",
+                f"rc=0 filters={filters} (disconnects={self._disconnect_count})",
+            )
+        else:
+            self._ever_connected = True
+            self._on_status(f"Grott MQTT subscribed ({filters})")
+            self._emit_link_event("connect", f"filters={filters}")
 
     def _handle_message(self, topic: str, payload: bytes) -> None:
         if not _grott_topic_matches(topic, self._topic_filters):
@@ -885,6 +1064,20 @@ class GrottMqttSubscriber:
         try:
             data = json.loads(payload.decode("utf-8", errors="replace"))
         except (UnicodeDecodeError, json.JSONDecodeError):
+            return
+        now_wall = time.time()
+        self._last_mqtt_at = now_wall
+        if grott_payload_is_historical(data if isinstance(data, dict) else {}, now=now_wall):
+            self._ignored_historical += 1
+            now = time.monotonic()
+            if now - self._last_payload_status >= 10.0:
+                self._last_payload_status = now
+                stamp = ""
+                if isinstance(data, dict) and data.get("time"):
+                    stamp = f" (frame time {data.get('time')})"
+                self._on_status(
+                    f"Grott MQTT ignored historical buffer dump on {topic}{stamp}"
+                )
             return
         # #region agent log
         try:
@@ -905,6 +1098,7 @@ class GrottMqttSubscriber:
         # #endregion
         snap = _normalize_grott_payload(data, topic=topic)
         if snap is None:
+            self._ignored_non_telemetry += 1
             now = time.monotonic()
             if now - self._last_payload_status >= 10.0:
                 self._last_payload_status = now
@@ -952,11 +1146,30 @@ def test_grott_mqtt_connection(
     topic: str = _DEFAULT_GROTT_TOPIC,
     timeout_s: float = 6.0,
 ) -> tuple[bool, str]:
-    """Connect, subscribe, and wait briefly for one Grott JSON payload."""
+    """Connect and subscribe. A Grott JSON payload in the wait window is a bonus.
+
+    Grott only publishes when the Shine datalogger sends a packet (heartbeat
+    ~1 min, full status ~5 min). MQTT connect in a few seconds is the test;
+    silence for ``timeout_s`` is not a broker failure.
+    """
     if mqtt is None:
         return False, "paho-mqtt not installed (pip install paho-mqtt)"
-    got = threading.Event()
-    status = {"msg": "No message received"}
+    host = (host or "").strip()
+    port = int(port)
+    from energy_dashboard.fetch.mqtt_session import broker_session
+
+    if broker_session().shares_broker(host, port):
+        return True, (
+            f"OK — already connected to {host}:{port} on the shared session. "
+            "No second MQTT connection opened."
+        )
+    done = threading.Event()
+    status = {
+        "msg": "No MQTT response",
+        "connected": False,
+        "payload": False,
+    }
+    topic_disp = (topic or _DEFAULT_GROTT_TOPIC).strip() or _DEFAULT_GROTT_TOPIC
 
     try:
         try:
@@ -974,30 +1187,34 @@ def test_grott_mqtt_connection(
 
     def on_connect(client, userdata, flags, rc, *args):
         if rc != 0:
-            status["msg"] = f"connect failed rc={rc}"
-            got.set()
+            status["msg"] = f"MQTT connect failed rc={rc}"
+            done.set()
             return
-        for filt in _topic_filters(topic):
+        status["connected"] = True
+        for filt in _topic_filters(topic_disp):
             client.subscribe(filt)
-        status["msg"] = "connected; waiting for Grott payload"
+        status["msg"] = "MQTT connected; waiting for Grott payload"
 
     def on_message(client, userdata, msg):
         try:
             data = json.loads(msg.payload.decode("utf-8", errors="replace"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             return
+        if grott_payload_is_historical(data if isinstance(data, dict) else {}):
+            return
         snap = _normalize_grott_payload(data, topic=msg.topic)
         if snap is None:
             return
-        status["msg"] = f"received {msg.topic}"
-        got.set()
+        status["payload"] = True
+        status["msg"] = f"MQTT connected — received Grott JSON on {msg.topic}"
+        done.set()
 
     client.on_connect = on_connect
     client.on_message = on_message
     try:
         client.connect((host or "").strip(), int(port), keepalive=30)
         client.loop_start()
-        ok = got.wait(timeout_s)
+        done.wait(timeout_s)
     except Exception as e:
         return False, str(e)
     finally:
@@ -1009,4 +1226,16 @@ def test_grott_mqtt_connection(
             client.disconnect()
         except Exception:
             pass
-    return ok, status["msg"] if ok else f"Connected but no Grott payload within {timeout_s:.0f}s"
+    if not status["connected"]:
+        return False, status["msg"]
+    if status["payload"]:
+        return True, status["msg"]
+    return True, (
+        f"MQTT connected to {(host or '').strip()}:{int(port)} and subscribed "
+        f"to {topic_disp}. No Grott JSON arrived in {timeout_s:.0f}s — that is "
+        "normal. Grott publishes when the Shine datalogger sends a packet "
+        "(heartbeat ~1 min, full status ~5 min), not on every Test click. "
+        "After the stick reconnects (often around the hour) it can go quiet "
+        "for about 11 minutes while it handshakes with Growatt's servers. "
+        "Leave the dashboard running; live cards fill on the next publish."
+    )

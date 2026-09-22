@@ -15,7 +15,9 @@ Polls every Tasmota device on the configured IP range (<code>TASMOTA_IP_START</c
 <p>
 Per-row <b>Probe</b> re-polls one IP; <b>Web UI</b> opens the device; <b>Diagnose</b> (right of Web UI) explains blank or bad rows: live HTTP checks (Status 0/3/4/8/11, Power), briefly enables <code>WebLog 4</code> for verbose HW/socket errors, plus logging levels, heap/flash (Status 4), connectivity, WiFi RSSI, reboots, MQTT, and scheduler <code>LoadAvg</code>; <b>Toggle</b> sends <code>Power Toggle</code> after confirmation.</p>
 <p>
-Devices are shown in two side-by-side tables: the first seven addresses in the configured range on the left, the rest on the right.</p>
+Devices are shown in two side-by-side tables that fill the height of that pane (rows stretch when there is spare room; the first half of the IP range on the left, the rest on the right).</p>
+<p>
+<b>Pin chart 2 max</b> (toolbar under the charts) locks the Power History Y-axis to a watts value you choose (default 500 W). Tick the box, then edit the number — useful when one device spikes and flattens the quieter traces. Right-click the history chart for presets; drag the Y-axis labels to retune while pinned.</p>
 <p>
 Action buttons (Probe, Web UI, Diagnose, Toggle) share one column with equal fixed widths and small gaps; an extra gap separates Diagnose from Toggle. Toggle is green when relay ON, red when OFF, slate when state unknown, and muted grey (disabled) when the device is unreachable. Relay ON/OFF is also shown in the State column. Other columns resize with the window (name stretches).</p>
 """

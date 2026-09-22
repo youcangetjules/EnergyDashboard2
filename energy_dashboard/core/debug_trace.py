@@ -1,11 +1,20 @@
-"""Session debug tracing — append NDJSON to the Cursor debug log."""
+"""Session debug tracing — append NDJSON to the Cursor debug log.
+
+Disabled by default. Enable with ``POWERMODEL_DEBUG_TRACE=1`` when diagnosing
+a specific issue; hot-path callers (Grott MQTT, Growatt UI apply) must not
+write to disk on every event in normal use.
+"""
 from __future__ import annotations
 
 import json
+import os
 import time
 
-_DEBUG_LOG = "/home/user/PowerModel/.cursor/debug-4ad131.log"
-_SESSION = "4ad131"
+_DEBUG_LOG = "/home/user/PowerModel/.cursor/debug-692508.log"
+_SESSION = "692508"
+_ENABLED = os.environ.get("POWERMODEL_DEBUG_TRACE", "").strip().lower() in (
+    "1", "true", "yes", "on",
+)
 
 
 def debug_trace(
@@ -16,6 +25,8 @@ def debug_trace(
     hypothesis_id: str = "",
     run_id: str = "pre-fix",
 ) -> None:
+    if not _ENABLED:
+        return
     # #region agent log
     try:
         payload = {

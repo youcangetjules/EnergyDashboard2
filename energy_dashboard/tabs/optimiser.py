@@ -1705,11 +1705,38 @@ class OptimiserTab(QWidget):
         OR ``None`` if the response can't be parsed (unexpected shape, missing
         all the expected fields, etc.). Designed to fail silently rather than
         raise so the snapshot path never blocks on shape surprises."""
-        if not isinstance(raw, dict):
+        sentinels = ('acChargeEnable', 'chargePowerCommand', 'wchargeSOCLowLimit',
+                     'forcedChargeTimeStart1', 'forcedChargeStopSwitch1')
+        sentinel_l = {k.lower() for k in sentinels}
+
+        def _unwrap_settings_obj(blob, depth=0):
+            if not isinstance(blob, dict) or depth > 4:
+                return None
+            keys_l = {str(k).lower() for k in blob}
+            if keys_l & sentinel_l:
+                return blob
+            for key in ('obj', 'data', 'result'):
+                inner = blob.get(key)
+                if inner is None:
+                    inner = next(
+                        (blob[k] for k in blob if str(k).lower() == key),
+                        None,
+                    )
+                found = _unwrap_settings_obj(inner, depth + 1)
+                if found is not None:
+                    return found
             return None
-        obj = raw.get('obj', raw) if isinstance(raw, dict) else None
+
+        obj = _unwrap_settings_obj(raw if isinstance(raw, dict) else None)
         if not isinstance(obj, dict):
             return None
+
+        lower = {str(k).lower(): v for k, v in obj.items()}
+
+        def _get(name, default=None):
+            if name in obj:
+                return obj[name]
+            return lower.get(name.lower(), default)
 
         def _to_int(v, default):
             if v is None or v == '' or v == 'null':
@@ -1733,22 +1760,15 @@ class OptimiserTab(QWidget):
             except Exception:
                 return time(0, 0)
 
-        # Require at least the master switch OR one period field, otherwise
-        # this isn't an AC-charge response we know how to read.
-        sentinels = ('acChargeEnable', 'chargePowerCommand', 'wchargeSOCLowLimit',
-                     'forcedChargeTimeStart1', 'forcedChargeStopSwitch1')
-        if not any(k in obj for k in sentinels):
-            return None
-
-        charge_power = max(0, min(100, _to_int(obj.get('chargePowerCommand'), 0)))
-        stop_soc = max(0, min(100, _to_int(obj.get('wchargeSOCLowLimit'), 100)))
-        mains_enabled = _to_int(obj.get('acChargeEnable'), 0) == 1
+        charge_power = max(0, min(100, _to_int(_get('chargePowerCommand'), 0)))
+        stop_soc = max(0, min(100, _to_int(_get('wchargeSOCLowLimit'), 100)))
+        mains_enabled = _to_int(_get('acChargeEnable'), 0) == 1
 
         periods = []
         for i in range(1, 4):
-            st = _parse_hm(obj.get(f'forcedChargeTimeStart{i}', '0:0'))
-            en = _parse_hm(obj.get(f'forcedChargeTimeStop{i}', '0:0'))
-            en_bit = _to_int(obj.get(f'forcedChargeStopSwitch{i}'), 0) == 1
+            st = _parse_hm(_get(f'forcedChargeTimeStart{i}', '0:0'))
+            en = _parse_hm(_get(f'forcedChargeTimeStop{i}', '0:0'))
+            en_bit = _to_int(_get(f'forcedChargeStopSwitch{i}'), 0) == 1
             periods.append({'start_time': st, 'end_time': en, 'enabled': en_bit})
 
         return {
@@ -3484,15 +3504,15 @@ class OptimiserTab(QWidget):
 
         for i, a in enumerate(actions):
             if a.get('grid_to_batt', 0.0) > 0.05:
-                ax_bot.axvspan(x[i], x[i] + w, color='#fab387', alpha=0.22,
+                ax_bot.axvspan(x[i], x[i] + w, facecolor='#fab387', alpha=0.22,
                                edgecolor='none', zorder=1)
             if a.get('batt_to_grid', 0.0) > 0.05:
-                ax_bot.axvspan(x[i], x[i] + w, color='#cba6f7', alpha=0.22,
+                ax_bot.axvspan(x[i], x[i] + w, facecolor='#cba6f7', alpha=0.22,
                                edgecolor='none', zorder=1)
 
         for a, b in plan['heater']['morning_blocks'] + plan['heater']['day_blocks']:
             ax_top.axvspan(
-                x[a + n_past], x[b - 1 + n_past] + w, color='#74c7ec', alpha=0.13,
+                x[a + n_past], x[b - 1 + n_past] + w, facecolor='#74c7ec', alpha=0.13,
                 edgecolor='none', zorder=1,
             )
 

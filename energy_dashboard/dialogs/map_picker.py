@@ -11,29 +11,21 @@ class _MapPickerUnavailable(RuntimeError):
     """Raised when QtWebEngine isn't installed."""
 
 
+def _flash_dashboard_saved(forecasts_tab) -> None:
+    try:
+        dash = getattr(forecasts_tab, "dash", None)
+        if dash is None and hasattr(forecasts_tab, "_find_dashboard"):
+            dash = forecasts_tab._find_dashboard()
+        if dash is not None and hasattr(dash, "flash_saved"):
+            dash.flash_saved()
+    except Exception:
+        pass
+
+
 def _configure_qt_webengine_chromium():
-    """Chromium flags before QApplication (root needs --no-sandbox for QWebEngine)."""
-    flags = os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '').strip()
-    extra = []
-    if '--no-sandbox' not in flags:
-        try:
-            if hasattr(os, 'geteuid') and os.geteuid() == 0:
-                extra.append('--no-sandbox')
-        except Exception:
-            pass
-    # When the user has not set flags, add Linux defaults that reduce KDE/GPU crashes.
-    if sys.platform.startswith('linux') and not flags:
-        for opt in (
-            '--disable-gpu',
-            '--disable-gpu-compositing',
-            '--disable-dev-shm-usage',
-        ):
-            if opt not in extra:
-                extra.append(opt)
-    if extra:
-        os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = (
-            f"{flags} {' '.join(extra)}".strip()
-        )
+    """Chromium flags before QApplication (see ``energy_dashboard.qt_env``)."""
+    from energy_dashboard.qt_env import configure_qt_webengine_chromium
+    configure_qt_webengine_chromium()
 
 
 def _forecast_w3w_api_key():
@@ -463,6 +455,11 @@ class EmbeddedBrowserDialog(QDialog):
 
 
 def _forecasts_tab_from_parent(parent):
+    if parent is None:
+        return None
+    # Lazy import — forecasts.py imports this module, so ForecastsTab is not
+    # available at map_picker import time.
+    from energy_dashboard.tabs.forecasts import ForecastsTab
     return parent if isinstance(parent, ForecastsTab) else None
 
 
@@ -645,6 +642,7 @@ class SimpleLocationPickerDialog(QDialog):
         self.status_label.setText(
             f'Saved solar parameters ({la:.5f}, {lo:.5f}).'
         )
+        _flash_dashboard_saved(self._forecasts_tab)
 
     def _set_coords(self, la, lo, status=''):
         self.lat_edit.setText(f'{la:.5f}')
@@ -1015,6 +1013,7 @@ class MapPickerDialog(QDialog):
         _sync_forecasts_tab_latlon(self._forecasts_tab, la, lo)
         self._forecasts_tab._save_forecast_parameters_clicked()
         self.status_label.setText(f'Saved solar parameters ({la:.5f}, {lo:.5f}).')
+        _flash_dashboard_saved(self._forecasts_tab)
         return True
 
     def _on_save_parameters(self):
