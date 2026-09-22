@@ -491,6 +491,7 @@ def summary_lines(
     scales: dict,
     model: dict,
     energy_source: str,
+    meter_direct: bool = False,
 ) -> list[str]:
     """Plain-English notes for the live summary box."""
     lines = []
@@ -510,7 +511,12 @@ def summary_lines(
             "so this is not a spot-price cost."
         )
     lines.append("Standing charge is not included — this is the unit energy only.")
-    if energy_source == "demand":
+    if meter_direct:
+        lines.append(
+            "These half-hours are Octopus's own meter, priced at the spot rate. "
+            "The live stream is not feeding this view, so there is no separate estimate to scale."
+        )
+    elif energy_source == "demand":
         lines.append(
             "Interval energy was missing, so kWh is power × time from the live "
             "demand reading. That is an estimate, labelled as such."
@@ -528,7 +534,9 @@ def summary_lines(
 
     today = (model or {}).get("today")
     if today:
-        if today["basis"] == "tuned":
+        if meter_direct:
+            how = "Octopus half-hour meter"
+        elif today["basis"] == "tuned":
             how = "estimated, tuned from settled Octopus days"
         else:
             how = "estimated, not tuned yet"
@@ -545,7 +553,9 @@ def summary_lines(
             f"net £{window['net_pence'] / 100:.2f}."
         )
 
-    if scales.get("tuned_import") or scales.get("tuned_export"):
+    if meter_direct:
+        pass
+    elif scales.get("tuned_import") or scales.get("tuned_export"):
         lines.append(
             f"Tuning ×{scales['scale_import']:.3f} on import and "
             f"×{scales['scale_export']:.3f} on export. "

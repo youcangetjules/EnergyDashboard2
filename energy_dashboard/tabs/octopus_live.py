@@ -475,7 +475,7 @@ class OctopusLiveTab(QWidget):
         )
         row0.addWidget(self.rb_view_power)
         row0.addWidget(self.rb_view_cost)
-        self.display_group.idClicked.connect(self._on_display_mode)
+        self.display_group.idToggled.connect(self._on_display_mode)
         self._show_api_key_btn = QPushButton("Show")
         self._show_api_key_btn.setVisible(False)
         self._show_api_key_btn.setStyleSheet(_SUBTLE_BTN_QSS)
@@ -511,7 +511,7 @@ class OctopusLiveTab(QWidget):
         self.save_btn = QPushButton("Save")
         self.save_btn.setStyleSheet(_SUBTLE_BTN_QSS)
         self.save_btn.setToolTip(
-            "Save API key, account number, import/export MPANs, granularity, and hours range"
+            "Save API key, account number, import/export MPANs, granularity, hours, and power/cost view"
         )
         self.save_btn.clicked.connect(self._save_octopus_live_clicked)
         row1.addWidget(self.save_btn)
@@ -580,10 +580,12 @@ class OctopusLiveTab(QWidget):
             ('total_import', 'Total Import', 'kWh', '#9C27B0'),
             ('total_export', 'Total Export', 'kWh', '#009688'),
         ]:
+            card, val_label, unit_label = make_small_card(
+                label, unit, color, return_unit_label=True,
+            )
+            self._card_boxes[key] = card
+            self._card_units[key] = unit_label
             if key == 'live_demand':
-                card, val_label, unit_label = make_small_card(
-                    label, unit, color, return_unit_label=True
-                )
                 self._live_demand_unit_label = unit_label
                 card.setToolTip(
                     "Smart-meter household demand reported via the Octopus "
@@ -597,8 +599,6 @@ class OctopusLiveTab(QWidget):
                     "\"· N min ago\" suffix tells you how stale the current "
                     "sample is."
                 )
-            else:
-                card, val_label = make_small_card(label, unit, color)
             self.card_labels[key] = val_label
             cards_layout.addWidget(card)
         top_layout.addLayout(cards_layout)
@@ -719,6 +719,24 @@ class OctopusLiveTab(QWidget):
                     self._view_hours = int(hours)
             except (ValueError, TypeError):
                 pass
+        if str(s.value("octopus_live/display_mode") or "") == "cost":
+            self.display_group.blockSignals(True)
+            self.rb_view_cost.setChecked(True)
+            self.display_group.blockSignals(False)
+        self._cost_history = self._read_cost_history(s.value("octopus_live/cost_history"))
+        self._apply_card_chrome()
+
+    @staticmethod
+    def _read_cost_history(raw) -> dict:
+        if raw is None:
+            return {}
+        if isinstance(raw, bytes):
+            raw = raw.decode(errors="replace")
+        try:
+            data = json.loads(str(raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
 
     def _save_octopus_live(self):
         s = self._octopus_live_settings()
@@ -730,6 +748,11 @@ class OctopusLiveTab(QWidget):
         s.setValue("octopus_live/export_serial", self.export_serial_edit.text().strip())
         s.setValue("octopus_live/granularity", self.granularity_group.checkedId())
         s.setValue("octopus_live/view_hours", self._view_hours)
+        s.setValue(
+            "octopus_live/display_mode",
+            "cost" if self._is_cost_mode() else "power",
+        )
+        s.setValue("octopus_live/cost_history", json.dumps(self._cost_history or {}))
         s.sync()
 
     def _save_octopus_live_clicked(self):
@@ -746,6 +769,7 @@ class OctopusLiveTab(QWidget):
         self._view_hours = hours_id if hours_id > 0 else 2
         self._save_octopus_live()
         if self.import_df is not None or self.export_df is not None:
+            self._update_cards()
             self._plot_charts()
             self._update_summary()
 
@@ -889,13 +913,21 @@ class OctopusLiveTab(QWidget):
             hours = 2
         self._view_hours = hours
         granularity = self._granularity_label()
+        gid = self.granularity_group.checkedId()
+        if gid <= 0:
+            gid = 3
+        want_cost = self._is_cost_mode() and self._cost_bundle_stale()
+        tariffs = self._tariff_context()
+        history = json.loads(json.dumps(self._cost_history or {}))
         threading.Thread(target=self._fetch_thread,
                          args=(api_key, account, imp_mpan, imp_serial,
-                               exp_mpan, exp_serial, hours, granularity),
+                               exp_mpan, exp_serial, hours, granularity,
+                               gid, want_cost, tariffs, history),
                          daemon=True).start()
 
     def _fetch_thread(self, api_key, account, imp_mpan, imp_serial,
-                      exp_mpan, exp_serial, hours, granularity):
+                      exp_mpan, exp_serial, hours, granularity,
+                      gid, want_cost, tariffs, history):
         try:
             import_df = export_df = pd.DataFrame()
             err_imp = err_exp = None
@@ -950,6 +982,21 @@ class OctopusLiveTab(QWidget):
             self._live_err_imp = err_imp
             self._live_err_exp = err_exp
             self._gql_msg = gql_msg
+            if want_cost:
+                try:
+                    self._cost_bundle = self._build_cost_bundle(
+                        api_key, account, imp_mpan, imp_serial,
+                        exp_mpan, exp_serial, hours, granularity, gid,
+                        self._data_source, import_df, export_df,
+                        tariffs, history,
+                    )
+                except Exception as e:
+                    _log.warn("Octopus Live", f"Cost prices failed: {e}")
+                    self._cost_bundle = {
+                        "error": str(e),
+                        "fetched_at": datetime.now(timezone.utc),
+                        "history": history,
+                    }
             self._inv.invoke(self._update_display)
         except Exception as e:
             _log.warn("Octopus Live", f"Background refresh failed: {e}")
@@ -1031,6 +1078,21 @@ class OctopusLiveTab(QWidget):
         elif not self.account_edit.text().strip():
             self.gql_status.setStyleSheet("color: #6c7086; font-size: 11px;")
             self.gql_status.setText("Enter Account No (e.g. A-12345678) for granular GraphQL data")
+        bundle = getattr(self, "_cost_bundle", None)
+        if bundle and isinstance(bundle.get("history"), dict):
+            self._cost_history = bundle["history"]
+            fetched = bundle.get("fetched_at")
+            fresh = False
+            if fetched is not None:
+                try:
+                    fresh = (datetime.now(timezone.utc) - fetched).total_seconds() < 15
+                except TypeError:
+                    fresh = False
+            if fresh:
+                self._octopus_live_settings().setValue(
+                    "octopus_live/cost_history",
+                    json.dumps(self._cost_history or {}),
+                )
         self._update_cards()
         try:
             self._plot_charts()
@@ -1044,7 +1106,620 @@ class OctopusLiveTab(QWidget):
         if pending:
             QTimer.singleShot(300, self.fetch_data)
 
+    def _is_cost_mode(self) -> bool:
+        group = getattr(self, "display_group", None)
+        return group is not None and group.checkedId() == 1
+
+    def _on_display_mode(self, _mode_id, checked=True):
+        if not checked:
+            return
+        self._save_octopus_live()
+        self._apply_card_chrome()
+        if self._is_cost_mode() and self._cost_bundle_stale():
+            for lab in self.card_labels.values():
+                lab.setText("…")
+            self.fetch_data()
+            return
+        if self.import_df is not None or self.export_df is not None:
+            self._update_cards()
+            try:
+                self._plot_charts()
+                self._update_summary()
+            except Exception as e:
+                _log.exception("Octopus Live", f"Cost view failed: {e}")
+                self.set_status(f"Octopus Live cost view error: {e}")
+
+    def _cost_bundle_stale(self) -> bool:
+        bundle = getattr(self, "_cost_bundle", None)
+        if not bundle or not bundle.get("fetched_at"):
+            return True
+        try:
+            age = (datetime.now(timezone.utc) - bundle["fetched_at"]).total_seconds()
+        except TypeError:
+            return True
+        if bundle.get("error"):
+            return age > 120
+        if "scales" not in bundle:
+            return True
+        return age > COST_REFRESH_S
+
+    def _tariff_context(self) -> dict:
+        ap = self.app_params
+        return {
+            "flat_import": float(getattr(ap, "import_flat_pence", 24.5) if ap else 24.5),
+            "flat_export": float(getattr(ap, "export_flat_pence", 15.0) if ap else 15.0),
+            "product": (getattr(ap, "agile_product", None) if ap else None) or DEFAULT_AGILE_PRODUCT,
+            "tariff_import": (getattr(ap, "agile_tariff", None) if ap else None) or DEFAULT_AGILE_TARIFF,
+            "tariff_export": (
+                (getattr(ap, "agile_export_tariff", None) if ap else None)
+                or DEFAULT_AGILE_EXPORT_TARIFF
+            ),
+        }
+
+    def _load_rate_series(self, product, tariff, direction, start_utc, end_utc):
+        """Agile unit rates (p/kWh inc. VAT). Live tariff first, then the database."""
+        try:
+            ser = fetch_agile_rates_series_utc(product, tariff, start_utc, end_utc)
+        except Exception as e:
+            _log.warn("Octopus Live", f"Agile {direction} rates: {e}")
+            ser = pd.Series(dtype=float)
+        if ser is not None and len(ser) > 0:
+            return ser, "agile"
+        logger = self.data_logger
+        if logger is not None and tariff:
+            try:
+                pl_df = logger.query_agile_prices(start_utc, end_utc, tariff, direction)
+            except Exception as e:
+                _log.warn("Octopus Live", f"Stored Agile {direction} rates: {e}")
+                pl_df = None
+            if pl_df is not None and not pl_df.is_empty():
+                pdf = pl_df.to_pandas()
+                ts = pd.to_datetime(pdf["valid_from"])
+                if getattr(ts.dt, "tz", None) is None:
+                    ts = ts.dt.tz_localize(
+                        "Europe/London", ambiguous="infer", nonexistent="shift_forward",
+                    )
+                ts = ts.dt.tz_convert("UTC")
+                values = pd.to_numeric(pdf["price_pence"], errors="coerce")
+                ser = pd.Series(values.to_numpy(), index=pd.DatetimeIndex(ts))
+                ser = ser.dropna().sort_index()
+                ser = ser[~ser.index.duplicated(keep="last")]
+                if len(ser) > 0:
+                    return ser, "database"
+        return pd.Series(dtype=float), "flat"
+
+    def _build_cost_bundle(
+        self, api_key, account, imp_mpan, imp_serial, exp_mpan, exp_serial,
+        hours, granularity, gid, src, import_df, export_df, tariffs, history,
+    ):
+        """Spot prices, Octopus's recent half-hour meter, and the tuning ratios.
+
+        Runs on the fetch thread. The half-hour meter is what Octopus states.
+        A separate 48 h live pull (throttled with this bundle) is what we
+        compare it with, so today's estimate can be scaled.
+        """
+        import pytz
+        london = pytz.timezone("Europe/London")
+        now = datetime.now(london)
+        today = pd.Timestamp(now)
+        start_utc = (pd.Timestamp(now) - pd.Timedelta(days=9)).tz_convert("UTC")
+        end_utc = (pd.Timestamp(now) + pd.Timedelta(days=2)).tz_convert("UTC")
+        imp_rates, src_i = self._load_rate_series(
+            tariffs["product"], tariffs["tariff_import"], "import", start_utc, end_utc,
+        )
+        exp_rates, src_e = self._load_rate_series(
+            tariffs["product"], tariffs["tariff_export"], "export", start_utc, end_utc,
+        )
+        if src_i == "agile" or src_e == "agile":
+            rates_source = "agile"
+        elif src_i == "database" or src_e == "database":
+            rates_source = "database"
+        else:
+            rates_source = "flat"
+
+        day_from = datetime.now() - timedelta(days=9)
+        day_to = datetime.now() + timedelta(days=1)
+        imp_rest = get_meter_data(api_key, imp_mpan, imp_serial, day_from, day_to)
+        exp_rest = get_meter_data(api_key, exp_mpan, exp_serial, day_from, day_to)
+        export_known = exp_rest is not None and not exp_rest.empty
+        stated = rest_half_hour_slots(imp_rest, exp_rest if export_known else pd.DataFrame())
+
+        cal_imp, cal_exp = pd.DataFrame(), pd.DataFrame()
+        if src == "GraphQL" and account:
+            if int(hours) >= 48 and import_df is not None and not import_df.empty:
+                cal_imp, cal_exp = import_df, export_df
+            else:
+                try:
+                    got_imp, got_exp, err = fetch_octopus_telemetry(
+                        api_key, account, hours=48, grouping=granularity,
+                    )
+                except Exception as e:
+                    got_imp, got_exp, err = pd.DataFrame(), pd.DataFrame(), str(e)
+                if err:
+                    _log.warn("Octopus Live", f"Cost calibration telemetry: {err}")
+                    cal_imp, cal_exp = import_df, export_df
+                else:
+                    cal_imp, cal_exp = got_imp, got_exp
+
+        slot_min = self._slot_minutes("GraphQL" if src == "GraphQL" else "REST", gid)
+        if src == "GraphQL":
+            live_slots, _energy_src = energy_slots_from_frames(cal_imp, cal_exp, slot_min)
+            live_priced = price_slots(
+                live_slots, imp_rates, exp_rates,
+                tariffs["flat_import"], tariffs["flat_export"],
+            )
+            live_days = summarise_days(live_priced, today, export_known=True)
+        else:
+            live_days = []
+        stated_priced = price_slots(
+            stated, imp_rates, exp_rates,
+            tariffs["flat_import"], tariffs["flat_export"],
+        )
+        stated_days = summarise_days(stated_priced, today, export_known=export_known)
+        history = update_history(history, live_days, stated_days, today)
+        learned = scales_from_history(history)
+        if src == "GraphQL":
+            view_scales = learned
+        else:
+            view_scales = dict(learned)
+            view_scales["scale_import"] = 1.0
+            view_scales["scale_export"] = 1.0
+            view_scales["tuned_import"] = False
+            view_scales["tuned_export"] = False
+        _log.info(
+            "Octopus Live",
+            "Cost "
+            f"import ×{view_scales['scale_import']:.3f} "
+            f"export ×{view_scales['scale_export']:.3f} "
+            f"from {len(learned.get('days') or [])} settled day(s), prices={rates_source}",
+        )
+        return {
+            "fetched_at": datetime.now(timezone.utc),
+            "import_rates": imp_rates,
+            "export_rates": exp_rates,
+            "rates_source": rates_source,
+            "stated_slots": stated,
+            "export_known": export_known,
+            "history": history,
+            "scales": view_scales,
+            "meter_direct": src != "GraphQL",
+            "flat_import": tariffs["flat_import"],
+            "flat_export": tariffs["flat_export"],
+            "error": None,
+        }
+
+    def _apply_card_chrome(self):
+        cost = self._is_cost_mode()
+        spec = {
+            "live_demand": ("Cost rate" if cost else "Live Demand", "£/h" if cost else "W"),
+            "latest_import": ("Latest import" if cost else "Latest Import", "p" if cost else "kWh"),
+            "latest_export": ("Latest export" if cost else "Latest Export", "p" if cost else "kWh"),
+            "latest_net": ("Latest net" if cost else "Latest Net", "p" if cost else "kWh"),
+            "total_import": ("Import cost" if cost else "Total Import", "£" if cost else "kWh"),
+            "total_export": ("Export credit" if cost else "Total Export", "£" if cost else "kWh"),
+        }
+        power_demand_tip = (
+            "Smart-meter household demand reported via the Octopus "
+            "GraphQL telemetry stream.\n\n"
+            "This is the meter's instantaneous power draw at the END "
+            "of the latest aggregation window. The \"· N min ago\" suffix "
+            "tells you how stale the current sample is."
+        )
+        cost_tips = {
+            "live_demand": (
+                "Net money per hour for the latest slot: import cost minus "
+                "export credit. Positive means paying. Today is scaled when "
+                "settled Octopus days have taught a factor."
+            ),
+            "latest_import": "Import cost of the latest slot, in pence.",
+            "latest_export": "Export credit of the latest slot, in pence.",
+            "latest_net": "Import cost minus export credit for the latest slot, in pence.",
+            "total_import": "Import cost in this window, in pounds. Settled time uses Octopus's meter.",
+            "total_export": "Export credit in this window, in pounds. Standing charge is not included.",
+        }
+        for key, (title, unit) in spec.items():
+            box = self._card_boxes.get(key)
+            if box is not None:
+                box.setTitle(title)
+                if cost:
+                    box.setToolTip(cost_tips.get(key, ""))
+                elif key == "live_demand":
+                    box.setToolTip(power_demand_tip)
+            unit_lbl = self._card_units.get(key)
+            if unit_lbl is not None and key != "live_demand":
+                unit_lbl.setText(unit)
+            elif unit_lbl is not None and cost:
+                unit_lbl.setText(unit)
+
+    def _live_view_bounds(self):
+        import pytz
+        london = pytz.timezone("Europe/London")
+        now = datetime.now(london)
+        hours = self._view_hours or 2
+        view_end = now
+        view_start = now - timedelta(hours=hours)
+        latest_ts = None
+        for df in (self.import_df, self.export_df):
+            if df is not None and not df.empty and "interval_start" in df.columns:
+                lt = df["interval_start"].max()
+                if latest_ts is None or lt > latest_ts:
+                    latest_ts = lt
+        stale = False
+        if latest_ts is not None and latest_ts < view_start:
+            stale = True
+            view_end = latest_ts + timedelta(minutes=15)
+            view_start = latest_ts - timedelta(hours=hours)
+        return {
+            "london": london,
+            "now": now,
+            "hours": hours,
+            "view_start": view_start,
+            "view_end": view_end,
+            "stale": stale,
+            "latest_ts": latest_ts,
+        }
+
+    def _cost_model_for_view(self):
+        bundle = getattr(self, "_cost_bundle", None)
+        bounds = self._live_view_bounds()
+        if not bundle or bundle.get("error") or "scales" not in bundle:
+            return None, bundle, "meter", bounds
+        has_imp = self.import_df is not None and not self.import_df.empty
+        has_exp = self.export_df is not None and not self.export_df.empty
+        start = bounds["view_start"]
+        imp_view = (
+            self.import_df[self.import_df["interval_start"] >= start]
+            if has_imp else pd.DataFrame()
+        )
+        exp_view = (
+            self.export_df[self.export_df["interval_start"] >= start]
+            if has_exp else pd.DataFrame()
+        )
+        src = getattr(self, "_data_source", "REST")
+        gid = self.granularity_group.checkedId() if src == "GraphQL" else 1
+        slot_min = self._slot_minutes(src, gid)
+        live_slots, energy_source = energy_slots_from_frames(imp_view, exp_view, slot_min)
+        if bundle.get("meter_direct"):
+            energy_source = "meter"
+        model = compose_cost_view(
+            live_slots,
+            bundle.get("stated_slots"),
+            bundle.get("import_rates"),
+            bundle.get("export_rates"),
+            float(bundle.get("flat_import", 24.5)),
+            float(bundle.get("flat_export", 15.0)),
+            bundle.get("scales") or {},
+            bounds["now"],
+            bounds["view_start"],
+            bounds["view_end"],
+            export_known=bool(bundle.get("export_known", True)),
+        )
+        return model, bundle, energy_source, bounds
+
+    def _update_cost_cards(self):
+        model, _bundle, _src, _bounds = self._cost_model_for_view()
+        slots = None if not model else model.get("slots")
+        if slots is None or slots.empty:
+            for lab in self.card_labels.values():
+                lab.setText("--")
+            if self._live_demand_unit_label is not None:
+                self._live_demand_unit_label.setText("£/h")
+            return
+        last = slots.iloc[-1]
+        rate = last.get("gbp_per_h")
+        try:
+            rate_f = float(rate)
+        except (TypeError, ValueError):
+            rate_f = None
+        if rate_f is None or rate_f != rate_f:
+            self.card_labels["live_demand"].setText("--")
+        else:
+            self.card_labels["live_demand"].setText(f"{rate_f:.2f}")
+            dc = "#f38ba8" if rate_f > 0 else "#a6e3a1"
+            self.card_labels["live_demand"].setStyleSheet(f"color: {dc}; font-weight: bold;")
+        if self._live_demand_unit_label is not None:
+            age = self._sample_age_text(last.get("interval_start"))
+            self._live_demand_unit_label.setText(f"£/h · {age}" if age else "£/h")
+        self.card_labels["latest_import"].setText(f"{float(last['import_pence']):.1f}")
+        self.card_labels["latest_export"].setText(f"{float(last['export_pence']):.1f}")
+        net_p = float(last["net_pence"])
+        self.card_labels["latest_net"].setText(f"{net_p:.1f}")
+        nc = "#F44336" if net_p > 0 else "#4CAF50"
+        self.card_labels["latest_net"].setStyleSheet(f"color: {nc}; font-weight: bold;")
+        window = model.get("window") or {}
+        self.card_labels["total_import"].setText(f"{float(window.get('import_pence', 0)) / 100:.2f}")
+        self.card_labels["total_export"].setText(f"{float(window.get('export_pence', 0)) / 100:.2f}")
+
+    @staticmethod
+    def _sample_age_text(ts) -> str:
+        if ts is None or (isinstance(ts, float) and ts != ts):
+            return ""
+        try:
+            import pytz
+            stamp = pd.Timestamp(ts)
+            now_tz = datetime.now(pytz.timezone("Europe/London"))
+            if stamp.tzinfo is None:
+                delta = now_tz.replace(tzinfo=None) - stamp.to_pydatetime()
+            else:
+                delta = now_tz - stamp.to_pydatetime()
+            s = max(0.0, delta.total_seconds())
+        except Exception:
+            return ""
+        if s < 60:
+            return f"{int(s)} s ago"
+        if s < 3600:
+            return f"{int(s // 60)} min ago"
+        return f"{int(s // 3600)} h ago"
+
+    def _plot_cost_charts(self):
+        import matplotlib.dates as mdates
+        self.ax_import.clear()
+        self.ax_net.clear()
+        _style_ax_dark(self.ax_import, self.fig)
+        _style_ax_dark(self.ax_net, self.fig)
+        model, bundle, _energy, bounds = self._cost_model_for_view()
+        london = bounds["london"]
+        hours = bounds["hours"]
+        now = bounds["now"]
+        view_start = bounds["view_start"]
+        view_end = bounds["view_end"]
+        slots = None if not model else model.get("slots")
+        if slots is None or slots.empty:
+            if bundle and bundle.get("error"):
+                msg = f"Cost prices unavailable:\n{bundle['error']}"
+            elif not bundle or "scales" not in bundle:
+                msg = "Fetching spot prices and recent Octopus meter days…"
+            else:
+                msg = "No cost in this window yet"
+            self.ax_import.text(
+                0.5, 0.5, msg, transform=self.ax_import.transAxes,
+                ha="center", va="center", fontsize=12, color="#6c7086",
+            )
+            self._apply_figure_layout(self.fig)
+            self.canvas.draw()
+            return
+
+        ts = slots["interval_start"]
+        rate = pd.to_numeric(slots["gbp_per_h"], errors="coerce")
+        self.ax_import.fill_between(ts, rate.clip(lower=0), alpha=0.3, color="#f38ba8", step="mid")
+        self.ax_import.fill_between(ts, rate.clip(upper=0), alpha=0.3, color="#a6e3a1", step="mid")
+        self.ax_import.step(ts, rate, color="#cdd6f4", linewidth=1, where="mid", label="Net £/h")
+        self.ax_import.axhline(0, color=_DARK_GRID, linewidth=0.6)
+        self.ax_import.set_ylabel("£/h")
+        title = (
+            f"Cost rate — previous {hours}h — "
+            "+£/h paying to import, −£/h export credit"
+        )
+        if bounds["stale"]:
+            title += " [latest available]"
+        self.ax_import.set_title(title)
+        if not bounds["stale"]:
+            self.ax_import.axvline(now, color=_UI_BLUE, linestyle="--", linewidth=1, label="Now")
+        if bounds["stale"] and bounds["latest_ts"] is not None:
+            self.ax_import.axvline(
+                bounds["latest_ts"], color="#f9e2af", linestyle=":", linewidth=1, label="Latest data",
+            )
+        tick_interval = max(1, hours // 12)
+        fmt = "%d/%m %H:%M" if hours > 24 else "%H:%M"
+        self.ax_import.set_xlim(view_start, view_end)
+        self.ax_import.legend(
+            loc="upper left", fontsize=8, framealpha=0.6,
+            facecolor=_DARK_FACE, edgecolor=_DARK_GRID, labelcolor=_DARK_TEXT,
+        )
+        self.ax_import.xaxis.set_major_formatter(mdates.DateFormatter(fmt, tz=london))
+        self.ax_import.xaxis.set_major_locator(mdates.HourLocator(interval=tick_interval))
+        self.ax_import.tick_params(axis="x", rotation=30, labelbottom=False)
+        self.ax_import.grid(axis="y", color=_DARK_GRID, linewidth=0.4)
+
+        self.ax_net.step(
+            ts, slots["cum_import_gbp"], where="post", color="#F44336", linewidth=1.6,
+            label="Import cost",
+        )
+        self.ax_net.step(
+            ts, slots["cum_export_gbp"], where="post", color="#4CAF50", linewidth=1.6,
+            label="Export credit",
+        )
+        self.ax_net.step(
+            ts, slots["cum_net_gbp"], where="post", color="#cba6f7", linewidth=1.8,
+            label="Net (import − export credit)",
+        )
+        self.ax_net.axhline(0, color=_DARK_GRID, linewidth=0.6)
+        self.ax_net.legend(
+            loc="upper left", fontsize=8, framealpha=0.6,
+            facecolor=_DARK_FACE, edgecolor=_DARK_GRID, labelcolor=_DARK_TEXT,
+        )
+        if not bounds["stale"]:
+            self.ax_net.axvline(now, color=_UI_BLUE, linestyle="--", linewidth=1)
+        if bounds["stale"] and bounds["latest_ts"] is not None:
+            self.ax_net.axvline(bounds["latest_ts"], color="#f9e2af", linestyle=":", linewidth=1)
+        self.ax_net.set_xlim(view_start, view_end)
+        self.ax_net.set_ylabel("Cumulative £")
+        scales = (bundle or {}).get("scales") or {}
+        cum_title = (
+            "Cumulative £ — resets at London midnight. "
+            "Settled days: Octopus meter × spot price. Today: live estimate"
+        )
+        if scales.get("tuned_import") or scales.get("tuned_export"):
+            cum_title += (
+                f" (import ×{scales['scale_import']:.2f}, "
+                f"export ×{scales['scale_export']:.2f})"
+            )
+        if bounds["stale"]:
+            cum_title += " [latest available]"
+        self.ax_net.set_title(cum_title)
+        self.ax_net.xaxis.set_major_formatter(mdates.DateFormatter(fmt, tz=london))
+        self.ax_net.xaxis.set_major_locator(mdates.HourLocator(interval=tick_interval))
+        self.ax_net.tick_params(axis="x", rotation=30)
+        self.ax_net.grid(axis="y", color=_DARK_GRID, linewidth=0.4)
+        _draw_6h_vertical_grid(self.ax_import, london)
+        _draw_6h_vertical_grid(self.ax_net, london)
+        _draw_day_date_labels(self.ax_import, london)
+        _draw_day_date_labels(self.ax_net, london)
+        self._tight_y_from_artists(self.ax_import)
+        self._tight_y_from_artists(self.ax_net)
+        self._annotate_cost_days(self.ax_import, london, model.get("days") or [], view_start, view_end)
+        self._annotate_cost_cumulative(self.ax_net, london, slots, now)
+        self.ax_import.format_coord = lambda xv, yv, tz=london: _fmt_toolbar_time_y(
+            xv, yv, tz, "£/h",
+            "net money rate (import cost minus export credit). Today is an estimate",
+        )
+        self.ax_net.format_coord = lambda xv, yv, tz=london: _fmt_toolbar_time_y(
+            xv, yv, tz, "£",
+            "daily running total in pounds; resets at London midnight",
+        )
+        self._apply_figure_layout(self.fig)
+        self.canvas.draw()
+
+    def _annotate_cost_days(self, ax, london, days, view_start, view_end):
+        """Import £ top-right and export credit bottom-left, per London day."""
+        import math
+        import matplotlib.dates as mdates
+        if not days:
+            return
+        rng = _resolve_axis_day_range(ax, london)
+        if rng is None:
+            return
+        d_lo, _d_hi, n_days = rng
+        if n_days > 120:
+            return
+        x_lo, x_hi = ax.get_xlim()
+        ymin, ymax = ax.get_ylim()
+        if not math.isfinite(ymin) or not math.isfinite(ymax) or ymax <= ymin:
+            return
+        span = max(1e-9, x_hi - x_lo)
+        y_top = ymax - 0.06 * (ymax - ymin)
+        y_bot = ymin + 0.06 * (ymax - ymin)
+        x_pad = max(1e-5, span * 0.004)
+        by_date = {d["date"]: d for d in days}
+        for i in range(n_days):
+            d = d_lo + timedelta(days=i)
+            key = f"{d.year:04d}-{d.month:02d}-{d.day:02d}"
+            row = by_date.get(key)
+            if not row:
+                continue
+            midnight = pd.Timestamp(year=d.year, month=d.month, day=d.day, tz=london)
+            next_mid = midnight + timedelta(days=1)
+            x_day_l = mdates.date2num(midnight.to_pydatetime())
+            x_day_r = mdates.date2num(next_mid.to_pydatetime())
+            x_clip_l = max(x_day_l, x_lo, mdates.date2num(pd.Timestamp(view_start).to_pydatetime()))
+            x_clip_r = min(x_day_r, x_hi, mdates.date2num(pd.Timestamp(view_end).to_pydatetime()))
+            if x_clip_r - x_clip_l < span * 0.02:
+                continue
+            tag = {
+                "settled": "settled",
+                "tuned": "est.",
+                "estimated": "est.",
+                "mixed": "partial",
+            }.get(row.get("basis"), "")
+            imp = float(row["import_pence"]) / 100.0
+            exp = float(row["export_pence"]) / 100.0
+            ax.text(
+                x_clip_r - x_pad, y_top, f"Import £{imp:.2f}\n{tag}",
+                ha="right", va="top", fontsize=8, color="#f38ba8", zorder=7, clip_on=True,
+            )
+            ax.text(
+                x_clip_l + x_pad, y_bot, f"Export £{exp:.2f}",
+                ha="left", va="bottom", fontsize=8, color="#a6e3a1", zorder=7, clip_on=True,
+            )
+
+    def _annotate_cost_cumulative(self, ax, london, slots, now):
+        """End-of-day and running £ labels on the cumulative cost chart."""
+        import math
+        import matplotlib.dates as mdates
+        if slots is None or slots.empty:
+            return
+        df = slots.copy()
+        ts = pd.to_datetime(df["interval_start"])
+        if getattr(ts.dt, "tz", None) is None:
+            ts = ts.dt.tz_localize(london, ambiguous="infer", nonexistent="shift_forward")
+        else:
+            ts = ts.dt.tz_convert(london)
+        now_ts = pd.Timestamp(now)
+        if now_ts.tzinfo is None:
+            now_ts = now_ts.tz_localize(london)
+        else:
+            now_ts = now_ts.tz_convert(london)
+        today = now_ts.normalize()
+        df = df.assign(_ts=ts, _day=ts.dt.normalize())
+        ymin, ymax = ax.get_ylim()
+        if not math.isfinite(ymin) or not math.isfinite(ymax) or ymax <= ymin:
+            return
+        y_span = ymax - ymin
+        min_gap = max(0.15, 0.045 * y_span)
+        x_lo, x_hi = ax.get_xlim()
+        series = (
+            ("Imp", "cum_import_gbp", "#F44336"),
+            ("Exp", "cum_export_gbp", "#4CAF50"),
+            ("Net", "cum_net_gbp", "#cba6f7"),
+        )
+        for day_ts, day_df in df.groupby("_day", sort=True):
+            last = day_df.iloc[-1]
+            x_num = float(mdates.date2num(last["_ts"].to_pydatetime()))
+            if x_num < x_lo - 1e-6 or x_num > x_hi + 1e-6:
+                continue
+            is_today = bool(pd.Timestamp(day_ts).normalize() == today)
+            ha = "left" if is_today else "right"
+            x_off = 6 if is_today else -6
+            items = []
+            for name, col, color in series:
+                try:
+                    val = float(last[col])
+                except (TypeError, ValueError):
+                    continue
+                if not math.isfinite(val):
+                    continue
+                text = f"{name} £{val:.2f}"
+                if is_today and str(last.get("basis", "")) != "settled":
+                    text += " est."
+                items.append((name, val, color, text))
+            items.sort(key=lambda it: it[1])
+            placed = []
+            for _name, val, color, text in items:
+                y = val
+                for prev in placed:
+                    if abs(y - prev) < min_gap:
+                        y = prev + min_gap
+                placed.append(y)
+                ax.annotate(
+                    text, xy=(x_num, y), xytext=(x_off, 0),
+                    textcoords="offset points", ha=ha, va="center",
+                    fontsize=8, color=color, clip_on=True,
+                )
+
+    def _update_cost_summary(self):
+        model, bundle, energy_source, _bounds = self._cost_model_for_view()
+        if not bundle or bundle.get("error") or "scales" not in (bundle or {}):
+            if bundle and bundle.get("error"):
+                self.summary_text.setPlainText(
+                    "Cost view could not load spot prices or the Octopus meter.\n"
+                    + str(bundle["error"])
+                )
+            else:
+                self.summary_text.setPlainText(
+                    "Cost view is loading Agile spot prices and the last few days "
+                    "of Octopus half-hour meter readings. Those settled days are "
+                    "what tune today's estimate."
+                )
+            return
+        if not model or model.get("slots") is None or model["slots"].empty:
+            self.summary_text.setPlainText(
+                "No energy in this window to price. Try a longer Hours range, "
+                "or wait until the live meter returns a slot."
+            )
+            return
+        lines = summary_lines(
+            rates_source=bundle.get("rates_source") or "flat",
+            scales=bundle.get("scales") or {},
+            model=model,
+            energy_source=energy_source,
+            meter_direct=bool(bundle.get("meter_direct")),
+        )
+        self.summary_text.setPlainText("\n".join(lines))
+
     def _update_cards(self):
+        if self._is_cost_mode():
+            self._update_cost_cards()
+            return
         imp, exp = self.import_df, self.export_df
         has_imp = imp is not None and not imp.empty
         has_exp = exp is not None and not exp.empty
@@ -1159,6 +1834,9 @@ class OctopusLiveTab(QWidget):
         self.card_labels['total_export'].setText(f"{exp['consumption'].sum():.2f}" if has_exp else "--")
 
     def _plot_charts(self):
+        if self._is_cost_mode():
+            self._plot_cost_charts()
+            return
         import pytz, matplotlib.dates as mdates
         london = pytz.timezone('Europe/London')
         self.ax_import.clear()
@@ -1398,6 +2076,9 @@ class OctopusLiveTab(QWidget):
         self.canvas.draw()
 
     def _update_summary(self):
+        if self._is_cost_mode():
+            self._update_cost_summary()
+            return
         has_imp = self.import_df is not None and not self.import_df.empty
         has_exp = self.export_df is not None and not self.export_df.empty
         if not has_imp and not has_exp:

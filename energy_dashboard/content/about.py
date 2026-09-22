@@ -51,6 +51,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.400", "2026-09-22", [
+        "Octopus Live has a <b>Power / Cost</b> switch. Cost is energy "
+        "times the Agile spot price. Days Octopus has already metered "
+        "use that half-hour meter. Today is an estimate, scaled from "
+        "those settled days. Standing charge is not included.",
+    ]),
     ("2.9.399", "2026-09-22", [
         "<b>Run Advisor</b> turns pale green after a run that finishes, "
         "the same green as a tab that has just refreshed. A failed run "

@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-22 — Octopus Live cost view
+
+- **Context:** The live monitor showed watts and kWh. The householder also wants money, and the live stream does not match the half-hour meter Octopus later bills from.
+- **Decision:** A Power / Cost radio on Octopus Live. Cost is interval energy × the Agile spot price (VAT included). Completed days that the half-hour meter has published stay as that meter × price — what Octopus states. Today is the live energy × the same price, multiplied by the median of (stated ÷ live) over recent settled days, clamped to 0.50–1.50, and labelled as an estimate. Standing charge is not included. The price and meter pull is throttled (about 20 minutes) and does not run while Power is selected.
+- **Consequence:** Do not present the scaled today line as a measurement or as a bill. Settled days must stay on the Octopus meter series. New cost maths live in `energy_dashboard/tabs/octopus_live_cost.py`.
+
 ### 2026-09-22 — Physical Plant Tools group
 
 - **Context:** Battery Analysis, PV String Charge, and Potential Issues (formerly Pot. Issues) sat with the live dashboards or the import/export pages.
