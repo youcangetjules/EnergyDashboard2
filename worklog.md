@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-23
 
+- Database Viewer’s table menu was a short fixed list, so solar forecast, the MIX chart, the two shadow-trial tables, and connectivity history were missing even when those tables exist. The menu now lists every logger table, the same set as the Setup CREATE script, and the popup is tall enough to show them all.
 - The Broker URL test was showing a raw “no route to host” for the logging database without saying where that address comes from. It now says the host is the PostgreSQL Host box on Setup & Info (saved as db/pg_host), copied into POWERMON_PG_HOST for the collector, and it prints the value in the box and the value the collector is actually using. That address is not written into the program.
 
 ## 2026-09-22

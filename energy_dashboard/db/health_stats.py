@@ -29,6 +29,8 @@ KNOWN_TABLES = (
     ("agile_price_snapshots", "fetched_at"),
     ("agile_year_daily", "fetched_at"),
     ("connectivity_events", "timestamp"),
+    ("optimiser_shadow_plans", "built_at"),
+    ("optimiser_shadow_scores", "scored_at"),
     ("pv_string_charge", "timestamp"),
 )
 
@@ -40,6 +42,9 @@ GROWTH_TABLES = (
     ("solar_forecast_snapshots", "fetched_at"),
     ("agile_price_snapshots", "fetched_at"),
     ("agile_year_daily", "fetched_at"),
+    ("connectivity_events", "timestamp"),
+    ("optimiser_shadow_plans", "built_at"),
+    ("optimiser_shadow_scores", "scored_at"),
     ("pv_string_charge", "timestamp"),
 )
 

@@ -4,16 +4,21 @@ Energy Dashboard — `tabs/database_viewer.py` (split from EnergyDashboard2.py).
 from __future__ import annotations
 
 from energy_dashboard.common import *
+from energy_dashboard.db.full_schema import TABLE_SUMMARIES
 from energy_dashboard.db.health_stats import collect_health_stats
 from energy_dashboard.dialogs.db_health import DbHealthDialog
+
+# Newest-first column. Every logger table has ``id`` except string charge,
+# which is keyed on the 2-minute slot time.
+_ORDER_COL = {
+    "pv_string_charge": "time",
+}
+
+
 class DatabaseViewerTab(QWidget):
     """Read-only browse of DataLogger tables using Parameters → Database Export fields."""
 
-    TABLES = (
-        "growatt_readings", "tasmota_readings", "tasmota_devices",
-        "octopus_readings", "agile_price_snapshots", "agile_year_daily",
-        "pv_string_charge",
-    )
+    TABLES = tuple(name for name, _blurb in TABLE_SUMMARIES)
 
     def __init__(self, dashboard):
         super().__init__()
@@ -34,6 +39,12 @@ class DatabaseViewerTab(QWidget):
         row.addWidget(QLabel("Table:"))
         self.table_combo = QComboBox()
         self.table_combo.addItems(self.TABLES)
+        # The popup must list every logger table, not the first screenful.
+        self.table_combo.setMaxVisibleItems(max(len(self.TABLES), 1))
+        self.table_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
+        self.table_combo.setMinimumContentsLength(28)
         row.addWidget(self.table_combo)
         row.addWidget(QLabel("Max rows:"))
         self.spin_limit = QSpinBox()
@@ -141,7 +152,8 @@ class DatabaseViewerTab(QWidget):
             if table not in self.TABLES:
                 raise ValueError("Invalid table name")
             lim = max(1, min(int(limit), 10000))
-            q = f"SELECT * FROM {table} ORDER BY id DESC LIMIT {lim}"
+            order_col = _ORDER_COL.get(table, "id")
+            q = f"SELECT * FROM {table} ORDER BY {order_col} DESC LIMIT {lim}"
             if backend == "SQLite":
                 path = cap['sqlite_path'] or str(Path.home() / "energy_dashboard.db")
                 conn = sqlite3.connect(path)
@@ -203,7 +215,8 @@ class DatabaseViewerTab(QWidget):
             self.dash.set_status(f"Database viewer error: {err}")
             return
         self.status_lbl.setStyleSheet("color: #6c7086; font-size: 11px;")
-        self.status_lbl.setText(f"{len(rows)} row(s) — newest first by id")
+        order_col = _ORDER_COL.get(sql_table, "id")
+        self.status_lbl.setText(f"{len(rows)} row(s) — newest first by {order_col}")
         self._record_viewer_access()
         self.table.clear()
         self.table.setColumnCount(len(cols))

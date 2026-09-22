@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.403", "2026-09-23", [
+        "Database Viewer’s <b>Table</b> list now includes every logger table: "
+        "solar forecast, MIX chart, shadow-trial plans and scores, and "
+        "connectivity history, as well as the ones that were already there. "
+        "The list stays in step with the Setup CREATE script.",
+    ]),
     ("2.9.402", "2026-09-23", [
         "Broker URL test names where the PostgreSQL host is set "
         "(Setup &amp; Info → Database → Host, saved as <code>db/pg_host</code>, "

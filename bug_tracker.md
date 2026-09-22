@@ -57,6 +57,22 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Fixed
 
+### BUG-20260923-02 — Database Viewer table list was missing logger tables
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 00:31 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Database Viewer (`tabs/database_viewer.py`) |
+| **Version found** | 2.9.402 |
+| **Version fixed** | 2.9.403 |
+
+**Symptom:** The Table menu on Database Viewer listed seven tables. Solar forecast, the MIX chart, shadow-trial plans, shadow-trial scores, and connectivity history were not there.
+
+**Cause:** The menu was a short hardcoded list, not the full logger-table set used by Setup Database.
+
+**Resolution:** The menu is now that full set (twelve tables), and the popup is tall enough to show every name. Status uses the same set, including the two shadow-trial tables.
+
 ### BUG-20260923-01 — Broker test hid where the database host is set
 
 | Field | Value |
