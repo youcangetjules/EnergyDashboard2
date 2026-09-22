@@ -458,7 +458,16 @@ class OctopusLiveTab(QWidget):
             row0.addWidget(rb)
         self.hours_group.button(2).setChecked(True)
         self.hours_group.idClicked.connect(self._on_hours_changed)
-        row0.addSpacing(12)
+        row0.addSpacing(20)
+        hours_view_rule = QFrame()
+        hours_view_rule.setFrameShape(QFrame.Shape.VLine)
+        hours_view_rule.setFrameShadow(QFrame.Shadow.Plain)
+        hours_view_rule.setFixedSize(1, 22)
+        hours_view_rule.setStyleSheet(
+            "QFrame { color: #585b70; background-color: #585b70; border: none; }"
+        )
+        row0.addWidget(hours_view_rule)
+        row0.addSpacing(20)
         row0.addWidget(QLabel("View:"))
         self.display_group = QButtonGroup(self)
         self.rb_view_power = QRadioButton("Power")
@@ -476,6 +485,24 @@ class OctopusLiveTab(QWidget):
         row0.addWidget(self.rb_view_power)
         row0.addWidget(self.rb_view_cost)
         self.display_group.idToggled.connect(self._on_display_mode)
+        row0.addSpacing(16)
+        self.save_btn = QPushButton("Save")
+        self.save_btn.setFixedWidth(110)
+        _apply_primary_button_style(self.save_btn)
+        self.save_btn.setToolTip(
+            "Save API key, account number, import/export MPANs, granularity, hours, and power/cost view"
+        )
+        self.save_btn.clicked.connect(self._save_octopus_live_clicked)
+        row0.addWidget(self.save_btn)
+        self.test_btn = QPushButton("Test")
+        self.test_btn.setFixedWidth(110)
+        _apply_primary_button_style(self.test_btn)
+        self.test_btn.setToolTip(
+            "Check the API key and account with Octopus. "
+            "This does not reload the charts — use Fetch Live Data for that."
+        )
+        self.test_btn.clicked.connect(self._test_octopus_live)
+        row0.addWidget(self.test_btn)
         self._show_api_key_btn = QPushButton("Show")
         self._show_api_key_btn.setVisible(False)
         self._show_api_key_btn.setStyleSheet(_SUBTLE_BTN_QSS)
@@ -508,13 +535,6 @@ class OctopusLiveTab(QWidget):
             "Required for GraphQL granular telemetry."
         )
         row1.addWidget(self.account_edit)
-        self.save_btn = QPushButton("Save")
-        self.save_btn.setStyleSheet(_SUBTLE_BTN_QSS)
-        self.save_btn.setToolTip(
-            "Save API key, account number, import/export MPANs, granularity, hours, and power/cost view"
-        )
-        self.save_btn.clicked.connect(self._save_octopus_live_clicked)
-        row1.addWidget(self.save_btn)
         row1.addSpacing(15)
         row1.addWidget(QLabel("Granularity:"))
         self.granularity_group = QButtonGroup(self)
@@ -761,6 +781,74 @@ class OctopusLiveTab(QWidget):
         self.gql_status.setText(
             "Saved — API key, account number, and meter details stored for next launch."
         )
+
+    def _test_octopus_live(self):
+        """Ask Octopus whether the API key and account are accepted.
+
+        This is a login check only. It does not replace the live charts.
+        """
+        if getattr(self, "_testing", False):
+            return
+        if self.fetching:
+            self.set_status("Octopus Live test: a fetch is already talking to Octopus.")
+            return
+        api_key = self.api_key_edit.text().strip()
+        account = self.account_edit.text().strip()
+        if not api_key:
+            self._set_link("failed", "No API key to test.")
+            self.gql_status.setText("Test failed — enter an API key first.")
+            self.set_status("Octopus Live test: enter an API key first.")
+            return
+        self._testing = True
+        self.test_btn.setEnabled(False)
+        self._set_link("checking", "Testing the API key and account…")
+        self.gql_status.setText("Testing Octopus…")
+        self.set_status("Octopus Live: testing connection…")
+        threading.Thread(
+            target=self._test_octopus_thread,
+            args=(api_key, account),
+            daemon=True,
+        ).start()
+
+    def _test_octopus_thread(self, api_key: str, account: str):
+        state = "failed"
+        msg = "Octopus did not answer."
+        try:
+            token = octopus_gql_authenticate(api_key)
+            if account:
+                devices = octopus_gql_discover_devices(token, account)
+                n = len(devices or [])
+                if n:
+                    state = "ok"
+                    msg = (
+                        f"API key accepted. Account {account} has "
+                        f"{n} smart meter{'s' if n != 1 else ''}."
+                    )
+                else:
+                    msg = (
+                        f"API key accepted, but account {account} "
+                        "returned no smart meters."
+                    )
+            else:
+                state = "degraded"
+                msg = "API key accepted. Add an account number to check the meters."
+        except Exception as exc:
+            msg = str(exc).strip() or type(exc).__name__
+            state = "failed"
+
+        def _finish():
+            self._testing = False
+            btn = getattr(self, "test_btn", None)
+            if btn is not None:
+                btn.setEnabled(True)
+            self._set_link(state, msg)
+            prefix = "Test OK — " if state == "ok" else (
+                "Test — " if state == "degraded" else "Test failed — "
+            )
+            self.gql_status.setText(prefix + msg)
+            self.set_status("Octopus Live test: " + msg)
+
+        self._inv.invoke(_finish)
 
     def auto_start(self):
         self.fetch_data()

@@ -51,6 +51,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.401", "2026-09-22", [
+        "Octopus Live: <b>Save</b> sits to the right of Hours and View, "
+        "with a vertical rule between those two controls. <b>Test</b> is "
+        "to the right of Save and checks the API key and account without "
+        "reloading the charts.",
+    ]),
     ("2.9.400", "2026-09-22", [
         "Octopus Live has a <b>Power / Cost</b> switch. Cost is energy "
         "times the Agile spot price. Days Octopus has already metered "

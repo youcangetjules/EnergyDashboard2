@@ -165,6 +165,7 @@ For Import / Export MPAN (and Account No on Live):
 1. Give labels a **shared fixed width** = `max(QFontMetrics advance of each label) + pad`.
 2. Stack Import above Export so fields share one left edge (Export MPAN is the visual reference).
 3. Do not park Import MPAN mid-row after Granularity — that breaks vertical alignment with Export.
+4. On Octopus Live, Hours and View are split by a vertical rule. **Save** sits immediately to the right of View, and **Test** sits to the right of Save (equal fixed widths). Do not put Save back beside Account No.
 
 ### D. Physical / info grids (Growatt)
 
