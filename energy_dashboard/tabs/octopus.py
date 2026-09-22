@@ -65,6 +65,8 @@ class OctopusTab(QWidget):
         self._daily_net_cost_pence = None
         self._cost_uses_agile = False
         self.build_ui()
+        self._load_saved_api_key()
+        self._show_chart_message("Fetching Octopus meter data…")
 
     def _flat_import_p(self):
         if self.app_params is not None:
@@ -274,27 +276,77 @@ class OctopusTab(QWidget):
 
         main_layout.addWidget(self.chart_tabs, 1)
 
+    def _load_saved_api_key(self):
+        """Use the API key saved on Octopus Live when this box still has the default.
+
+        The default in the secrets file is rejected by Octopus (HTTP 401).
+        The key saved from Octopus Live is the one that account accepts.
+        """
+        s = QSettings("PowerModel", "EnergyDashboard2")
+        saved = str(s.value("octopus_live/api_key") or "").strip()
+        if saved:
+            self.api_key_edit.setText(saved)
+
+    def _show_chart_message(self, message: str):
+        """Dark placeholder so a failed or in-progress fetch is not a blank white plot."""
+        for fig, canvas in (
+            (self.fig_daily, self.canvas_daily),
+            (self.fig_hourly, self.canvas_hourly),
+            (self.fig_dow, self.canvas_dow),
+        ):
+            fig.clear()
+            ax = fig.add_subplot(111)
+            _style_ax_dark(ax, fig)
+            ax.text(
+                0.5, 0.5, message,
+                transform=ax.transAxes, ha="center", va="center",
+                fontsize=12, color="#cdd6f4", wrap=True,
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+            canvas.draw_idle()
+
     def auto_start(self):
         self.fetch_data()
 
     def fetch_data(self):
+        days = self.days_group.checkedId()
+        if days < 1:
+            days = 30
+        cap = {
+            "days": int(days),
+            "api_key": self.api_key_edit.text().strip(),
+            "imp_mpan": self.import_mpan_edit.text().strip(),
+            "imp_serial": self.import_serial_edit.text().strip(),
+            "exp_mpan": self.export_mpan_edit.text().strip(),
+            "exp_serial": self.export_serial_edit.text().strip(),
+        }
         self.fetch_btn.setEnabled(False)
+        self._show_chart_message("Fetching Octopus meter data…")
         self.set_status("Fetching Octopus Energy data...")
-        threading.Thread(target=self._fetch_thread, daemon=True).start()
+        threading.Thread(target=self._fetch_thread, args=(cap,), daemon=True).start()
 
-    def _fetch_thread(self):
+    def _fetch_thread(self, cap):
+        from energy_dashboard.fetch.octopus_rest import get_meter_data_detailed
         try:
-            days = self.days_group.checkedId()
+            days = int(cap["days"])
             current_date = datetime.now()
             end_date = current_date - timedelta(days=1)
             start_date = end_date - timedelta(days=days)
-            api_key = self.api_key_edit.text()
-            df_import = get_meter_data(api_key, self.import_mpan_edit.text(),
-                                       self.import_serial_edit.text(), start_date, end_date)
-            df_export = get_meter_data(api_key, self.export_mpan_edit.text(),
-                                       self.export_serial_edit.text(), start_date, end_date)
+            api_key = cap["api_key"]
+            df_import, err_imp = get_meter_data_detailed(
+                api_key, cap["imp_mpan"], cap["imp_serial"], start_date, end_date,
+            )
+            df_export, err_exp = get_meter_data_detailed(
+                api_key, cap["exp_mpan"], cap["exp_serial"], start_date, end_date,
+            )
             if df_import.empty and df_export.empty:
-                self._inv.invoke(lambda: self.set_status("No Octopus data returned."))
+                parts = [p for p in (err_imp, err_exp) if p]
+                # Same rejection on both meters is one problem, not two.
+                msg = parts[0] if len(set(parts)) <= 1 and parts else " | ".join(parts)
+                msg = msg or "No Octopus data returned."
+                self._inv.invoke(lambda m=msg: self._show_chart_message(m))
+                self._inv.invoke(lambda m=msg: self.set_status(f"Octopus fetch failed: {m}"))
                 self._inv.invoke(lambda: self.fetch_btn.setEnabled(True))
                 return
             if not df_import.empty:
@@ -336,13 +388,20 @@ class OctopusTab(QWidget):
             total_export = daily_totals['Export (kWh)'].sum()
             net_usage = total_import - total_export
             num_days = len(daily_totals)
-            self._inv.invoke(lambda: self._update_display(total_import, total_export, net_usage, num_days, daily_totals))
+            note = ""
+            if df_import.empty and err_imp:
+                note = f" Import meter: {err_imp}"
+            elif df_export.empty and err_exp:
+                note = f" Export meter: {err_exp}"
+            self._inv.invoke(lambda n=note: self._update_display(
+                total_import, total_export, net_usage, num_days, daily_totals, n,
+            ))
         except Exception as e:
             err = str(e)
             self._inv.invoke(lambda msg=err: self.set_status(f"Octopus fetch error: {msg}"))
             self._inv.invoke(lambda: self.fetch_btn.setEnabled(True))
 
-    def _update_display(self, total_import, total_export, net_usage, num_days, daily_totals):
+    def _update_display(self, total_import, total_export, net_usage, num_days, daily_totals, note=""):
         self.summary_labels['total_import'].setText(f"{total_import:.1f}")
         self.summary_labels['total_export'].setText(f"{total_export:.1f}")
         nc = '#f38ba8' if net_usage > 0 else '#a6e3a1'
@@ -379,7 +438,10 @@ class OctopusTab(QWidget):
         self._draw_charts(daily_totals)
         self.export_btn.setEnabled(True)
         self.fetch_btn.setEnabled(True)
-        self.set_status(f"Octopus data loaded: {num_days} days, {total_import:.1f} kWh import, {total_export:.1f} kWh export")
+        self.set_status(
+            f"Octopus data loaded: {num_days} days, {total_import:.1f} kWh import, "
+            f"{total_export:.1f} kWh export{note}"
+        )
         if self.on_data_updated:
             self.on_data_updated()
 

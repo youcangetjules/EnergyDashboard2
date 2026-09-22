@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.404", "2026-09-23", [
+        "Octopus Energy Data fetches with the API key saved on Octopus Live. "
+        "The old default key was rejected by Octopus, so the charts stayed empty. "
+        "A failed fetch now says why on the chart.",
+    ]),
     ("2.9.403", "2026-09-23", [
         "Database Viewer’s <b>Table</b> list now includes every logger table: "
         "solar forecast, MIX chart, shadow-trial plans and scores, and "

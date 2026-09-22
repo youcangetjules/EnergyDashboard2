@@ -34,12 +34,18 @@ def octopus_request_error_message(exc: BaseException) -> str:
     return str(exc)
 
 
-def get_meter_data(api_key, mpan, serial, start_dt, end_dt):
+def get_meter_data_detailed(api_key, mpan, serial, start_dt, end_dt):
+    """Half-hour consumption, plus a short reason when nothing comes back.
+
+    Returns ``(dataframe, error)``. ``error`` is empty when rows were read.
+    A rejected key, a down network, or a missing MPAN is an error — not an
+    empty success.
+    """
     api_key = (api_key or "").strip()
     mpan = (mpan or "").strip()
     serial = (serial or "").strip()
     if not api_key or not mpan or not serial:
-        return pd.DataFrame()
+        return pd.DataFrame(), "API key, MPAN, and meter serial are all required."
     url = f"https://api.octopus.energy/v1/electricity-meter-points/{mpan}/meters/{serial}/consumption/"
     auth_str = f"{api_key}:"
     b64_auth = base64.b64encode(auth_str.encode()).decode()
@@ -59,14 +65,20 @@ def get_meter_data(api_key, mpan, serial, start_dt, end_dt):
             url = data.get('next')
             params = None
         except requests.exceptions.RequestException as e:
-            _log.warn("Octopus REST", octopus_request_error_message(e))
-            return pd.DataFrame()
+            msg = octopus_request_error_message(e)
+            _log.warn("Octopus REST", msg)
+            return pd.DataFrame(), msg
     if not all_results:
-        return pd.DataFrame()
+        return pd.DataFrame(), "Octopus returned no half-hour readings for that meter and date range."
     df = pd.DataFrame(all_results)
     df['interval_start'] = pd.to_datetime(df['interval_start'], utc=True)
     df['consumption'] = pd.to_numeric(df['consumption'])
-    return df[['interval_start', 'consumption']]
+    return df[['interval_start', 'consumption']], ""
+
+
+def get_meter_data(api_key, mpan, serial, start_dt, end_dt):
+    df, _err = get_meter_data_detailed(api_key, mpan, serial, start_dt, end_dt)
+    return df
 
 
 def fetch_agile_standard_unit_rates(product_code, tariff_code, days_back=1):

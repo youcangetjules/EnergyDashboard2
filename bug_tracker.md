@@ -57,6 +57,22 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Fixed
 
+### BUG-20260923-03 — Octopus Energy Data chart stays empty
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 00:54 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Octopus Energy Data (`tabs/octopus.py`, `fetch/octopus_rest.py`) |
+| **Version found** | 2.9.403 |
+| **Version fixed** | 2.9.404 |
+
+**Symptom:** Octopus Energy Data showed “--” on every summary card and a blank white chart. Octopus Live on the same account was still drawing.
+
+**Cause:** This tab sent the default API key from the secrets file. Octopus rejected it (HTTP 401, “Invalid API key”). The failure was thrown away and looked like “no data”. The key saved on Octopus Live is a different key, and that one is accepted.
+
+**Resolution:** The API key box and the fetch use the saved Octopus Live key. A rejected fetch writes the reason on the chart instead of leaving a white plot.
+
 ### BUG-20260923-02 — Database Viewer table list was missing logger tables
 
 | Field | Value |
