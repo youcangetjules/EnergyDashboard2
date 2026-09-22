@@ -57,6 +57,22 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Fixed
 
+### BUG-20260923-01 — Broker test hid where the database host is set
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 00:23 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Setup & Info → Background collector (`tabs/parameters.py`, `services/energy_collector.py`) |
+| **Version found** | 2.9.401 |
+| **Version fixed** | 2.9.402 |
+
+**Symptom:** Broker URL test said the collector could not reach PostgreSQL (“No route to host”) and printed an address, but not which setting that address came from.
+
+**Cause:** `/health` only returned the database driver’s raw error. The host lives in Setup & Info → PostgreSQL Host (`db/pg_host`) and, for the collector, in `POWERMON_PG_HOST`. The example env file also carried a site address.
+
+**Resolution:** The test and the collector status line name both places and the current values. `/health` reports the host, port, and database the process was started with (no password). The example env file no longer contains a site address.
+
 ### BUG-20260922-16 — Battery simulator stays blank when history is too short
 
 | Field | Value |

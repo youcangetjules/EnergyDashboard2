@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.402", "2026-09-23", [
+        "Broker URL test names where the PostgreSQL host is set "
+        "(Setup &amp; Info → Database → Host, saved as <code>db/pg_host</code>, "
+        "copied to <code>POWERMON_PG_HOST</code>) and what that host is set to. "
+        "The address is not hard-coded.",
+    ]),
     ("2.9.401", "2026-09-22", [
         "Octopus Live: <b>Save</b> sits to the right of Hours and View, "
         "with a vertical rule between those two controls. <b>Test</b> is "

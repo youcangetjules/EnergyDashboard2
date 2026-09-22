@@ -11,6 +11,8 @@ One-stop config: API credentials, tariff parameters, battery defaults, solar ins
 <p>
 Use <b>Apply to all tabs</b> to push battery / solar / Agile settings into the simulator, Forecasts and Smart Advisor tabs in one click.</p>
 <p>
+<b>Broker URL → Test</b> checks the collector, then says where PostgreSQL’s host is set and what it is set to. The address is not written into the program. <b>Database → PostgreSQL → Host</b> is saved as <code>db/pg_host</code>. Installing the collector copies that into <code>POWERMON_PG_HOST</code> in <code>/etc/default/energy-collector</code>. The test shows both the Host box on this page and the host the running collector is actually using.</p>
+<p>
 <b>Main window — tab bar</b> lets you hide tabs you rarely use; Growatt, Octopus Energy Data, and this Setup tab always stay visible.</p>
 <p>
 <b>EMQX routing profile</b>: local <b>Tasmota</b>, <b>WiFi Direct</b>, and <b>LAN Direct</b> routes are configured to flow through <code>222.20.20.212</code>. Enter the EMQX <b>host</b>, <b>port</b>, <b>username</b>, and <b>password</b>. Use <b>Save</b> to store credentials only, <b>Test</b> to verify MQTT connect/auth, and <b>Apply EMQX route</b> to sync those credentials into Growatt Grott MQTT and Tasmota MQTT settings in one step.</p>

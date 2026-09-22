@@ -2013,8 +2013,59 @@ class ParametersTab(QWidget):
         )
         self._probe_service_async()
 
+    def _postgres_host_setting_note(self, http: dict | None, field: str | None = None) -> str:
+        """Where the collector's database host is set, and the values in use.
+
+        The address is never written into the program. It is read from the
+        collector environment and from the PostgreSQL Host field on this page.
+        """
+        http = http or {}
+        db = http.get("database") if isinstance(http.get("database"), dict) else {}
+        host = str(db.get("host") or "").strip()
+        port = db.get("port")
+        name = str(db.get("name") or "").strip()
+        host_from = str(db.get("host_from") or "POWERMON_PG_HOST")
+        if field is None:
+            field = ""
+            edit = getattr(self, "ed_pg_host", None)
+            if edit is not None:
+                field = edit.text().strip()
+        lines = [
+            "PostgreSQL host is not hard-coded.",
+            "Setup & Info → Database → PostgreSQL → Host saves it as db/pg_host.",
+            "sudo ./services/install-energy-collector.sh copies that into "
+            f"{host_from} in /etc/default/energy-collector. "
+            "The running collector uses that environment value.",
+        ]
+        if host:
+            target = host
+            if port not in (None, ""):
+                target = f"{host}:{port}"
+            if name:
+                target = f"{target}/{name}"
+            lines.append(f"Collector is using {host_from} = {target}.")
+        else:
+            lines.append(
+                "This broker did not report its database host "
+                "(restart energy-collector to include it)."
+            )
+        if field:
+            lines.append(f"This screen's PostgreSQL Host is currently {field}.")
+            if host and field != host:
+                lines.append(
+                    "Those two differ. Edit the Host field, Save the database "
+                    "settings, then re-run the install script (or edit "
+                    "/etc/default/energy-collector) and restart energy-collector."
+                )
+        else:
+            lines.append("This screen's PostgreSQL Host field is empty.")
+        return "\n".join(lines)
+
     def _test_broker_url(self):
         broker = self._broker_url_for_probe()
+        pg_field = ""
+        if getattr(self, "ed_pg_host", None) is not None:
+            pg_field = self.ed_pg_host.text().strip()
         self.btn_broker_test.setEnabled(False)
 
         def _worker():
@@ -2022,6 +2073,7 @@ class ParametersTab(QWidget):
                 status = collect_collector_service_status(broker)
                 http = status.get("http") or {}
                 url = http.get("url") or broker
+                db_note = self._postgres_host_setting_note(http, field=pg_field)
                 if http.get("reachable"):
                     if http.get("ok"):
                         msg = f"Broker healthy at {url}"
@@ -2038,6 +2090,7 @@ class ParametersTab(QWidget):
                         f"Could not reach {url}\n"
                         f"{http.get('http_error') or 'connection failed'}"
                     )
+                msg = f"{msg}\n\n{db_note}"
                 self._inv.invoke(lambda m=msg: self._finish_broker_url_test(m))
             except Exception as e:
                 self._inv.invoke(
@@ -2329,7 +2382,12 @@ class ParametersTab(QWidget):
         if growatt_err:
             detail_parts.append(f"Growatt poll error: {growatt_err}")
         if poll_err:
-            detail_parts.append(f"Collector error: {poll_err}")
+            detail_parts.append(f"Collector error: {html.escape(str(poll_err))}")
+        detail_parts.append(
+            "<span style='color:#cdd6f4;'>"
+            + html.escape(self._postgres_host_setting_note(http)).replace("\n", "<br>")
+            + "</span>"
+        )
         if not http.get("reachable"):
             hint = broker_unreachable_hint(url, primary, http)
             if hint:

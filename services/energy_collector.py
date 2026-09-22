@@ -350,6 +350,8 @@ class CollectorState:
             "online": 0,
             "error": None,
         }
+        # PostgreSQL target this process was started with. No password.
+        self.database: dict[str, Any] | None = None
 
 
 def make_handler(state: CollectorState):
@@ -371,12 +373,14 @@ def make_handler(state: CollectorState):
                 with state.lock:
                     err = state.snapshot.get("error")
                     growatt_err = state.snapshot.get("growatt_error")
+                    database = state.database
                 self._send_json(
                     200,
                     {
                         "ok": err is None,
                         "error": err,
                         "growatt_error": growatt_err,
+                        "database": database,
                     },
                 )
                 return
@@ -615,6 +619,15 @@ def main() -> int:
     ips = resolve_tasmota_ips(args.tasmota_ips, args.ip_start, args.ip_end)
 
     state = CollectorState()
+    state.database = {
+        "engine": "postgresql",
+        "host": args.pg_host,
+        "port": int(args.pg_port),
+        "name": args.pg_db,
+        "host_from": "POWERMON_PG_HOST",
+        "port_from": "POWERMON_PG_PORT",
+        "name_from": "POWERMON_PG_DB",
+    }
     pg_conn_holder: list = [None]
 
     poll_thread = threading.Thread(

@@ -10,6 +10,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-09-23
+
+- The Broker URL test was showing a raw “no route to host” for the logging database without saying where that address comes from. It now says the host is the PostgreSQL Host box on Setup & Info (saved as db/pg_host), copied into POWERMON_PG_HOST for the collector, and it prints the value in the box and the value the collector is actually using. That address is not written into the program.
+
 ## 2026-09-22
 
 - The GitHub front page now opens with the same introduction as the About popup in the app (Growatt and Octopus, and how to get in touch).

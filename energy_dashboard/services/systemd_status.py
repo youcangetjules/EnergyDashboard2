@@ -139,6 +139,7 @@ def _probe_http(base_url: str) -> dict:
         "updated_at": None,
         "online_devices": None,
         "http_error": None,
+        "database": None,
     }
     health_url = urljoin(base_url + "/", "health")
     try:
@@ -151,6 +152,8 @@ def _probe_http(base_url: str) -> dict:
         out["ok"] = bool(data.get("ok"))
         out["error"] = data.get("error")
         out["growatt_error"] = data.get("growatt_error")
+        db = data.get("database")
+        out["database"] = db if isinstance(db, dict) else None
     except requests.RequestException as exc:
         out["http_error"] = str(exc)
         return out
