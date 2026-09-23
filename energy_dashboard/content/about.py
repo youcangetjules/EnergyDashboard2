@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.407", "2026-09-23", [
+        "Setup &amp; Info → Database Export: each engine has <b>Show missing</b>. "
+        "It lists logger tables that are not on that database yet and shows "
+        "CREATE SQL for only those tables (PostgreSQL includes GRANT lines "
+        "for the User field).",
+    ]),
     ("2.9.406", "2026-09-23", [
         "Command Sim: Bind address and the other fields use the grey fill "
         "with electric-blue border. Server and client controls sit left of "

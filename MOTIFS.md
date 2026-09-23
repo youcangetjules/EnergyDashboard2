@@ -195,6 +195,9 @@ For Import / Export MPAN (and Account No on Live):
 - The remaining row width on the **right** is the create-all SQL pane (table list + script + Copy SQL).
 - Do not put a stretch *before* the status panel — that parks Disabled on the far right.
 
+- **Copy CREATE SQL** / **Copy SQL** put the full create-all script on the clipboard.
+- **Show missing** (each engine row) lists logger tables that are not present yet and shows CREATE SQL for those tables only (PostgreSQL includes GRANT lines for the User field).
+
 ### G. General checklist
 
 Before shipping a form row:

@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-23
 
+- Setup & Info → Database Export now has **Show missing** on each engine row. It checks which logger tables are not on that database yet, lists them, and shows CREATE SQL for only those tables (PostgreSQL includes the GRANT lines for the User field).
 - Command Sim’s Bind address (and the other fields) now use the same grey fill and blue border as Setup spins. The server and Modbus client controls sit on the left and stop around the middle of the window, instead of stretching full width or parking on the far right.
 - Grott Setup’s Live feed line was painting “connected · fresh” in the same white as the rest of the box, because a stylesheet colour overrode the green HTML. That state is bold green again (stale / not connected stay bold amber / red). Text boxes and spins across the app now share the same slight grey fill the spin motif already used, so fields no longer disappear into the dark panel.
 - Octopus Energy Data was asking Octopus with the default API key from the secrets file. Octopus answered “Invalid API key”, and the tab turned that into an empty white chart. It now uses the key you saved on Octopus Live (the one that account accepts) and writes the reason on the chart if a fetch still fails.

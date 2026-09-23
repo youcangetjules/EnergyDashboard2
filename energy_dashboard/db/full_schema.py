@@ -114,6 +114,107 @@ def _table_create_statements(dialect: str) -> tuple[str, ...]:
     return tuple(by_name.get(n, "") for n, _b in TABLE_SUMMARIES)
 
 
+def _ordered_table_names(table_names) -> list[str]:
+    wanted = {str(n) for n in (table_names or ()) if n}
+    return [name for name, _blurb in TABLE_SUMMARIES if name in wanted]
+
+
+def _stmt_targets_table(stmt: str, name: str) -> bool:
+    """True when *stmt* creates *name* or an index on it."""
+    padded = f"{stmt} "
+    if f"CREATE TABLE IF NOT EXISTS {name} " in padded:
+        return True
+    # Indexes: ``… ON tablename (`` / ``… ON tablename (``
+    if f" ON {name} " in padded or f" ON {name}(" in padded:
+        return True
+    return False
+
+
+def statements_for_tables(dialect: str, table_names) -> tuple[str, ...]:
+    """CREATE TABLE / INDEX statements for the named logger tables only."""
+    ordered = _ordered_table_names(table_names)
+    if not ordered:
+        return ()
+    wanted = set(ordered)
+    out = []
+    for stmt in dialect_statements(dialect):
+        if any(_stmt_targets_table(stmt, name) for name in wanted):
+            out.append(stmt)
+    return tuple(out)
+
+
+def grant_statements_for_tables(role: str, table_names) -> tuple[str, ...]:
+    """PostgreSQL GRANTs for a subset of logger tables (same rights as full script)."""
+    ordered = _ordered_table_names(table_names)
+    if not ordered or not (role or "").strip():
+        return ()
+    role_sql = _quote_ident(role.strip())
+    creates = dict(zip(
+        (n for n, _b in TABLE_SUMMARIES),
+        _table_create_statements("pg"),
+    ))
+    out = []
+    for name in ordered:
+        out.append(
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON "
+            f"{_quote_ident(name)} TO {role_sql}"
+        )
+        if "SERIAL PRIMARY KEY" in (creates.get(name) or ""):
+            out.append(
+                f"GRANT USAGE, SELECT ON SEQUENCE "
+                f"{_quote_ident(name + '_id_seq')} TO {role_sql}"
+            )
+    return tuple(out)
+
+
+def schema_script_for_tables(
+    dialect: str,
+    table_names,
+    *,
+    grant_role: str | None = None,
+) -> str:
+    """SQL to create only the named missing tables (plus indexes / GRANTs)."""
+    title = _ENGINE_TITLE[dialect]
+    ordered = _ordered_table_names(table_names)
+    if not ordered:
+        return (
+            f"-- Energy Dashboard — {title}: no missing logger tables.\n"
+            "-- Every expected table is already present.\n"
+        )
+    names = ", ".join(ordered)
+    body = "\n\n".join(f"{stmt};" for stmt in statements_for_tables(dialect, ordered))
+    if dialect != "pg":
+        header = (
+            f"-- Energy Dashboard — {title} CREATE for missing logger tables\n"
+            "-- CREATE IF NOT EXISTS: tables already present keep their rows.\n"
+            f"-- Missing: {names}\n"
+        )
+        return f"{header}\n{body}\n"
+
+    role = (grant_role or "").strip()
+    header = (
+        "-- Energy Dashboard — PostgreSQL CREATE for missing logger tables.\n"
+        "-- Run this by hand as the database owner (psql, e.g. user postgres).\n"
+        "-- The dashboard login is not allowed to create tables.\n"
+        "-- CREATE IF NOT EXISTS: tables already present keep their rows.\n"
+        f"-- Missing: {names}\n"
+    )
+    if not role:
+        return (
+            f"{header}\n{body}\n\n"
+            "-- Then grant the dashboard login access. Set the PostgreSQL user\n"
+            "-- on the left first and this script will list the GRANT lines.\n"
+        )
+    grants = "\n".join(
+        f"{stmt};" for stmt in grant_statements_for_tables(role, ordered)
+    )
+    return (
+        f"{header}\n{body}\n\n"
+        f"-- Access for the dashboard login ({role}) on the tables above.\n"
+        f"{grants}\n"
+    )
+
+
 def schema_script(dialect: str, *, grant_role: str | None = None) -> str:
     """Full SQL text for the Setup & Info viewer and Copy SQL."""
     title = _ENGINE_TITLE[dialect]
@@ -201,6 +302,9 @@ __all__ = [
     "apply_full_schema",
     "dialect_statements",
     "grant_statements",
+    "grant_statements_for_tables",
     "schema_info_html",
     "schema_script",
+    "schema_script_for_tables",
+    "statements_for_tables",
 ]

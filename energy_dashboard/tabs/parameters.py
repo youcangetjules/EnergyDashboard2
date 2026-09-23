@@ -430,6 +430,16 @@ class ParametersTab(QWidget):
         )
         row.addWidget(copy_sql_btn)
 
+        missing_btn = QPushButton("Show missing")
+        missing_btn.setToolTip(
+            f"List logger tables that are not on this {label} database yet, "
+            "and show CREATE SQL for only those tables"
+        )
+        missing_btn.clicked.connect(
+            lambda _checked=False, b=backend: self._show_missing_tables(b)
+        )
+        row.addWidget(missing_btn)
+
         ring_btn = QPushButton("Ring buffers…")
         ring_btn.setToolTip(f"Open ring-buffer limits for {label} logged data")
         ring_btn.clicked.connect(lambda _checked=False, b=backend: self._open_ring_buffers_dialog(b))
@@ -2532,6 +2542,91 @@ class ParametersTab(QWidget):
             dialect, dialect
         )
         self.dash.set_status(f"{engine} CREATE SQL copied to clipboard.")
+
+    def _show_missing_tables(self, backend: str) -> None:
+        """List missing logger tables for one engine and show CREATE SQL for them."""
+        from energy_dashboard.db.connect_probe import probe_missing_logger_tables
+        from energy_dashboard.dialogs.db_missing import DbMissingTablesDialog
+
+        self._push_db_config_to_logger(backend)
+        engine = self._db_backend_display_name(backend) or backend
+        dialect = {"sqlite": "sqlite", "mysql": "mysql", "pg": "pg"}.get(
+            backend, backend
+        )
+        grant_role = self._db_grant_role(dialect)
+        self.dash.set_status(f"{engine}: checking for missing tables…")
+
+        def _worker():
+            dl = getattr(self.dash, "data_logger", None)
+            if dl is None:
+                result = {
+                    "engine": engine,
+                    "dialect": dialect,
+                    "connected": False,
+                    "missing": [],
+                    "error": "Logger not initialised",
+                }
+            elif backend == "sqlite":
+                result = probe_missing_logger_tables(
+                    "SQLite", path=dl.sqlite_path,
+                )
+            elif backend == "mysql":
+                result = probe_missing_logger_tables(
+                    "MySQL",
+                    host=dl.mysql_host,
+                    port=dl.mysql_port,
+                    user=dl.mysql_user,
+                    password=dl.mysql_pass,
+                    database=dl.mysql_db,
+                )
+            else:
+                result = probe_missing_logger_tables(
+                    "PostgreSQL",
+                    host=dl.pg_host,
+                    port=dl.pg_port,
+                    user=dl.pg_user,
+                    password=dl.pg_pass,
+                    database=dl.pg_db,
+                )
+            self._inv.invoke(
+                lambda r=result, g=grant_role, b=backend: self._finish_show_missing(
+                    r, grant_role=g, backend=b,
+                )
+            )
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _finish_show_missing(self, result: dict, *, grant_role: str, backend: str) -> None:
+        from energy_dashboard.dialogs.db_missing import DbMissingTablesDialog
+
+        # Restore automatic-logging selection after a one-row probe.
+        self._push_db_config_to_logger()
+        engine = str(result.get("engine") or backend)
+        dialect = str(result.get("dialect") or backend)
+        missing = list(result.get("missing") or [])
+        connected = bool(result.get("connected"))
+        err = str(result.get("error") or "")
+        if connected and not missing:
+            self.dash.set_status(f"{engine}: no missing logger tables.")
+        elif connected:
+            self.dash.set_status(
+                f"{engine}: {len(missing)} missing logger table"
+                f"{'s' if len(missing) != 1 else ''}."
+            )
+        else:
+            self.dash.set_status(
+                f"{engine}: could not check tables — {err or 'not connected'}."
+            )
+        dlg = DbMissingTablesDialog(
+            self,
+            engine=engine,
+            dialect=dialect,
+            missing=missing,
+            connected=connected,
+            error=err,
+            grant_role=grant_role,
+        )
+        dlg.exec()
 
     @staticmethod
     def _set_db_status_line(lbl: QLabel, text: str, color: str, *, bold=False, tooltip=""):

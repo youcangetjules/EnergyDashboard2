@@ -378,6 +378,80 @@ def _tables_stage(conn, dialect: str) -> tuple[bool, str, str]:
     return True, f"Tables connected ({usable}/{total})", "All logger tables are present and usable."
 
 
+def list_missing_logger_tables(conn, dialect: str) -> list[str]:
+    """Logger table names from the full schema that are not present yet."""
+    present = _list_tables(conn, dialect)
+    return [name for name in _expected_logger_tables() if name not in present]
+
+
+def probe_missing_logger_tables(engine: str, **kwargs) -> dict:
+    """Open one engine and list missing logger tables.
+
+    Returns ``connected``, ``missing`` (ordered), ``error``, ``engine``, ``dialect``.
+    """
+    engine_l = (engine or "").strip()
+    dialect = {"SQLite": "sqlite", "MySQL": "mysql", "PostgreSQL": "pg"}.get(
+        engine_l, engine_l.lower()
+    )
+    out = {
+        "engine": engine_l or dialect,
+        "dialect": dialect,
+        "connected": False,
+        "missing": [],
+        "error": "",
+    }
+    try:
+        if dialect == "sqlite":
+            path = (kwargs.get("path") or "").strip() or str(
+                Path.home() / "energy_dashboard.db"
+            )
+            if not Path(path).is_file():
+                out["error"] = f"No SQLite file at {path}."
+                out["missing"] = list(_expected_logger_tables())
+                return out
+            conn = sqlite3.connect(path)
+            try:
+                out["connected"] = True
+                out["missing"] = list_missing_logger_tables(conn, "sqlite")
+            finally:
+                conn.close()
+            return out
+        if dialect == "mysql":
+            conn = mysql_connect(
+                kwargs.get("host"),
+                kwargs.get("port"),
+                kwargs.get("user"),
+                kwargs.get("password"),
+                kwargs.get("database"),
+                autocommit=True,
+            )
+            try:
+                out["connected"] = True
+                out["missing"] = list_missing_logger_tables(conn, "mysql")
+            finally:
+                conn.close()
+            return out
+        conn = postgresql_connect(
+            kwargs.get("host"),
+            kwargs.get("port"),
+            kwargs.get("user"),
+            kwargs.get("password"),
+            kwargs.get("database"),
+            autocommit=True,
+        )
+        try:
+            out["connected"] = True
+            out["missing"] = list_missing_logger_tables(conn, "pg")
+        finally:
+            conn.close()
+        return out
+    except Exception as exc:
+        out["error"] = str(exc).splitlines()[0][:240] or type(exc).__name__
+        # Still name every expected table so the SQL pane can offer CREATE-all.
+        out["missing"] = list(_expected_logger_tables())
+        return out
+
+
 def _stage_result(
     *,
     engine: str,
