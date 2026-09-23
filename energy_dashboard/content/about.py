@@ -53,6 +53,10 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.413", "2026-09-23", [
+        "Octopus Live Monitor: the panel title has a light glass wash and a "
+        "neat 1px grey border.",
+    ]),
     ("2.9.412", "2026-09-23", [
         "Octopus Live: the bottom chart always shows "
         "<b>Generated Energy (PV)</b>, <b>Imported Energy</b>, "

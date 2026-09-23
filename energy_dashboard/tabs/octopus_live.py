@@ -442,6 +442,7 @@ class OctopusLiveTab(QWidget):
         top_layout.setContentsMargins(0, 0, 0, 0)
 
         ctrl_box = QGroupBox("Octopus Live Monitor")
+        ctrl_box.setObjectName("octopusLiveMonitor")
         ctrl_vlayout = QVBoxLayout(ctrl_box)
         row0 = QHBoxLayout()
         row0.addWidget(QLabel("API Key:"))

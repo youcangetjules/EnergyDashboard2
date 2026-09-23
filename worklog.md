@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-23
 
+- The Octopus Live Monitor panel title now sits in a light glass chip with a neat 1px grey border, so it reads as a label rather than plain text on the frame.
 - On Octopus Live Cost view the bottom chart had switched to pounds (import cost / export credit / net). That hid the energy story. The bottom chart now always shows Generated Energy (PV), Imported Energy, Total Used Energy, and Exported Energy. Cost still puts money on the top chart and the cards only.
 - A segmentation fault was only a one-line “core dumped” in the terminal. The dashboard now writes those to `~/.energy_dashboard_crash.log` (the Python stacks, and the system core-dump stack for the thread that died) and adds a Crash line on the Console. Closing the window in the normal way is not recorded as a crash. The core file itself still stays with the system.
 - On PV String Charge, clicking String 1 or String 2 opens a history table of measured generation from the stored 2-minute lots. You can open Month → Day → Hour and see each string’s kWh, the total, and how the two strings share that total.
