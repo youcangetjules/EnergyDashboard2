@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-23
 
+- The dashboard would not start: Command Sim needed a motif size name that never arrived because of how that module loads through `common`. Launch works again.
 - Setup & Info → Database Export now has **Show missing** on each engine row. It checks which logger tables are not on that database yet, lists them, and shows CREATE SQL for only those tables (PostgreSQL includes the GRANT lines for the User field).
 - Command Sim’s Bind address (and the other fields) now use the same grey fill and blue border as Setup spins. The server and Modbus client controls sit on the left and stop around the middle of the window, instead of stretching full width or parking on the far right.
 - Grott Setup’s Live feed line was painting “connected · fresh” in the same white as the rest of the box, because a stylesheet colour overrode the green HTML. That state is bold green again (stale / not connected stay bold amber / red). Text boxes and spins across the app now share the same slight grey fill the spin motif already used, so fields no longer disappear into the dark panel.

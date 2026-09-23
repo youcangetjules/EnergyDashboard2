@@ -7,6 +7,12 @@ import time as _time_mod
 
 from energy_dashboard.common import *
 from energy_dashboard.ui.buttons import _apply_primary_button_style
+from energy_dashboard.ui.palette import _SPIN_FIELD_MOTIF_DB_W
+from energy_dashboard.ui.styles import (
+    apply_combo_field_motif,
+    apply_setup_info_line_field_motif,
+    apply_spin_field_motif,
+)
 from energy_dashboard.core.logging import _log
 
 _RS485_IO_LOCK = threading.Lock()

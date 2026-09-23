@@ -39,6 +39,25 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Open
 
+### BUG-20260923-06 — Setup Database Export: status and SQL panes still misaligned
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 09:26 (Europe/London) |
+| **Status** | open |
+| **Area** | Setup & Info → Database Export (`tabs/parameters.py`) |
+| **Version found** | 2.9.406 |
+| **Version fixed** | — |
+
+**Symptom:** On Setup & Info → Database Export, the layout still does not match the agreed motif (see `MOTIFS.md` §F). Reported again with a screenshot after earlier alignment work:
+
+1. **Connected status** (e.g. “PostgreSQL DB seen” / “Database connected” / “Tables not connected (11/12)”) still sits in the **middle gap** between the Host/Port/… fields and the create-all SQL box — not immediately after the fields and left-aligned. SQLite/MySQL “Disabled” shows the same floating mid-row look.
+2. **Create-all SQL** panes on the right are not lined up as one consistent column across SQLite, MySQL, and PostgreSQL (left edges / widths disagree between rows), and the SQL side still feels too wide vs “stop around mid-window” expectations from recent layout requests.
+
+**Cause:** Investigating. Prior fix BUG-20260921-02 left-aligned status with `Maximum` width and gave leftover width to the SQL pane, but the three engine rows still do not share one field / status / SQL column grid in practice.
+
+**Resolution:** Empty while open. Target per motif: status immediately after the host/file fields (left-aligned); SQL panes share one left edge and width across all three engines.
+
 ### BUG-20260923-04 — Dashboard freezes / goes sticky after running a while
 
 | Field | Value |
@@ -77,6 +96,22 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 **Resolution:** Partial hardening in **2.9.380** — `Invoker` now forces `QueuedConnection` so worker `invoke()` always posts to the GUI thread. Fresh `./run-dashboard.sh` smoke-tested ~12s without SEGV. Full root cause of the import race still open if it recurs.
 
 ## Fixed
+
+### BUG-20260923-07 — Dashboard would not start (Command Sim NameError)
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 09:41 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Command Sim (`modbus/command_sim.py`) |
+| **Version found** | 2.9.407 |
+| **Version fixed** | 2.9.408 |
+
+**Symptom:** `./run-dashboard.sh` crashed on launch with `NameError: name '_SPIN_FIELD_MOTIF_DB_W' is not defined` while building Command Sim.
+
+**Cause:** Command Sim is loaded via `common.py` and does `from energy_dashboard.common import *` while that module is still initialising. Without `__all__` yet, star-import skips underscore names, so motif helpers arrived but `_SPIN_FIELD_MOTIF_DB_W` did not.
+
+**Resolution:** Import `_SPIN_FIELD_MOTIF_DB_W` and the motif helpers explicitly from `ui.palette` / `ui.styles`.
 
 ### BUG-20260923-05 — Grott Setup “connected · fresh” looked white
 
@@ -537,6 +572,8 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 **Cause:** The backend HBox added stretch, then the status panel, then stretch (`AlignHCenter`), so the 300 px status block floated in leftover space.
 
 **Resolution:** Status is left-aligned next to the fields (`Maximum` width). Remaining width is the create-all SQL pane.
+
+**Follow-up:** Alignment still wrong in practice — see open **BUG-20260923-06** (status floats mid-row; SQL panes not one shared column).
 
 ### BUG-20260921-01 — Setup Database created only four tables
 

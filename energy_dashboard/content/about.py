@@ -53,6 +53,10 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.408", "2026-09-23", [
+        "Dashboard starts again. Command Sim had asked for a motif size "
+        "name that was missing after a circular import, so launch crashed.",
+    ]),
     ("2.9.407", "2026-09-23", [
         "Setup &amp; Info → Database Export: each engine has <b>Show missing</b>. "
         "It lists logger tables that are not on that database yet and shows "
