@@ -34,17 +34,21 @@ _QS_TREND_YTD = "agile_year/trend_ytd"
 _QS_TREND_YEARLY = "agile_year/trend_yearly"
 _QS_TREND_START = "agile_year/trend_since_start"
 _COL_KEY = "agile_year_daily"
+_PRIOR_YEAR_OFFSETS = (1, 2, 3)
 _COL_HEADERS = (
     "Day",
     "Highest p/kWh",
     "Lowest p/kWh",
     "Average p/kWh",
+    "Avg −1y",
+    "Avg −2y",
+    "Avg −3y",
     "Hours below 0p",
     "Slots",
     "% Above/Below LT trend",
     "Std. deviation from trend",
 )
-_COL_WIDTHS = (168, 108, 108, 112, 110, 58, 168, 168)
+_COL_WIDTHS = (168, 108, 108, 112, 88, 88, 88, 110, 58, 168, 168)
 _TREND_MONTHLY_COLOUR = "#f9e2af"
 _TREND_YTD_COLOUR = "#89dceb"
 _TREND_YEARLY_COLOUR = "#cba6f7"
@@ -207,6 +211,52 @@ def merge_daily_stats(*groups):
                 continue
             by_day[day] = rec
     return [by_day[d] for d in sorted(by_day.keys(), reverse=True)]
+
+
+def _same_calendar_date_years_ago(day, years_ago: int):
+    """Same month/day that many years earlier, or None if that date cannot exist (29 Feb)."""
+    if day is None or years_ago <= 0:
+        return None
+    try:
+        return day.replace(year=int(day.year) - int(years_ago))
+    except ValueError:
+        return None
+
+
+def annotate_prior_year_avgs(rows, offsets=_PRIOR_YEAR_OFFSETS):
+    """Copy of rows with ``avg_Ny`` = daily average on the same calendar date N years ago.
+
+    Looks up other stored days only — never invents a price. Missing history
+    or an impossible date (29 Feb in a non-leap year) leave the field None.
+    """
+    by_day = {}
+    for rec in rows or ():
+        day = rec.get("day")
+        if day is not None:
+            by_day[day] = rec
+    out = []
+    for rec in rows or ():
+        copy = dict(rec)
+        day = copy.get("day")
+        for n in offsets:
+            key = f"avg_{n}y"
+            prior = _same_calendar_date_years_ago(day, n)
+            if prior is None:
+                copy[key] = None
+                copy[f"{key}_day"] = None
+                continue
+            prev = by_day.get(prior)
+            if prev is None:
+                copy[key] = None
+                copy[f"{key}_day"] = prior
+            else:
+                try:
+                    copy[key] = float(prev["avg"])
+                except (TypeError, ValueError, KeyError):
+                    copy[key] = None
+                copy[f"{key}_day"] = prior
+        out.append(copy)
+    return out
 
 
 def _fit_linear(days, values):
@@ -644,7 +694,7 @@ class AgileYearTab(QWidget):
 
         view_label = "Import" if self._view == "import" else "Export (outgoing)"
         self.title_label.setText(f"Agile year — {view_label}")
-        rows = annotate_lt_stats(self._daily)
+        rows = annotate_prior_year_avgs(annotate_lt_stats(self._daily))
         self._fill_table(rows)
         self._draw_chart(rows, view_label)
         self._update_summary(rows, view_label)
@@ -700,6 +750,41 @@ class AgileYearTab(QWidget):
             self.table.setItem(r, 1, self._price_item(rec["high"]))
             self.table.setItem(r, 2, self._price_item(rec["low"]))
             self.table.setItem(r, 3, self._price_item(rec["avg"]))
+
+            for i, n in enumerate(_PRIOR_YEAR_OFFSETS):
+                col = 4 + i
+                prior_avg = rec.get(f"avg_{n}y")
+                prior_day = rec.get(f"avg_{n}y_day")
+                if prior_avg is None:
+                    miss = _SortNumItem("—")
+                    miss.setData(Qt.UserRole, None)
+                    miss.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+                    if prior_day is None and day is not None and day.month == 2 and day.day == 29:
+                        miss.setToolTip(
+                            f"No {n}-year-ago date — {day.year - n} had no 29 Feb."
+                        )
+                    elif prior_day is not None:
+                        miss.setToolTip(
+                            f"No stored average for {prior_day.strftime('%d %b %Y')} "
+                            f"(same date {n} year{'s' if n != 1 else ''} ago). "
+                            "Fetch year keeps growing the store over time."
+                        )
+                    else:
+                        miss.setToolTip(
+                            f"No average for the same calendar date {n} year"
+                            f"{'s' if n != 1 else ''} ago."
+                        )
+                    self.table.setItem(r, col, miss)
+                else:
+                    item = self._price_item(prior_avg)
+                    if prior_day is not None:
+                        item.setToolTip(
+                            f"{prior_avg:.2f} p/kWh average on "
+                            f"{prior_day.strftime('%a %d %b %Y')} "
+                            f"(same date {n} year{'s' if n != 1 else ''} ago)."
+                        )
+                    self.table.setItem(r, col, item)
+
             neg = rec["neg_hours"]
             if neg > 0.001:
                 neg_item = _SortNumItem(f"{neg:.1f}")
@@ -715,14 +800,14 @@ class AgileYearTab(QWidget):
                 neg_item.setToolTip("No half-hour slots below 0p this day.")
             neg_item.setData(Qt.UserRole, float(neg))
             neg_item.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
-            self.table.setItem(r, 4, neg_item)
+            self.table.setItem(r, 7, neg_item)
             slot_item = _SortNumItem(str(rec["slots"]))
             slot_item.setData(Qt.UserRole, float(rec["slots"]))
             slot_item.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
             slot_item.setToolTip(
                 f"{rec['slots']} half-hour slots (46 or 50 on UK clock-change days)."
             )
-            self.table.setItem(r, 5, slot_item)
+            self.table.setItem(r, 8, slot_item)
 
             pct = rec.get("lt_pct")
             if pct is None:
@@ -744,7 +829,7 @@ class AgileYearTab(QWidget):
                         "expensive than that trend."
                     ),
                 )
-            self.table.setItem(r, 6, pct_item)
+            self.table.setItem(r, 9, pct_item)
 
             z = rec.get("lt_z")
             if z is None:
@@ -762,7 +847,7 @@ class AgileYearTab(QWidget):
                         "trend residual. Positive = above the since-start line."
                     ),
                 )
-            self.table.setItem(r, 7, z_item)
+            self.table.setItem(r, 10, z_item)
         self.table.setSortingEnabled(True)
         self.table.sortItems(0, Qt.SortOrder.DescendingOrder)
 
@@ -936,6 +1021,7 @@ class AgileYearTab(QWidget):
 __all__ = [
     "AgileYearTab",
     "annotate_lt_stats",
+    "annotate_prior_year_avgs",
     "daily_agile_stats",
     "merge_daily_stats",
 ]

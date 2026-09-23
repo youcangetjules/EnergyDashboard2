@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-23
 
+- On Agile Year, the table now has Avg −1y / −2y / −3y: the daily average price on the same calendar date one, two, and three years earlier, taken only from days already stored. A dash means that prior date is not in the table yet. The chart is unchanged.
 - The Octopus Live Monitor title chip is now opaque frosted glass (a soft highlight over a solid dark fill) with the same neat 1px grey border.
 - On Cost view the charts change with the toggle: only Imported is priced (£/h on top, cumulative £ on a right-hand axis). Generated, Total Used, and Exported stay as kWh with no cost, including the bottom-right labels.
 - The Octopus Live Monitor panel title now sits in a light glass chip with a neat 1px grey border, so it reads as a label rather than plain text on the frame.

@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.415", "2026-09-23", [
+        "Agile Year table: <b>Avg −1y</b>, <b>Avg −2y</b>, and <b>Avg −3y</b> "
+        "show the daily average on the same calendar date one, two, and three "
+        "years earlier (from stored days only — a dash means that prior date "
+        "is not in the table yet). The chart is unchanged.",
+    ]),
     ("2.9.414", "2026-09-23", [
         "Octopus Live Monitor title chip is opaque frosted glass with a 1px "
         "grey border.",
