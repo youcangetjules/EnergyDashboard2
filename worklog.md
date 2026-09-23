@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-23
 
+- On Agile Year, Avg −1y / −2y / −3y now show the past average plus a smaller bracketed difference versus this day’s average (negative = cheaper than this year).
 - Agile Year Fetch year was only asking Octopus for about a year of rates, so the table stopped around 18 Sep 2025. It now asks for about three years when that tariff has the history, so Avg −1y / −2y can fill.
 - On Agile Year, the table now has Avg −1y / −2y / −3y: the daily average price on the same calendar date one, two, and three years earlier, taken only from days already stored. A dash means that prior date is not in the table yet. The chart is unchanged.
 - The Octopus Live Monitor title chip is now opaque frosted glass (a soft highlight over a solid dark fill) with the same neat 1px grey border.

@@ -49,7 +49,7 @@ _COL_HEADERS = (
     "% Above/Below LT trend",
     "Std. deviation from trend",
 )
-_COL_WIDTHS = (168, 108, 108, 112, 88, 88, 88, 110, 58, 168, 168)
+_COL_WIDTHS = (168, 108, 108, 112, 128, 128, 128, 110, 58, 168, 168)
 _TREND_MONTHLY_COLOUR = "#f9e2af"
 _TREND_YTD_COLOUR = "#89dceb"
 _TREND_YEARLY_COLOUR = "#cba6f7"
@@ -732,8 +732,53 @@ class AgileYearTab(QWidget):
                 item.setForeground(QBrush(QColor("#a6e3a1")))
         return item
 
+    def _clear_prior_year_cell_widgets(self):
+        """Drop rich-text labels from Avg −Ny columns before a refill."""
+        for r in range(self.table.rowCount()):
+            for col in (4, 5, 6):
+                if self.table.cellWidget(r, col) is not None:
+                    self.table.removeCellWidget(r, col)
+
+    def _prior_year_avg_widget(self, prior_avg, this_avg, *, tip=""):
+        """Past-year average with (Δ vs this year) in brackets, 2pt smaller."""
+        try:
+            base_pt = max(8, int(self.table.font().pointSize()))
+        except Exception:
+            base_pt = 10
+        small_pt = max(6, base_pt - 2)
+        try:
+            delta = float(prior_avg) - float(this_avg)
+        except (TypeError, ValueError):
+            delta = None
+        if delta is None:
+            html = f'<span style="font-size:{base_pt}pt;">{float(prior_avg):.2f}</span>'
+        else:
+            sign = "+" if delta > 0 else ""
+            # Dearer than this year → peach; cheaper → green.
+            if delta > 0.05:
+                dcol = "#f38ba8"
+            elif delta < -0.05:
+                dcol = "#a6e3a1"
+            else:
+                dcol = "#a6adc8"
+            html = (
+                f'<span style="font-size:{base_pt}pt; color:#cdd6f4;">'
+                f'{float(prior_avg):.2f}</span>'
+                f'&nbsp;<span style="font-size:{small_pt}pt; color:{dcol};">'
+                f'({sign}{delta:.2f})</span>'
+            )
+        lbl = QLabel()
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setText(html)
+        lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl.setStyleSheet("background: transparent; padding-right: 4px;")
+        if tip:
+            lbl.setToolTip(tip)
+        return lbl
+
     def _fill_table(self, rows):
         self.table.setSortingEnabled(False)
+        self._clear_prior_year_cell_widgets()
         self.table.setRowCount(len(rows))
         today = _london_today()
         for r, rec in enumerate(rows):
@@ -752,6 +797,10 @@ class AgileYearTab(QWidget):
             self.table.setItem(r, 1, self._price_item(rec["high"]))
             self.table.setItem(r, 2, self._price_item(rec["low"]))
             self.table.setItem(r, 3, self._price_item(rec["avg"]))
+            try:
+                this_avg = float(rec["avg"])
+            except (TypeError, ValueError):
+                this_avg = None
 
             for i, n in enumerate(_PRIOR_YEAR_OFFSETS):
                 col = 4 + i
@@ -777,15 +826,42 @@ class AgileYearTab(QWidget):
                             f"{'s' if n != 1 else ''} ago."
                         )
                     self.table.setItem(r, col, miss)
+                    continue
+                try:
+                    prior_f = float(prior_avg)
+                except (TypeError, ValueError):
+                    continue
+                item = _SortNumItem("")
+                item.setData(Qt.UserRole, prior_f)
+                item.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
+                if this_avg is not None:
+                    delta = prior_f - this_avg
+                    sign = "+" if delta > 0 else ""
+                    rel = (
+                        f"{sign}{delta:.2f} p vs this day’s average "
+                        f"({this_avg:.2f} p). Negative = cheaper than this year."
+                    )
                 else:
-                    item = self._price_item(prior_avg)
-                    if prior_day is not None:
-                        item.setToolTip(
-                            f"{prior_avg:.2f} p/kWh average on "
-                            f"{prior_day.strftime('%a %d %b %Y')} "
-                            f"(same date {n} year{'s' if n != 1 else ''} ago)."
-                        )
-                    self.table.setItem(r, col, item)
+                    rel = "Difference vs this day’s average not available."
+                if prior_day is not None:
+                    tip = (
+                        f"{prior_f:.2f} p/kWh average on "
+                        f"{prior_day.strftime('%a %d %b %Y')} "
+                        f"(same date {n} year{'s' if n != 1 else ''} ago). {rel}"
+                    )
+                else:
+                    tip = f"{prior_f:.2f} p/kWh. {rel}"
+                item.setToolTip(tip)
+                self.table.setItem(r, col, item)
+                if this_avg is not None:
+                    self.table.setCellWidget(
+                        r, col,
+                        self._prior_year_avg_widget(prior_f, this_avg, tip=tip),
+                    )
+                else:
+                    plain = self._price_item(prior_f)
+                    plain.setToolTip(tip)
+                    self.table.setItem(r, col, plain)
 
             neg = rec["neg_hours"]
             if neg > 0.001:
