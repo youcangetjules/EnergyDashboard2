@@ -352,12 +352,15 @@ def compose_cost_view(
     stated_keep = pd.DataFrame()
     if not stated_p.empty:
         stated_p = stated_p.copy()
+        # London wall time before day/bucket keys so UTC REST and London live match.
+        stated_p["interval_start"] = to_london(stated_p["interval_start"])
         stated_p["_day"] = _day_key(stated_p["interval_start"])
         stated_p["_bucket"] = stated_p["interval_start"].dt.floor("30min")
         stated_keep = stated_p[stated_p["_day"] < today].copy()
 
     if not live_p.empty:
         live_p = live_p.copy()
+        live_p["interval_start"] = to_london(live_p["interval_start"])
         live_p["_day"] = _day_key(live_p["interval_start"])
         live_p["_bucket"] = live_p["interval_start"].dt.floor("30min")
         if not stated_keep.empty and export_known:

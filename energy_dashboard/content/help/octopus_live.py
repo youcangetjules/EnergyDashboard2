@@ -28,5 +28,5 @@ today's values are labelled at the latest sample as a running tally. If the
 PV line is missing, the overlay could not read <code>growatt_readings</code>
 — connecting to PostgreSQL is not enough; the Setup login must be allowed
 to <b>SELECT</b> that table (the MQTT broker account usually is not).
-In <b>Cost</b> view the bottom chart is cumulative pounds instead — import cost, export credit, and net — and it still resets at midnight. Today’s line is the estimate.</p>
+In <b>Cost</b> view the bottom chart is cumulative pounds instead — import cost, export credit, and net — and it still resets at midnight. Today’s line is the estimate. The <b>Import cost</b> / <b>Export credit</b> cards show this Hours window as the large figure, with a smaller <b>(Today: £…)</b> for London midnight to now so a 24&nbsp;h window is not mistaken for today’s bill so far.</p>
 """

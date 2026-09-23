@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.409", "2026-09-23", [
+        "Octopus Live Cost: <b>Import cost</b> and <b>Export credit</b> keep "
+        "this Hours window as the large figure, and add a smaller "
+        "<b>(Today: £…)</b> for London midnight to now so a multi-day window "
+        "is not mistaken for today’s bill so far.",
+    ]),
     ("2.9.408", "2026-09-23", [
         "Dashboard starts again. Command Sim had asked for a motif size "
         "name that was missing after a circular import, so launch crashed.",

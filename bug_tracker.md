@@ -97,6 +97,22 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Fixed
 
+### BUG-20260923-08 — Octopus Live Cost Import cost looked wrong without Today
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 09:46 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Octopus Live Cost cards (`tabs/octopus_live.py`) |
+| **Version found** | 2.9.408 |
+| **Version fixed** | 2.9.409 |
+
+**Symptom:** On Cost view with a 24 h window, **Import cost** showed ~£12.68 while the cumulative chart’s today import was ~£4.50. The card looked wrong; there was no today figure on the card.
+
+**Cause:** The large card figure is the Hours window total (yesterday’s settled portion + today). That matched the chart’s day segments added together, but the card title did not say so and Today was only in the live summary text.
+
+**Resolution:** Keep the window total as the large figure; add smaller muted `(Today: £…)` to the right (same for Export credit). Tooltips and help spell out window vs today.
+
 ### BUG-20260923-07 — Dashboard would not start (Command Sim NameError)
 
 | Field | Value |

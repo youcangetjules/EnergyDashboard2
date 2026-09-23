@@ -1402,8 +1402,16 @@ class OctopusLiveTab(QWidget):
             "latest_import": "Import cost of the latest slot, in pence.",
             "latest_export": "Export credit of the latest slot, in pence.",
             "latest_net": "Import cost minus export credit for the latest slot, in pence.",
-            "total_import": "Import cost in this window, in pounds. Settled time uses Octopus's meter.",
-            "total_export": "Export credit in this window, in pounds. Standing charge is not included.",
+            "total_import": (
+                "Import cost for this Hours window, in pounds. "
+                "Settled time uses Octopus's meter. "
+                "The smaller (Today: …) figure is London midnight to now."
+            ),
+            "total_export": (
+                "Export credit for this Hours window, in pounds. "
+                "Standing charge is not included. "
+                "The smaller (Today: …) figure is London midnight to now."
+            ),
         }
         for key, (title, unit) in spec.items():
             box = self._card_boxes.get(key)
@@ -1484,12 +1492,41 @@ class OctopusLiveTab(QWidget):
         )
         return model, bundle, energy_source, bounds
 
+    @staticmethod
+    def _set_cost_total_with_today(label, *, window_gbp: float, today_gbp, color: str):
+        """Window £ as the main figure; smaller (Today: £…) to its right."""
+        label.setTextFormat(Qt.TextFormat.RichText)
+        label.setStyleSheet("")
+        if today_gbp is None:
+            label.setText(
+                f'<span style="color:{color}; font-size:18px; font-weight:bold;">'
+                f"{window_gbp:.2f}</span>"
+            )
+            return
+        label.setText(
+            f'<span style="color:{color}; font-size:18px; font-weight:bold;">'
+            f"{window_gbp:.2f}</span>"
+            f'<span style="color:#6c7086; font-size:11px; font-weight:normal;">'
+            f" (Today: £{float(today_gbp):.2f})</span>"
+        )
+
+    def _reset_cost_total_label(self, key: str, color: str):
+        lab = self.card_labels.get(key)
+        if lab is None:
+            return
+        lab.setTextFormat(Qt.TextFormat.PlainText)
+        lab.setStyleSheet(f"color: {color};")
+        lab.setText("--")
+
     def _update_cost_cards(self):
         model, _bundle, _src, _bounds = self._cost_model_for_view()
         slots = None if not model else model.get("slots")
         if slots is None or slots.empty:
             for lab in self.card_labels.values():
+                lab.setTextFormat(Qt.TextFormat.PlainText)
                 lab.setText("--")
+            self._reset_cost_total_label("total_import", "#9C27B0")
+            self._reset_cost_total_label("total_export", "#009688")
             if self._live_demand_unit_label is not None:
                 self._live_demand_unit_label.setText("£/h")
             return
@@ -1515,8 +1552,21 @@ class OctopusLiveTab(QWidget):
         nc = "#F44336" if net_p > 0 else "#4CAF50"
         self.card_labels["latest_net"].setStyleSheet(f"color: {nc}; font-weight: bold;")
         window = model.get("window") or {}
-        self.card_labels["total_import"].setText(f"{float(window.get('import_pence', 0)) / 100:.2f}")
-        self.card_labels["total_export"].setText(f"{float(window.get('export_pence', 0)) / 100:.2f}")
+        today = model.get("today") or {}
+        today_imp = today.get("import_pence")
+        today_exp = today.get("export_pence")
+        self._set_cost_total_with_today(
+            self.card_labels["total_import"],
+            window_gbp=float(window.get("import_pence", 0)) / 100.0,
+            today_gbp=(float(today_imp) / 100.0) if today_imp is not None else None,
+            color="#9C27B0",
+        )
+        self._set_cost_total_with_today(
+            self.card_labels["total_export"],
+            window_gbp=float(window.get("export_pence", 0)) / 100.0,
+            today_gbp=(float(today_exp) / 100.0) if today_exp is not None else None,
+            color="#009688",
+        )
 
     @staticmethod
     def _sample_age_text(ts) -> str:
@@ -1918,8 +1968,14 @@ class OctopusLiveTab(QWidget):
         nc = '#F44336' if ln > 0 else '#4CAF50'
         self.card_labels['latest_net'].setText(f"{ln:.3f}")
         self.card_labels['latest_net'].setStyleSheet(f"color: {nc}; font-weight: bold;")
-        self.card_labels['total_import'].setText(f"{imp['consumption'].sum():.2f}" if has_imp else "--")
-        self.card_labels['total_export'].setText(f"{exp['consumption'].sum():.2f}" if has_exp else "--")
+        for key, color, text in (
+            ("total_import", "#9C27B0", f"{imp['consumption'].sum():.2f}" if has_imp else "--"),
+            ("total_export", "#009688", f"{exp['consumption'].sum():.2f}" if has_exp else "--"),
+        ):
+            lab = self.card_labels[key]
+            lab.setTextFormat(Qt.TextFormat.PlainText)
+            lab.setStyleSheet(f"color: {color};")
+            lab.setText(text)
 
     def _plot_charts(self):
         if self._is_cost_mode():
