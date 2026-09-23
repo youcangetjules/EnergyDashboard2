@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.416", "2026-09-23", [
+        "Agile Year <b>Fetch year</b> asks Octopus for about three years of "
+        "rates (not ~370 days), so the table can reach further back than "
+        "18 Sep 2025 when that tariff has history, and <b>Avg −1y / −2y</b> "
+        "can fill.",
+    ]),
     ("2.9.415", "2026-09-23", [
         "Agile Year table: <b>Avg −1y</b>, <b>Avg −2y</b>, and <b>Avg −3y</b> "
         "show the daily average on the same calendar date one, two, and three "

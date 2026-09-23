@@ -27,8 +27,9 @@ from energy_dashboard.tabs.forecasts import (
     _merge_agile_forecast_frames,
 )
 
-# A shade over a calendar year, plus tomorrow if Octopus has published it.
-_AGILE_YEAR_DAYS = 370
+# About three years of half-hours so Avg −1y / −2y can fill from stored days.
+# Octopus still only returns history that exists for the tariff on Forecasts.
+_AGILE_YEAR_DAYS = 1100
 _QS_TREND_MONTHLY = "agile_year/trend_monthly"
 _QS_TREND_YTD = "agile_year/trend_ytd"
 _QS_TREND_YEARLY = "agile_year/trend_yearly"
@@ -421,9 +422,10 @@ class AgileYearTab(QWidget):
 
         self.refresh_btn = QPushButton("Fetch year")
         self.refresh_btn.setToolTip(
-            "Download about a year of half-hourly Agile rates from Octopus "
+            "Download about three years of half-hourly Agile rates from Octopus "
             "(the tariff on Forecasts) and rebuild daily high / low / average. "
-            "Rates and daily stats are stored in the database when logging is on."
+            "Rates and daily stats are stored in the database when logging is on, "
+            "so Avg −1y / −2y can fill when that history exists."
         )
         self.refresh_btn.clicked.connect(self.refresh_now)
         _apply_primary_button_style(self.refresh_btn)
@@ -484,7 +486,7 @@ class AgileYearTab(QWidget):
         splitter.setSizes([260, 420])
         main_layout.addWidget(splitter, 1)
 
-        self._draw_empty_chart("Click Fetch year for about 12 months of Agile rates.")
+        self._draw_empty_chart("Click Fetch year for about three years of Agile rates.")
 
     def _apply_table_columns(self):
         hdr = self.table.horizontalHeader()

@@ -108,9 +108,9 @@ Newest first. Keep each entry short: context → decision → consequence.
 
 ### 2026-09-23 — Agile Year same-date prior-year averages (table only)
 
-- **Context:** Comparing today’s Agile day to the same calendar date last year (and earlier) helps read whether a day is expensive for the season. The chart already shows a long window; the householder asked for the prior-year spot on the table, not another chart line.
-- **Decision:** Three table columns — Avg −1y / −2y / −3y — look up the stored daily average for the same month/day that many years earlier. Missing history or an impossible date (29 Feb) show a dash. No invented prices; the chart is unchanged.
-- **Consequence:** Do not invent prior-year rates from another tariff or from a rescaled trend. Wider history still comes from repeated Fetch year into `agile_year_daily`.
+- **Context:** Comparing today’s Agile day to the same calendar date last year (and earlier) helps read whether a day is expensive for the season. The chart already shows a long window; the householder asked for the prior-year spot on the table, not another chart line. Fetch year had only asked for ~370 days, so the store stopped around 18 Sep 2025 even though Octopus had older rates for the current product.
+- **Decision:** Three table columns — Avg −1y / −2y / −3y — look up the stored daily average for the same month/day that many years earlier. Missing history or an impossible date (29 Feb) show a dash. No invented prices; the chart is unchanged. Fetch year asks for about 1100 days so one and two years of same-date averages can populate when Octopus has that tariff history.
+- **Consequence:** Do not invent prior-year rates from another tariff or from a rescaled trend. The earliest day is still whatever Octopus returns for the Forecasts tariff — not a fixed calendar start.
 
 ### 2026-09-23 — Cost view prices only import on the charts
 
