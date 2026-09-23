@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-23 — Octopus Live bottom chart is always energy
+
+- **Context:** Cost view replaced the cumulative bottom chart with import cost / export credit / net in pounds. That hid Generated (PV), Imported, Total Used, and Exported energy — the measures the householder uses to read the day.
+- **Decision:** The bottom chart always plots those four kWh series (including Exported as its own line). Cost only changes the top chart (£/h) and the summary cards. Total Used stays the labelled balance `import + PV − export`.
+- **Consequence:** Do not put money series on the bottom pane again. Day-end labels stay Gen / Imp / Used / Exp.
+
 ### 2026-09-23 — Fatal signals go to a crash log
 
 - **Context:** A segmentation fault kills the process before Python’s exception hook or the Console logger can run. systemd-coredump keeps the core, but nothing in the app’s own log said the dashboard had died.
@@ -115,8 +121,8 @@ Newest first. Keep each entry short: context → decision → consequence.
 ### 2026-09-22 — Octopus Live cost view
 
 - **Context:** The live monitor showed watts and kWh. The householder also wants money, and the live stream does not match the half-hour meter Octopus later bills from.
-- **Decision:** A Power / Cost radio on Octopus Live. Cost is interval energy × the Agile spot price (VAT included). Completed days that the half-hour meter has published stay as that meter × price — what Octopus states. Today is the live energy × the same price, multiplied by the median of (stated ÷ live) over recent settled days, clamped to 0.50–1.50, and labelled as an estimate. Standing charge is not included. The price and meter pull is throttled (about 20 minutes) and does not run while Power is selected.
-- **Consequence:** Do not present the scaled today line as a measurement or as a bill. Settled days must stay on the Octopus meter series. New cost maths live in `energy_dashboard/tabs/octopus_live_cost.py`.
+- **Decision:** A Power / Cost radio on Octopus Live. Cost is interval energy × the Agile spot price (VAT included). Completed days that the half-hour meter has published stay as that meter × price — what Octopus states. Today is the live energy × the same price, multiplied by the median of (stated ÷ live) over recent settled days, clamped to 0.50–1.50, and labelled as an estimate. Standing charge is not included. The price and meter pull is throttled (about 20 minutes) and does not run while Power is selected. Cost only changes the top chart (£/h) and the cards; the bottom cumulative pane stays the four energy measures.
+- **Consequence:** Do not present the scaled today line as a measurement or as a bill. Settled days must stay on the Octopus meter series. New cost maths live in `energy_dashboard/tabs/octopus_live_cost.py`. Do not put money series on the bottom pane.
 
 ### 2026-09-22 — Physical Plant Tools group
 

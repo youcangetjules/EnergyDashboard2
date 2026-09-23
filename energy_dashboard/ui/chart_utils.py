@@ -472,12 +472,12 @@ def _octopus_live_draw_per_day_totals(ax, london, imp_view, exp_view,
 def _octopus_live_draw_cumulative_day_labels(ax, london, cum_df, *, now=None):
     """Annotate daily finals and today's running tallies on the cumulative chart.
 
-    For each completed London calendar day in ``cum_df``, place Imp / PV / Cons
-    totals just below that day's last sample (left of the midnight reset).
-    For the current day, place the same three values at the latest sample
-    (running tally). When Cons and Imp (or PV) sit at nearly the same kWh,
-    labels are stacked so they do not overlap: today stacks upward
-    (Cons above Imp above PV); completed days stack downward under the lines.
+    For each completed London calendar day in ``cum_df``, place Gen / Imp /
+    Used / Exp totals just below that day's last sample (left of the midnight
+    reset). For the current day, place the same four values at the latest
+    sample (running tally). When lines sit at nearly the same kWh, labels are
+    stacked so they do not overlap: today stacks upward; completed days stack
+    downward under the lines.
     """
     import math
     import matplotlib.dates as mdates
@@ -515,13 +515,14 @@ def _octopus_live_draw_cumulative_day_labels(ax, london, cum_df, *, now=None):
     min_gap = max(0.9, 0.05 * y_span)
     # Drop completed-day labels this far below their series endpoint.
     below_gap = max(0.45, 0.025 * y_span)
-    # Preferred bottom→top order when values collide: PV, Imp, Cons.
-    stack_rank = {"PV": 0, "Imp": 1, "Cons": 2}
+    # Preferred bottom→top order when values collide: Gen, Imp, Used, Exp.
+    stack_rank = {"Gen": 0, "Imp": 1, "Used": 2, "Exp": 3}
 
     series = (
+        ('Gen', 'cum_pv_kwh', '#fab387'),
         ('Imp', 'cum_import_kwh', '#F44336'),
-        ('PV', 'cum_pv_kwh', '#fab387'),
-        ('Cons', 'cum_consumption_kwh', '#cba6f7'),
+        ('Used', 'cum_consumption_kwh', '#cba6f7'),
+        ('Exp', 'cum_export_kwh', '#4CAF50'),
     )
 
     for day_ts, day_df in df.groupby('_day', sort=True):
@@ -558,7 +559,7 @@ def _octopus_live_draw_cumulative_day_labels(ax, london, cum_df, *, now=None):
             continue
 
         if is_today:
-            # Running tally: sort by value, Cons above Imp above PV on near-ties;
+            # Running tally: sort by value; Gen / Imp / Used / Exp on near-ties;
             # stack label baselines upward so close values do not overlap.
             items.sort(
                 key=lambda it: (it["val"], stack_rank.get(it["name"], 0)),

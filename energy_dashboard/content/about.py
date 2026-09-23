@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.412", "2026-09-23", [
+        "Octopus Live: the bottom chart always shows "
+        "<b>Generated Energy (PV)</b>, <b>Imported Energy</b>, "
+        "<b>Total Used Energy</b>, and <b>Exported Energy</b> — including in "
+        "Cost view. Cost only changes the top chart and the cards to pounds.",
+    ]),
     ("2.9.411", "2026-09-23", [
         "A segmentation fault or abort is written to "
         "<b>~/.energy_dashboard_crash.log</b> and a <b>Crash</b> line in the "

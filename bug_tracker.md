@@ -39,6 +39,22 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Open
 
+### BUG-20260923-10 — Octopus Live Cost hid the four energy measures
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 15:53 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Octopus Live (`tabs/octopus_live.py`, `ui/chart_utils.py`) |
+| **Version found** | 2.9.411 |
+| **Version fixed** | 2.9.412 |
+
+**Symptom:** In Cost view the charts showed Cost rate (£/h) and Cumulative £ (Import cost / Export credit / Net). The householder said that was wrong — the measures are Generated Energy (PV), Imported Energy, Total Used Energy, and Exported Energy.
+
+**Cause:** Cost mode replaced both panes with money. The bottom cumulative chart should stay energy; only the top pane and cards are money. Power’s cumulative pane also omitted Exported as its own line (export was only inside the used-energy formula).
+
+**Resolution:** Bottom chart always draws the four energy series in Power and Cost. Cost keeps £/h on top and £ on the cards. Day labels are Gen / Imp / Used / Exp.
+
 ### BUG-20260923-09 — Dashboard segmentation fault during Qt property update
 
 | Field | Value |
