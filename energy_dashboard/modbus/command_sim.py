@@ -825,29 +825,53 @@ class CommandSimTab(QWidget):
         hint.setTextFormat(Qt.TextFormat.RichText)
         lay.addWidget(hint)
 
-        form = QGridLayout()
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(8)
+        # Label | field | stretch — fields stay left, end ~mid-screen.
+        _cmd_label_w = 128
+        _cmd_line_w = 280
+        _cmd_combo_w = 320
+
+        def _cmd_pair_grid() -> QGridLayout:
+            g = QGridLayout()
+            g.setHorizontalSpacing(12)
+            g.setVerticalSpacing(8)
+            g.setColumnMinimumWidth(0, _cmd_label_w)
+            g.setColumnStretch(0, 0)
+            g.setColumnStretch(1, 0)
+            g.setColumnStretch(2, 1)
+            return g
+
+        def _cmd_label(text: str) -> QLabel:
+            lbl = QLabel(text)
+            lbl.setFixedWidth(_cmd_label_w)
+            lbl.setAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            return lbl
+
+        form = _cmd_pair_grid()
         r = 0
-        form.addWidget(QLabel("Bind address:"), r, 0)
+        form.addWidget(_cmd_label("Bind address:"), r, 0)
         self.bind_edit = QLineEdit("127.0.0.1")
         self.bind_edit.setToolTip("0.0.0.0 = all interfaces; 127.0.0.1 = localhost only")
-        form.addWidget(self.bind_edit, r, 1)
+        apply_setup_info_line_field_motif(self.bind_edit, width=_cmd_line_w)
+        form.addWidget(self.bind_edit, r, 1, Qt.AlignmentFlag.AlignLeft)
         r += 1
-        form.addWidget(QLabel("TCP port:"), r, 0)
+        form.addWidget(_cmd_label("TCP port:"), r, 0)
         self.port_spin = QSpinBox()
         self.port_spin.setRange(1, 65535)
         self.port_spin.setValue(5502)
         self.port_spin.setToolTip("Default 5502 avoids needing root for port 502")
-        form.addWidget(self.port_spin, r, 1)
+        apply_spin_field_motif(self.port_spin, width=_SPIN_FIELD_MOTIF_DB_W)
+        form.addWidget(self.port_spin, r, 1, Qt.AlignmentFlag.AlignLeft)
         r += 1
-        form.addWidget(QLabel("Unit ID:"), r, 0)
+        form.addWidget(_cmd_label("Unit ID:"), r, 0)
         self.unit_spin = QSpinBox()
         self.unit_spin.setRange(1, 247)
         self.unit_spin.setValue(1)
-        form.addWidget(self.unit_spin, r, 1)
+        apply_spin_field_motif(self.unit_spin)
+        form.addWidget(self.unit_spin, r, 1, Qt.AlignmentFlag.AlignLeft)
         r += 1
-        form.addWidget(QLabel("Profile:"), r, 0)
+        form.addWidget(_cmd_label("Profile:"), r, 0)
         self.profile_combo = QComboBox()
         self.profile_combo.addItem("Probe-shaped (dense HR/IR)", "probe")
         self.profile_combo.addItem("MIC-style sparse (input regs)", "mic")
@@ -855,7 +879,8 @@ class CommandSimTab(QWidget):
             "Probe-shaped: answers Connectivity read patterns. "
             "MIC-style: a few registers like growatt_simulator Mic600Profile."
         )
-        form.addWidget(self.profile_combo, r, 1)
+        apply_combo_field_motif(self.profile_combo, width=_cmd_combo_w)
+        form.addWidget(self.profile_combo, r, 1, Qt.AlignmentFlag.AlignLeft)
         lay.addLayout(form)
 
         row = QHBoxLayout()
@@ -909,37 +934,39 @@ class CommandSimTab(QWidget):
         self.roundtrip_lbl.setTextFormat(Qt.TextFormat.RichText)
         client_lay.addWidget(self.roundtrip_lbl)
 
-        man = QGridLayout()
-        man.setHorizontalSpacing(8)
-        man.setVerticalSpacing(6)
+        man = _cmd_pair_grid()
         mr = 0
-        man.addWidget(QLabel("Operation:"), mr, 0)
+        man.addWidget(_cmd_label("Operation:"), mr, 0)
         self.client_op_combo = QComboBox()
         self.client_op_combo.addItem("Read holding registers", "rh")
         self.client_op_combo.addItem("Read input registers", "ri")
         self.client_op_combo.addItem("Write single holding register", "wh")
         self.client_op_combo.currentIndexChanged.connect(self._on_client_op_changed)
-        man.addWidget(self.client_op_combo, mr, 1)
+        apply_combo_field_motif(self.client_op_combo, width=_cmd_combo_w)
+        man.addWidget(self.client_op_combo, mr, 1, Qt.AlignmentFlag.AlignLeft)
         mr += 1
-        man.addWidget(QLabel("Address:"), mr, 0)
+        man.addWidget(_cmd_label("Address:"), mr, 0)
         self.client_addr_spin = QSpinBox()
         self.client_addr_spin.setRange(0, 65535)
         self.client_addr_spin.setValue(0)
-        man.addWidget(self.client_addr_spin, mr, 1)
+        apply_spin_field_motif(self.client_addr_spin)
+        man.addWidget(self.client_addr_spin, mr, 1, Qt.AlignmentFlag.AlignLeft)
         mr += 1
-        self.client_count_label = QLabel("Count:")
+        self.client_count_label = _cmd_label("Count:")
         man.addWidget(self.client_count_label, mr, 0)
         self.client_count_spin = QSpinBox()
         self.client_count_spin.setRange(1, 125)
         self.client_count_spin.setValue(1)
-        man.addWidget(self.client_count_spin, mr, 1)
+        apply_spin_field_motif(self.client_count_spin)
+        man.addWidget(self.client_count_spin, mr, 1, Qt.AlignmentFlag.AlignLeft)
         mr += 1
-        self.client_val_label = QLabel("Value (write):")
+        self.client_val_label = _cmd_label("Value (write):")
         man.addWidget(self.client_val_label, mr, 0)
         self.client_val_spin = QSpinBox()
         self.client_val_spin.setRange(0, 65535)
         self.client_val_spin.setValue(0)
-        man.addWidget(self.client_val_spin, mr, 1)
+        apply_spin_field_motif(self.client_val_spin)
+        man.addWidget(self.client_val_spin, mr, 1, Qt.AlignmentFlag.AlignLeft)
         client_lay.addLayout(man)
 
         self.client_exec_btn = QPushButton("Run manual command")

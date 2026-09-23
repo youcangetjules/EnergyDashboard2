@@ -181,6 +181,68 @@ def apply_setup_info_line_field_motif(
         edit.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
 
+def _combo_field_motif_qss() -> str:
+    """QComboBox chrome matching the electric-blue spin / line motif."""
+    return (
+        f"QComboBox {{"
+        f"  background: {_SPIN_FIELD_BG};"
+        f"  background-color: {_SPIN_FIELD_BG};"
+        f"  color: {_DARK_TEXT};"
+        f"  font-weight: {_FLAT_TARIFF_FONT_WEIGHT};"
+        f"  border: 1px solid {_FLAT_TARIFF_INPUT_BORDER};"
+        f"  border-radius: {_INPUT_FIELD_RADIUS}px;"
+        f"  padding: {_INPUT_FIELD_PADDING};"
+        f"  padding-right: {_COMBO_DROP_W + 4}px;"
+        f"  min-height: {_SPIN_FIELD_MOTIF_H}px;"
+        f"  max-height: {_SPIN_FIELD_MOTIF_H}px;"
+        f"}}"
+        f"QComboBox:focus {{ border: 1px solid {_FLAT_TARIFF_FOCUS_BORDER}; }}"
+        f"QComboBox:disabled {{ color: {_DARK_OVERLAY}; }}"
+        f"QComboBox QLineEdit {{"
+        f"  background: {_SPIN_FIELD_BG};"
+        f"  background-color: {_SPIN_FIELD_BG};"
+        f"  color: {_DARK_TEXT};"
+        f"  border: none;"
+        f"  padding: 0 2px;"
+        f"}}"
+        f"QComboBox::drop-down {{"
+        f"  subcontrol-origin: padding;"
+        f"  subcontrol-position: center right;"
+        f"  width: {_COMBO_DROP_W}px;"
+        f"  border: none;"
+        f"  background: transparent;"
+        f"}}"
+        + _combo_chevron_qss(_DARK_TEXT, _DARK_OVERLAY)
+        + f"QComboBox QAbstractItemView {{"
+        f"  background-color: {_SPIN_FIELD_BG};"
+        f"  color: {_DARK_TEXT};"
+        f"  border: 1px solid {_FLAT_TARIFF_INPUT_BORDER};"
+        f"  selection-background-color: #45475a;"
+        f"}}"
+    )
+
+
+def apply_combo_field_motif(
+    combo: QComboBox,
+    *,
+    width: int | None = None,
+) -> None:
+    """Electric-blue / grey combo — same fill and border as spin / Setup line fields."""
+    w = int(width if width is not None else _SPIN_FIELD_MOTIF_DB_W + 80)
+    combo.setFixedHeight(_SPIN_FIELD_MOTIF_H)
+    combo.setFixedWidth(w)
+    combo.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+    combo.setAttribute(Qt.WA_StyledBackground, True)
+    combo.setAutoFillBackground(True)
+    combo.setProperty("_pm_input_fill_exempt", True)
+    combo.setStyleSheet(_combo_field_motif_qss())
+    pal = combo.palette()
+    pal.setColor(QPalette.ColorRole.Base, QColor(_SPIN_FIELD_BG))
+    pal.setColor(QPalette.ColorRole.Window, QColor(_SPIN_FIELD_BG))
+    pal.setColor(QPalette.ColorRole.Text, QColor(_DARK_TEXT))
+    combo.setPalette(pal)
+
+
 def apply_spin_field_motif_tree(root) -> None:
     """Size every spin box under *root* and apply the spin-field motif."""
     for spin in root.findChildren(QSpinBox) + root.findChildren(QDoubleSpinBox):

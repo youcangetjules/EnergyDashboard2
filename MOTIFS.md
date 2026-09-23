@@ -104,6 +104,7 @@ apply_spin_field_motif(spin, width=140)         # custom width
 spin.setProperty("_pm_spin_motif_w", 140)       # respected by tree walk
 spin.setProperty("_params_db_field", True)      # → DB width
 apply_spin_field_motif_tree(root)               # main window does this once
+apply_combo_field_motif(combo, width=320)       # same grey + electric-blue border
 ```
 
 Setup & Info line edits that should *look* like spins (host, user, API key slices, etc.):
@@ -112,7 +113,7 @@ Setup & Info line edits that should *look* like spins (host, user, API key slice
 apply_setup_info_line_field_motif(edit)         # objectName paramsDbField
 ```
 
-**Aliases** (same QSS): `_spin_field_motif_qss()`, `_setup_info_spin_qss()`, `_flat_tariff_spin_qss()`.
+**Aliases** (same QSS): `_spin_field_motif_qss()`, `_setup_info_spin_qss()`, `_flat_tariff_spin_qss()`, `_combo_field_motif_qss()`.
 
 ### Neutral inputs (same grey fill)
 
@@ -174,6 +175,11 @@ For Import / Export MPAN (and Account No on Live):
 - Labels in column 0 (often right-aligned titles).
 - Values / controls in column 1 — spins and buttons in that cell must start at the **same left edge** as other values.
 - Widest title sets the label column; keep that intentional.
+
+### D2. Command Sim (Controls)
+
+- Server and client forms use **label | field | stretch** so fields sit left and stop around mid-window (not full bleed).
+- Bind address / profile / operation use electric-blue motif (`apply_setup_info_line_field_motif` / `apply_combo_field_motif`); port / unit / address spins use `apply_spin_field_motif`.
 
 ### E. Dialogs
 

@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-23
 
+- Command Sim’s Bind address (and the other fields) now use the same grey fill and blue border as Setup spins. The server and Modbus client controls sit on the left and stop around the middle of the window, instead of stretching full width or parking on the far right.
 - Grott Setup’s Live feed line was painting “connected · fresh” in the same white as the rest of the box, because a stylesheet colour overrode the green HTML. That state is bold green again (stale / not connected stay bold amber / red). Text boxes and spins across the app now share the same slight grey fill the spin motif already used, so fields no longer disappear into the dark panel.
 - Octopus Energy Data was asking Octopus with the default API key from the secrets file. Octopus answered “Invalid API key”, and the tab turned that into an empty white chart. It now uses the key you saved on Octopus Live (the one that account accepts) and writes the reason on the chart if a fetch still fails.
 - Database Viewer’s table menu was a short fixed list, so solar forecast, the MIX chart, the two shadow-trial tables, and connectivity history were missing even when those tables exist. The menu now lists every logger table, the same set as the Setup CREATE script, and the popup is tall enough to show them all.

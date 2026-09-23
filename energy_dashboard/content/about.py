@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.406", "2026-09-23", [
+        "Command Sim: Bind address and the other fields use the grey fill "
+        "with electric-blue border. Server and client controls sit left of "
+        "centre instead of stretching across the window.",
+    ]),
     ("2.9.405", "2026-09-23", [
         "Grott Setup Live feed shows <b>connected · fresh</b> in bold green "
         "(and stale / not connected in bold amber or red). A label colour rule "
