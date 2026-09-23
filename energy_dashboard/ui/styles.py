@@ -708,15 +708,20 @@ QGroupBox::title {{
     color: {_DARK_SUBTEXT};
     background-color: {_DARK_SURFACE_BG};
 }}
-/* Octopus Live Monitor: title chip with a light glass wash and 1px grey edge */
+/* Octopus Live Monitor: opaque frosted-glass title chip + 1px grey edge */
 QGroupBox#octopusLiveMonitor::title {{
     subcontrol-origin: margin;
     left: 10px;
-    padding: 2px 8px;
-    color: {_DARK_SUBTEXT};
-    background-color: rgba(205, 214, 244, 22);
+    padding: 3px 10px;
+    color: {_DARK_TEXT};
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 rgba(205, 214, 244, 70),
+        stop:0.35 rgba(88, 91, 112, 245),
+        stop:1 rgba(49, 50, 68, 255)
+    );
     border: 1px solid {_DARK_OVERLAY};
-    border-radius: 3px;
+    border-radius: 4px;
 }}
 """
     + _input_widgets_qss()

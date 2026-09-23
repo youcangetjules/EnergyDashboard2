@@ -39,6 +39,22 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Open
 
+### BUG-20260923-11 — Cost view charts should price only import
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 16:36 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Octopus Live Cost charts |
+| **Version found** | 2.9.413 |
+| **Version fixed** | 2.9.414 |
+
+**Symptom:** Switching View to Cost left the bottom chart as four energy lines (and/or mixed money with export). The householder wanted Cost charts to change: only the import line has a cost; Gen / Used / Exp and the bottom-right energy labels stay without cost.
+
+**Cause:** After 2.9.412 Cost kept the bottom pane as pure kWh; the top chart used net £/h (import minus export credit).
+
+**Resolution:** Top chart is import £/h only. Bottom chart keeps Gen / Used / Exp as kWh; Imported is cumulative £ on a right-hand axis. Day notes show import £ only.
+
 ### BUG-20260923-10 — Octopus Live Cost hid the four energy measures
 
 | Field | Value |

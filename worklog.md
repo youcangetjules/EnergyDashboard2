@@ -12,6 +12,8 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-23
 
+- The Octopus Live Monitor title chip is now opaque frosted glass (a soft highlight over a solid dark fill) with the same neat 1px grey border.
+- On Cost view the charts change with the toggle: only Imported is priced (£/h on top, cumulative £ on a right-hand axis). Generated, Total Used, and Exported stay as kWh with no cost, including the bottom-right labels.
 - The Octopus Live Monitor panel title now sits in a light glass chip with a neat 1px grey border, so it reads as a label rather than plain text on the frame.
 - On Octopus Live Cost view the bottom chart had switched to pounds (import cost / export credit / net). That hid the energy story. The bottom chart now always shows Generated Energy (PV), Imported Energy, Total Used Energy, and Exported Energy. Cost still puts money on the top chart and the cards only.
 - A segmentation fault was only a one-line “core dumped” in the terminal. The dashboard now writes those to `~/.energy_dashboard_crash.log` (the Python stacks, and the system core-dump stack for the thread that died) and adds a Crash line on the Console. Closing the window in the normal way is not recorded as a crash. The core file itself still stays with the system.

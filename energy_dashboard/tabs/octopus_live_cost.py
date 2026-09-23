@@ -442,6 +442,8 @@ def compose_cost_view(
     out = out.sort_values("interval_start").reset_index(drop=True)
     hours = pd.to_numeric(out["slot_hours"], errors="coerce").replace(0, pd.NA)
     out["gbp_per_h"] = (out["net_pence"] / 100.0) / hours
+    # Import-only money rate (Cost charts price import; export stays energy).
+    out["import_gbp_per_h"] = (out["import_pence"] / 100.0) / hours
     out["cum_import_gbp"] = _cumsum_gbp(out["import_pence"], out["interval_start"])
     out["cum_export_gbp"] = _cumsum_gbp(out["export_pence"], out["interval_start"])
     out["cum_net_gbp"] = out["cum_import_gbp"] - out["cum_export_gbp"]

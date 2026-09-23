@@ -478,10 +478,10 @@ class OctopusLiveTab(QWidget):
         self.rb_view_power.setChecked(True)
         self.rb_view_power.setToolTip("Watts and kWh from the live meter.")
         self.rb_view_cost.setToolTip(
-            "Money on the top chart and cards: energy times the Agile spot price. "
-            "The bottom chart stays Generated / Imported / Used / Exported energy. "
-            "Days Octopus has already metered use that half-hour meter. "
-            "Today’s money is an estimate, scaled so it lines up with those settled days. "
+            "Money for grid import on the charts: import £/h on top, "
+            "cumulative import £ on the bottom right axis. "
+            "Generated / Total Used / Exported stay as energy with no cost. "
+            "Cards still show import cost and export credit. "
             "Standing charge is not included."
         )
         row0.addWidget(self.rb_view_power)
@@ -1381,7 +1381,7 @@ class OctopusLiveTab(QWidget):
     def _apply_card_chrome(self):
         cost = self._is_cost_mode()
         spec = {
-            "live_demand": ("Cost rate" if cost else "Live Demand", "£/h" if cost else "W"),
+            "live_demand": ("Import £/h" if cost else "Live Demand", "£/h" if cost else "W"),
             "latest_import": ("Latest import" if cost else "Latest Import", "p" if cost else "kWh"),
             "latest_export": ("Latest export" if cost else "Latest Export", "p" if cost else "kWh"),
             "latest_net": ("Latest net" if cost else "Latest Net", "p" if cost else "kWh"),
@@ -1397,8 +1397,8 @@ class OctopusLiveTab(QWidget):
         )
         cost_tips = {
             "live_demand": (
-                "Net money per hour for the latest slot: import cost minus "
-                "export credit. Positive means paying. Today is scaled when "
+                "Import cost per hour for the latest slot. "
+                "Export is not on this rate chart. Today is scaled when "
                 "settled Octopus days have taught a factor."
             ),
             "latest_import": "Import cost of the latest slot, in pence.",
@@ -1533,7 +1533,9 @@ class OctopusLiveTab(QWidget):
                 self._live_demand_unit_label.setText("£/h")
             return
         last = slots.iloc[-1]
-        rate = last.get("gbp_per_h")
+        rate = last.get("import_gbp_per_h")
+        if rate is None or (isinstance(rate, float) and rate != rate):
+            rate = last.get("gbp_per_h")
         try:
             rate_f = float(rate)
         except (TypeError, ValueError):
@@ -1542,8 +1544,9 @@ class OctopusLiveTab(QWidget):
             self.card_labels["live_demand"].setText("--")
         else:
             self.card_labels["live_demand"].setText(f"{rate_f:.2f}")
-            dc = "#f38ba8" if rate_f > 0 else "#a6e3a1"
-            self.card_labels["live_demand"].setStyleSheet(f"color: {dc}; font-weight: bold;")
+            self.card_labels["live_demand"].setStyleSheet(
+                "color: #f38ba8; font-weight: bold;"
+            )
         if self._live_demand_unit_label is not None:
             age = self._sample_age_text(last.get("interval_start"))
             self._live_demand_unit_label.setText(f"£/h · {age}" if age else "£/h")
@@ -1593,6 +1596,7 @@ class OctopusLiveTab(QWidget):
 
     def _plot_cost_charts(self):
         import matplotlib.dates as mdates
+        self._clear_import_cost_axis()
         self.ax_import.clear()
         self.ax_net.clear()
         _style_ax_dark(self.ax_import, self.fig)
@@ -1620,15 +1624,19 @@ class OctopusLiveTab(QWidget):
             return
 
         ts = slots["interval_start"]
-        rate = pd.to_numeric(slots["gbp_per_h"], errors="coerce")
+        # Cost prices import only — export stays on the energy chart, not money.
+        if "import_gbp_per_h" in slots.columns:
+            rate = pd.to_numeric(slots["import_gbp_per_h"], errors="coerce")
+        else:
+            hours_slot = pd.to_numeric(slots["slot_hours"], errors="coerce").replace(0, pd.NA)
+            rate = (pd.to_numeric(slots["import_pence"], errors="coerce") / 100.0) / hours_slot
         self.ax_import.fill_between(ts, rate.clip(lower=0), alpha=0.3, color="#f38ba8", step="mid")
-        self.ax_import.fill_between(ts, rate.clip(upper=0), alpha=0.3, color="#a6e3a1", step="mid")
-        self.ax_import.step(ts, rate, color="#cdd6f4", linewidth=1, where="mid", label="Net £/h")
+        self.ax_import.step(ts, rate, color="#F44336", linewidth=1.2, where="mid", label="Import £/h")
         self.ax_import.axhline(0, color=_DARK_GRID, linewidth=0.6)
         self.ax_import.set_ylabel("£/h")
         title = (
-            f"Cost rate — previous {hours}h — "
-            "+£/h paying to import, −£/h export credit"
+            f"Import cost rate — previous {hours}h — "
+            "£/h for grid import only (Gen / Used / Exp stay as energy below)"
         )
         if bounds["stale"]:
             title += " [latest available]"
@@ -1651,8 +1659,6 @@ class OctopusLiveTab(QWidget):
         self.ax_import.tick_params(axis="x", rotation=30, labelbottom=False)
         self.ax_import.grid(axis="y", color=_DARK_GRID, linewidth=0.4)
 
-        # Bottom chart stays energy (same four measures as Power). Cost is
-        # money on the top chart and cards only — not a replacement for kWh.
         has_imp = self.import_df is not None and not self.import_df.empty
         has_exp = self.export_df is not None and not self.export_df.empty
         imp_view = (
@@ -1682,27 +1688,27 @@ class OctopusLiveTab(QWidget):
             src=src,
             tick_interval=tick_interval,
             fmt=fmt,
+            import_cost_slots=slots,
         )
         _draw_6h_vertical_grid(self.ax_import, london)
         _draw_day_date_labels(self.ax_import, london)
         self._tight_y_from_artists(self.ax_import)
         self._annotate_cost_days(self.ax_import, london, model.get("days") or [], view_start, view_end)
         scales = (bundle or {}).get("scales") or {}
-        if scales.get("tuned_import") or scales.get("tuned_export"):
+        if scales.get("tuned_import"):
             self.ax_import.set_title(
                 self.ax_import.get_title()
-                + f" — today estimate import ×{scales['scale_import']:.2f}, "
-                f"export ×{scales['scale_export']:.2f}"
+                + f" — today estimate import ×{scales['scale_import']:.2f}"
             )
         self.ax_import.format_coord = lambda xv, yv, tz=london: _fmt_toolbar_time_y(
             xv, yv, tz, "£/h",
-            "net money rate (import cost minus export credit). Today is an estimate",
+            "import cost rate only. Today is an estimate when scaled from settled days",
         )
         self._apply_figure_layout(self.fig)
         self.canvas.draw()
 
     def _annotate_cost_days(self, ax, london, days, view_start, view_end):
-        """Import £ top-right and export credit bottom-left, per London day."""
+        """Import £ top-right per London day (export stays energy — no £ note)."""
         import math
         import matplotlib.dates as mdates
         if not days:
@@ -1719,7 +1725,6 @@ class OctopusLiveTab(QWidget):
             return
         span = max(1e-9, x_hi - x_lo)
         y_top = ymax - 0.06 * (ymax - ymin)
-        y_bot = ymin + 0.06 * (ymax - ymin)
         x_pad = max(1e-5, span * 0.004)
         by_date = {d["date"]: d for d in days}
         for i in range(n_days):
@@ -1743,15 +1748,24 @@ class OctopusLiveTab(QWidget):
                 "mixed": "partial",
             }.get(row.get("basis"), "")
             imp = float(row["import_pence"]) / 100.0
-            exp = float(row["export_pence"]) / 100.0
             ax.text(
                 x_clip_r - x_pad, y_top, f"Import £{imp:.2f}\n{tag}",
                 ha="right", va="top", fontsize=8, color="#f38ba8", zorder=7, clip_on=True,
             )
-            ax.text(
-                x_clip_l + x_pad, y_bot, f"Export £{exp:.2f}",
-                ha="left", va="bottom", fontsize=8, color="#a6e3a1", zorder=7, clip_on=True,
-            )
+
+    def _clear_import_cost_axis(self):
+        """Remove a previous Cost twin £ axis on the bottom pane."""
+        ax = getattr(self, "_ax_net_import_cost", None)
+        if ax is None:
+            return
+        try:
+            ax.remove()
+        except Exception:
+            try:
+                self.fig.delaxes(ax)
+            except Exception:
+                pass
+        self._ax_net_import_cost = None
 
     def _update_cost_summary(self):
         model, bundle, energy_source, _bounds = self._cost_model_for_view()
@@ -1912,6 +1926,7 @@ class OctopusLiveTab(QWidget):
             return
         import pytz, matplotlib.dates as mdates
         london = pytz.timezone('Europe/London')
+        self._clear_import_cost_axis()
         self.ax_import.clear()
         self.ax_net.clear()
         _style_ax_dark(self.ax_import, self.fig)
@@ -2048,14 +2063,22 @@ class OctopusLiveTab(QWidget):
     def _draw_cumulative_energy_pane(
         self, *, london, hours, now, view_start, view_end, stale_window, latest_ts,
         imp_view, exp_view, has_demand, src, tick_interval, fmt,
+        import_cost_slots=None,
     ):
         """Bottom chart: Generated (PV), Imported, Total Used, Exported.
 
-        Same measures in Power and Cost. Cost only changes the top chart and
-        the summary cards — not this energy pane.
+        In Power mode all four are kWh. In Cost mode only Imported is money
+        (cumulative £ on a right-hand axis); Gen / Used / Exp stay as energy
+        with no cost — including the bottom-right running labels.
         """
         import numpy as np
         import matplotlib.dates as mdates
+
+        cost_import = (
+            import_cost_slots is not None
+            and not getattr(import_cost_slots, "empty", True)
+            and "cum_import_gbp" in import_cost_slots.columns
+        )
 
         gid = self.granularity_group.checkedId() if src == 'GraphQL' else 1
         slot_min = self._slot_minutes(src, gid)
@@ -2075,6 +2098,8 @@ class OctopusLiveTab(QWidget):
                 cum_df, view_start, view_end, slot_min, london,
             )
         has_cumulative = False
+        legend_handles = []
+        legend_labels = []
         if not cum_df.empty:
             ts = pd.to_datetime(cum_df['interval_start'])
             if ts.dt.tz is None:
@@ -2097,30 +2122,39 @@ class OctopusLiveTab(QWidget):
                 if 'cum_consumption_kwh' in cum_df.columns
                 else (ci + cpv - ce)
             )
-            peak = max(
-                float(np.nanmax(ci)) if len(ci) else 0.0,
+            energy_peak = max(
                 float(np.nanmax(ce)) if len(ce) else 0.0,
                 float(np.nanmax(cpv)) if len(cpv) else 0.0,
                 float(np.nanmax(ccons)) if len(ccons) else 0.0,
+                0.0 if cost_import else (float(np.nanmax(ci)) if len(ci) else 0.0),
             )
-            if peak > 1e-9:
+            if energy_peak > 1e-9 or cost_import:
                 has_cumulative = True
-                self.ax_net.step(
+                ln_gen, = self.ax_net.step(
                     ts, cpv, where='post', color='#fab387', linewidth=1.6,
                     label='Generated Energy (PV)',
                 )
-                self.ax_net.step(
-                    ts, ci, where='post', color='#F44336', linewidth=1.6,
-                    label='Imported Energy',
-                )
-                self.ax_net.step(
+                legend_handles.append(ln_gen)
+                legend_labels.append('Generated Energy (PV)')
+                if not cost_import:
+                    ln_imp, = self.ax_net.step(
+                        ts, ci, where='post', color='#F44336', linewidth=1.6,
+                        label='Imported Energy',
+                    )
+                    legend_handles.append(ln_imp)
+                    legend_labels.append('Imported Energy')
+                ln_used, = self.ax_net.step(
                     ts, ccons, where='post', color='#cba6f7', linewidth=1.8,
                     label='Total Used Energy',
                 )
-                self.ax_net.step(
+                legend_handles.append(ln_used)
+                legend_labels.append('Total Used Energy')
+                ln_exp, = self.ax_net.step(
                     ts, ce, where='post', color='#4CAF50', linewidth=1.6,
                     label='Exported Energy',
                 )
+                legend_handles.append(ln_exp)
+                legend_labels.append('Exported Energy')
                 if float(np.nanmax(cpv)) <= 1e-9:
                     self.ax_net.text(
                         0.98, 0.05,
@@ -2129,14 +2163,14 @@ class OctopusLiveTab(QWidget):
                         ha='right', va='bottom', fontsize=9, color=_DARK_SUBTEXT,
                     )
                 self.ax_net.axhline(0, color=_DARK_GRID, linewidth=0.6)
-                ymin = float(min(0.0, np.nanmin(ci), np.nanmin(ce), np.nanmin(cpv), np.nanmin(ccons)))
-                ymax = float(max(np.nanmax(ci), np.nanmax(ce), np.nanmax(cpv), np.nanmax(ccons)))
+                if cost_import:
+                    ymin = float(min(0.0, np.nanmin(ce), np.nanmin(cpv), np.nanmin(ccons)))
+                    ymax = float(max(np.nanmax(ce), np.nanmax(cpv), np.nanmax(ccons), 0.01))
+                else:
+                    ymin = float(min(0.0, np.nanmin(ci), np.nanmin(ce), np.nanmin(cpv), np.nanmin(ccons)))
+                    ymax = float(max(np.nanmax(ci), np.nanmax(ce), np.nanmax(cpv), np.nanmax(ccons)))
                 pad = max((ymax - ymin) * 0.08, 0.01)
                 self.ax_net.set_ylim(ymin - pad, ymax + pad)
-                self.ax_net.legend(
-                    loc='upper left', fontsize=8, framealpha=0.6,
-                    facecolor=_DARK_FACE, edgecolor=_DARK_GRID, labelcolor=_DARK_TEXT,
-                )
             else:
                 self.ax_net.text(
                     0.5, 0.5,
@@ -2150,16 +2184,59 @@ class OctopusLiveTab(QWidget):
                 transform=self.ax_net.transAxes,
                 ha='center', va='center', fontsize=12, color=_DARK_SUBTEXT,
             )
+
+        if cost_import:
+            cost_df = import_cost_slots
+            cts = pd.to_datetime(cost_df["interval_start"])
+            if getattr(cts.dt, "tz", None) is None:
+                cts = cts.dt.tz_localize(london, ambiguous="infer", nonexistent="shift_forward")
+            else:
+                cts = cts.dt.tz_convert(london)
+            cimp = pd.to_numeric(cost_df["cum_import_gbp"], errors="coerce").fillna(0.0)
+            ax_cost = self.ax_net.twinx()
+            self._ax_net_import_cost = ax_cost
+            _style_ax_dark(ax_cost, self.fig)
+            ax_cost.set_frame_on(False)
+            ax_cost.yaxis.set_label_position("right")
+            ax_cost.yaxis.tick_right()
+            ax_cost.tick_params(axis="y", colors="#F44336", labelsize=8)
+            ax_cost.spines["right"].set_visible(True)
+            ax_cost.spines["right"].set_color("#F44336")
+            ln_imp_cost, = ax_cost.step(
+                cts, cimp, where="post", color="#F44336", linewidth=1.8,
+                label="Imported cost",
+            )
+            legend_handles.append(ln_imp_cost)
+            legend_labels.append("Imported cost (£)")
+            peak_cost = float(np.nanmax(cimp.to_numpy(dtype=float))) if len(cimp) else 0.0
+            ax_cost.set_ylim(0.0, max(peak_cost * 1.12, 0.01))
+            ax_cost.set_ylabel("Imported cost (£)", color="#F44336")
+            ax_cost.set_xlim(view_start, view_end)
+            has_cumulative = True
+
+        if legend_handles:
+            self.ax_net.legend(
+                legend_handles, legend_labels,
+                loc='upper left', fontsize=8, framealpha=0.6,
+                facecolor=_DARK_FACE, edgecolor=_DARK_GRID, labelcolor=_DARK_TEXT,
+            )
+
         if not stale_window:
             self.ax_net.axvline(now, color=_UI_BLUE, linestyle='--', linewidth=1)
         if stale_window and latest_ts is not None:
             self.ax_net.axvline(latest_ts, color='#f9e2af', linestyle=':', linewidth=1)
         self.ax_net.set_xlim(view_start, view_end)
         self.ax_net.set_ylabel('Cumulative kWh')
-        cum_title = (
-            'Generated / Imported / Total Used / Exported — daily totals '
-            f'(reset at London midnight, {hours}h view)'
-        )
+        if cost_import:
+            cum_title = (
+                'Gen / Used / Exp (kWh) + Imported cost (£) — daily totals '
+                f'(reset at London midnight, {hours}h view)'
+            )
+        else:
+            cum_title = (
+                'Generated / Imported / Total Used / Exported — daily totals '
+                f'(reset at London midnight, {hours}h view)'
+            )
         if cum_from_demand and not cum_df.empty:
             cum_title += ' (import/export from live demand)'
         if stale_window:
@@ -2172,16 +2249,39 @@ class OctopusLiveTab(QWidget):
         _draw_6h_vertical_grid(self.ax_net, london)
         _draw_day_date_labels(self.ax_net, london)
         if has_cumulative and not cum_df.empty:
-            _octopus_live_draw_cumulative_day_labels(
-                self.ax_net, london, cum_df, now=now,
-            )
+            if cost_import:
+                # Bottom-right energy labels without cost; Imp £ on the money axis.
+                _octopus_live_draw_cumulative_day_labels(
+                    self.ax_net, london, cum_df, now=now,
+                    series=(
+                        ('Gen', 'cum_pv_kwh', '#fab387'),
+                        ('Used', 'cum_consumption_kwh', '#cba6f7'),
+                        ('Exp', 'cum_export_kwh', '#4CAF50'),
+                    ),
+                )
+                cost_lab = import_cost_slots.copy()
+                _octopus_live_draw_cumulative_day_labels(
+                    self._ax_net_import_cost, london, cost_lab, now=now,
+                    series=(('Imp', 'cum_import_gbp', '#F44336'),),
+                    value_fmt=lambda name, val: f"{name} £{val:.2f}",
+                )
+            else:
+                _octopus_live_draw_cumulative_day_labels(
+                    self.ax_net, london, cum_df, now=now,
+                )
         if not has_cumulative:
             self._tight_y_from_artists(self.ax_net)
-        self.ax_net.format_coord = lambda xv, yv, tz=london: _fmt_toolbar_time_y(
-            xv, yv, tz, "cumulative kWh",
-            "daily running total of Generated (PV), Imported, Total Used "
-            "(import+PV−export), or Exported; resets at London midnight",
-        )
+        if cost_import:
+            self.ax_net.format_coord = lambda xv, yv, tz=london: _fmt_toolbar_time_y(
+                xv, yv, tz, "cumulative kWh",
+                "Generated / Total Used / Exported energy; Imported cost is on the right £ axis",
+            )
+        else:
+            self.ax_net.format_coord = lambda xv, yv, tz=london: _fmt_toolbar_time_y(
+                xv, yv, tz, "cumulative kWh",
+                "daily running total of Generated (PV), Imported, Total Used "
+                "(import+PV−export), or Exported; resets at London midnight",
+            )
 
     def _update_summary(self):
         if self._is_cost_mode():

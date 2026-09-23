@@ -469,22 +469,25 @@ def _octopus_live_draw_per_day_totals(ax, london, imp_view, exp_view,
         )
 
 
-def _octopus_live_draw_cumulative_day_labels(ax, london, cum_df, *, now=None):
+def _octopus_live_draw_cumulative_day_labels(
+    ax, london, cum_df, *, now=None, series=None, value_fmt=None,
+):
     """Annotate daily finals and today's running tallies on the cumulative chart.
 
     For each completed London calendar day in ``cum_df``, place Gen / Imp /
     Used / Exp totals just below that day's last sample (left of the midnight
-    reset). For the current day, place the same four values at the latest
-    sample (running tally). When lines sit at nearly the same kWh, labels are
+    reset). For the current day, place the same values at the latest sample
+    (running tally). When lines sit at nearly the same value, labels are
     stacked so they do not overlap: today stacks upward; completed days stack
     downward under the lines.
+
+    ``series`` is an optional sequence of ``(short_name, column, colour)``.
+    ``value_fmt`` formats each value (default one decimal place).
     """
     import math
     import matplotlib.dates as mdates
 
     if cum_df is None or cum_df.empty or 'interval_start' not in cum_df.columns:
-        return
-    if 'cum_import_kwh' not in cum_df.columns:
         return
 
     df = cum_df.copy()
@@ -518,12 +521,16 @@ def _octopus_live_draw_cumulative_day_labels(ax, london, cum_df, *, now=None):
     # Preferred bottom→top order when values collide: Gen, Imp, Used, Exp.
     stack_rank = {"Gen": 0, "Imp": 1, "Used": 2, "Exp": 3}
 
-    series = (
-        ('Gen', 'cum_pv_kwh', '#fab387'),
-        ('Imp', 'cum_import_kwh', '#F44336'),
-        ('Used', 'cum_consumption_kwh', '#cba6f7'),
-        ('Exp', 'cum_export_kwh', '#4CAF50'),
-    )
+    if series is None:
+        series = (
+            ('Gen', 'cum_pv_kwh', '#fab387'),
+            ('Imp', 'cum_import_kwh', '#F44336'),
+            ('Used', 'cum_consumption_kwh', '#cba6f7'),
+            ('Exp', 'cum_export_kwh', '#4CAF50'),
+        )
+    if value_fmt is None:
+        def value_fmt(name, val):
+            return f"{name} {val:.1f}"
 
     for day_ts, day_df in df.groupby('_day', sort=True):
         if day_df.empty:
@@ -546,9 +553,9 @@ def _octopus_live_draw_cumulative_day_labels(ax, london, cum_df, *, now=None):
                 continue
             if not math.isfinite(val):
                 continue
-            text = f"{name} {val:.1f}"
+            text = value_fmt(name, val)
             if is_today:
-                text = f"{name} {val:.1f} (now)"
+                text = f"{text} (now)"
             items.append({
                 "name": name,
                 "val": val,

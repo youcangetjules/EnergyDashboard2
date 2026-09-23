@@ -106,11 +106,17 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-23 — Cost view prices only import on the charts
+
+- **Context:** Switching to Cost left the bottom chart as four energy lines, and the top chart mixed import with export credit. The householder wants Cost charts to change with the toggle: only the import line has a cost; Gen / Used / Exp (and the bottom-right energy labels) stay without cost.
+- **Decision:** Cost top chart is import £/h only. Bottom chart keeps Gen / Used / Exp as kWh on the left axis; Imported becomes cumulative £ on a right-hand axis. Day notes on the top chart show import £ only.
+- **Consequence:** Do not price PV, house use, or export on the Cost charts. Cards may still show export credit as a separate money figure.
+
 ### 2026-09-23 — Octopus Live bottom chart is always energy
 
 - **Context:** Cost view replaced the cumulative bottom chart with import cost / export credit / net in pounds. That hid Generated (PV), Imported, Total Used, and Exported energy — the measures the householder uses to read the day.
-- **Decision:** The bottom chart always plots those four kWh series (including Exported as its own line). Cost only changes the top chart (£/h) and the summary cards. Total Used stays the labelled balance `import + PV − export`.
-- **Consequence:** Do not put money series on the bottom pane again. Day-end labels stay Gen / Imp / Used / Exp.
+- **Decision:** The bottom chart always keeps Gen / Used / Exp as kWh. Cost only turns the Imported series into £ (right axis). Total Used stays the labelled balance `import + PV − export`.
+- **Consequence:** Do not put export or net money on the bottom pane. Day-end energy labels stay Gen / Used / Exp; Imp shows £ in Cost.
 
 ### 2026-09-23 — Fatal signals go to a crash log
 
