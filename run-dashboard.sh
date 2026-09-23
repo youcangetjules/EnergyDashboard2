@@ -71,4 +71,29 @@ if [[ "$_web_gpu" != "1" && "$_web_gpu" != "true" && "$_web_gpu" != "yes" && "$_
   fi
 fi
 
-exec python "$ROOT/EnergyDashboard2.py" "$@"
+# Do not exec. A segmentation fault replaces this script when we exec, so the
+# shell never gets to write down what happened. Wait for the child, then log
+# a fatal signal (the core dump itself stays with systemd-coredump).
+set +e
+python "$ROOT/EnergyDashboard2.py" "$@" &
+_child=$!
+wait "$_child"
+_status=$?
+set -e
+if ! python - "$ROOT" "$_child" "$_status" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location(
+    "powermodel_crash_log",
+    root / "energy_dashboard" / "core" / "crash_log.py",
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+raise SystemExit(mod.record_launcher_death(int(sys.argv[2]), int(sys.argv[3])))
+PY
+then
+  echo "Could not write the crash log (dashboard status ${_status})." >&2
+fi
+exit "$_status"

@@ -4,9 +4,15 @@ from __future__ import annotations
 import energy_dashboard.qt_env  # noqa: F401 — before QApplication
 import sys
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from energy_dashboard.app_entry import _configure_app_input_palette, _flush_qsettings_on_quit
+from energy_dashboard.core.crash_log import (
+    note_version,
+    rearm_crash_logger,
+    schedule_import_coredumps,
+)
 from energy_dashboard.core.logging import ensure_log_manager
 from energy_dashboard.qt_env import configure_qt_webengine_chromium, prepare_qapplication_attributes
 from energy_dashboard.version import APP_VERSION
@@ -36,6 +42,20 @@ def main() -> None:
     install_modal_stay_on_top(app)
     ensure_log_manager()
     _install_exception_logger()
+    note_version(APP_VERSION)
+    # Qt replaces fatal-signal handlers as WebEngine starts. Put ours back.
+    rearm_crash_logger()
+    QTimer.singleShot(2000, rearm_crash_logger)
+    QTimer.singleShot(10000, rearm_crash_logger)
+
+    def _announce_crash(message: str) -> None:
+        try:
+            from energy_dashboard.core.logging import get_log_manager
+            get_log_manager().err("Crash", message)
+        except Exception:
+            pass
+
+    schedule_import_coredumps(_announce_crash)
 
     from energy_dashboard.common import application_stylesheet
     from energy_dashboard.main_window import EnergyDashboard

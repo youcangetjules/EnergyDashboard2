@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.411", "2026-09-23", [
+        "A segmentation fault or abort is written to "
+        "<b>~/.energy_dashboard_crash.log</b> and a <b>Crash</b> line in the "
+        "Console. That log has the Python stacks and the system core-dump "
+        "stack. Closing the window normally is not recorded as a crash.",
+    ]),
     ("2.9.410", "2026-09-23", [
         "PV String Charge: click <b>String 1</b> or <b>String 2</b> for a "
         "history table of measured generation. Rows open as "

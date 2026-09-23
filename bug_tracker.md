@@ -39,6 +39,22 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Open
 
+### BUG-20260923-09 — Dashboard segmentation fault during Qt property update
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 10:13 (Europe/London) |
+| **Status** | open |
+| **Area** | GUI thread (PySide / Qt) |
+| **Version found** | unknown (process `python EnergyDashboard2.py`, pid 823083) |
+| **Version fixed** | — |
+
+**Symptom:** `./run-dashboard.sh` died with `segmentation fault (core dumped)`. zsh job `[1] 823083`. systemd-coredump has the core at 10:12 BST.
+
+**Cause:** Investigating. The crashing thread was inside PySide `getWrapperForQObject` while Qt was applying a property (`QObject::doSetProperty`) from the main event loop. That is the same family as a deleted widget still receiving an event (Shiboken wrapper). WebEngine threads were alive in the same process but were not the thread that faulted.
+
+**Resolution:** Empty while open. From 2.9.411 a repeat is written to `~/.energy_dashboard_crash.log` (Python stacks plus this kind of core-dump stack) and a Crash line on the Console. That does not stop the fault.
+
 ### BUG-20260923-06 — Setup Database Export: status and SQL panes still misaligned
 
 | Field | Value |

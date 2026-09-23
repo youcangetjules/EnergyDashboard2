@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-23 — Fatal signals go to a crash log
+
+- **Context:** A segmentation fault kills the process before Python’s exception hook or the Console logger can run. systemd-coredump keeps the core, but nothing in the app’s own log said the dashboard had died.
+- **Decision:** `faulthandler` appends every thread’s Python stack to `~/.energy_dashboard_crash.log` at the fault. `run-dashboard.sh` waits for the process and appends the matching systemd core-dump stack (crashing thread plus where the core file is stored). The core file itself stays with systemd. A normal window close writes a clean-exit line and is not treated as a crash. The next launch copies any dashboard core the shell missed and adds one Crash line to the Console.
+- **Consequence:** Do not turn this into a display-side workaround for a bad reading. Do not delete or rewrite `~/.energy_dashboard_crash.log` from the Console **Clear** button.
+
 ### 2026-09-22 — Octopus Live cost view
 
 - **Context:** The live monitor showed watts and kWh. The householder also wants money, and the live stream does not match the half-hour meter Octopus later bills from.
