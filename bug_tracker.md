@@ -39,6 +39,27 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Open
 
+### BUG-20260923-04 — Dashboard freezes / goes sticky after running a while
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 09:15 (Europe/London) |
+| **Status** | open |
+| **Area** | GUI thread (Octopus Live, Growatt, matplotlib); Growatt HTTPS |
+| **Version found** | ~2.9.404 (live PID 652826, ~9.5 h uptime) |
+| **Version fixed** | — |
+
+**Symptom:** After the dashboard has been open for a while, the window stops responding cleanly — clicks and tab changes lag or feel frozen. Reported by the human; confirmed against a live long-running process on this machine.
+
+**Cause:** Investigating. Strong suspects from code + live process:
+
+1. **GUI-thread database + chart work** — Octopus Live `_update_display` (GUI) calls `_attach_cumulative_pv` → `query_growatt_pv_actual`, which opens Postgres and scans `growatt_readings` with Polars `infer_schema_length=None`, then does synchronous `canvas.draw()`. Same pattern of sync `canvas.draw()` on Tasmota. A slow DB or a large window can stall the UI for seconds on every auto-refresh.
+2. **Main-thread CPU** — live PID 652826 (~9.5 h): main thread alone was burning ~65 CPU ticks / 2 s while process RSS ~660 MB. Not a hard deadlock; more like the GUI event loop busy with work.
+3. **Growatt HTTPS half-closed sockets** — same process had two `CLOSE-WAIT` connections to `openapi.growatt.com` / `api.growatt.com` (8.211.2.163). growattServer keeps a `requests.Session`; leaked sockets can pile up over a long session.
+4. **Prior mid-session SEGV** — BUG-20260921-10 (Shiboken / worker race) can look like a freeze then crash; Invoker QueuedConnection partially hardened in 2.9.380 but root cause still open.
+
+**Resolution:** Empty while open. Likely fixes: move PV DB attach off the GUI thread; prefer `draw_idle`; close / recycle Growatt HTTP sessions; re-check worker→GUI Invoker paths if SEGV returns.
+
 ### BUG-20260921-10 — Mid-session SEGV (Shiboken import vs GUI paint)
 
 | Field | Value |
@@ -56,6 +77,22 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 **Resolution:** Partial hardening in **2.9.380** — `Invoker` now forces `QueuedConnection` so worker `invoke()` always posts to the GUI thread. Fresh `./run-dashboard.sh` smoke-tested ~12s without SEGV. Full root cause of the import race still open if it recurs.
 
 ## Fixed
+
+### BUG-20260923-05 — Grott Setup “connected · fresh” looked white
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 09:17 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Grott Setup (`tabs/grott_setup.py`) |
+| **Version found** | 2.9.404 |
+| **Version fixed** | 2.9.405 |
+
+**Symptom:** Live feed showed `Source: hybrid · connected · fresh` in plain white, so the healthy state did not read as OK.
+
+**Cause:** `lbl_live` stylesheet set `color: #cdd6f4`, which overrides HTML `<span style='color:…'>` on Qt labels.
+
+**Resolution:** Dropped the stylesheet colour; “connected · fresh” is bold green (`#a6e3a1`), with bold amber/red for stale / not connected.
 
 ### BUG-20260923-03 — Octopus Energy Data chart stays empty
 

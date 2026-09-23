@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QStatusBar, QFileDialog, QMessageBox, QButtonGroup, QSizePolicy,
     QHeaderView, QFrame, QSlider, QDoubleSpinBox, QSpinBox, QScrollArea,
     QTableWidget, QTableWidgetItem, QComboBox, QAbstractItemView, QTimeEdit,
+    QAbstractSpinBox,
     QDialog, QDialogButtonBox, QMenu, QTabBar, QStyle, QStyleOptionTab,
     QStackedWidget, QSystemTrayIcon,
     QGraphicsDropShadowEffect, QGraphicsView, QGraphicsScene,

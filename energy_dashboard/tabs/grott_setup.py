@@ -52,8 +52,10 @@ class GrottSetupTab(QWidget):
         self.lbl_live = QLabel("Loading…")
         self.lbl_live.setWordWrap(True)
         self.lbl_live.setTextFormat(Qt.TextFormat.RichText)
+        # Do not set ``color`` here — a label stylesheet colour overrides HTML
+        # ``<span style='color:…'>`` (so "connected · fresh" looked plain white).
         self.lbl_live.setStyleSheet(
-            "color: #cdd6f4; padding: 8px; border: 1px solid #45475a; "
+            "padding: 8px; border: 1px solid #45475a; "
             "border-radius: 4px; background: transparent;"
         )
         live_lay.addWidget(self.lbl_live)
@@ -100,20 +102,26 @@ class GrottSetupTab(QWidget):
 
         self.ed_host = QLineEdit()
         self.ed_host.setPlaceholderText("e.g. 192.168.1.10")
+        apply_setup_info_line_field_motif(self.ed_host, width=220, expand=True)
         self.sp_port = QSpinBox()
         self.sp_port.setRange(1, 65535)
         self.sp_port.setValue(1883)
+        apply_spin_field_motif(self.sp_port, width=_SPIN_FIELD_MOTIF_DB_W)
         self.ed_topic = QLineEdit()
         self.ed_topic.setPlaceholderText("energy/growatt")
+        apply_setup_info_line_field_motif(self.ed_topic, width=220, expand=True)
         self.sp_fresh = QSpinBox()
         self.sp_fresh.setRange(15, 99999)
         self.sp_fresh.setSuffix(" s")
         self.sp_fresh.setToolTip(
             "Maximum age before Grott data is considered stale on Growatt Live."
         )
+        apply_spin_field_motif(self.sp_fresh)
         self.ed_user = QLineEdit()
+        apply_setup_info_line_field_motif(self.ed_user, width=160, expand=True)
         self.ed_pass = QLineEdit()
         self.ed_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        apply_setup_info_line_field_motif(self.ed_pass, width=160, expand=True)
 
         def _pair(row: int, label: str, w0, w1=None, label2: str = ""):
             mqtt_grid.addWidget(QLabel(label), row, 0)
@@ -288,7 +296,9 @@ class GrottSetupTab(QWidget):
         src = read_growatt_telemetry_source(s, p)
         if not growatt_uses_grott(src):
             self.lbl_live.setText(
-                f"<b>Source:</b> Growatt Cloud API — Grott MQTT is not selected."
+                "<span style='color:#cdd6f4;'>"
+                "<b>Source:</b> Growatt Cloud API — Grott MQTT is not selected."
+                "</span>"
             )
             if self.on_data_updated:
                 try:
@@ -315,13 +325,25 @@ class GrottSetupTab(QWidget):
         topic = gs.get("topic") or self.ed_topic.text().strip() or "energy/growatt"
         serial = (snap or {}).get("serial") or gs.get("serial") or "—"
         if connected and fresh:
-            state = "<span style='color:#a6e3a1;'>connected · fresh</span>"
+            state = (
+                "<span style='color:#a6e3a1; font-weight:700;'>"
+                "connected · fresh</span>"
+            )
         elif connected:
-            state = "<span style='color:#fab387;'>connected · stale</span>"
+            state = (
+                "<span style='color:#fab387; font-weight:700;'>"
+                "connected · stale</span>"
+            )
         elif gs.get("enabled"):
-            state = "<span style='color:#f38ba8;'>not connected</span>"
+            state = (
+                "<span style='color:#f38ba8; font-weight:700;'>"
+                "not connected</span>"
+            )
         else:
-            state = "<span style='color:#6c7086;'>subscriber stopped</span>"
+            state = (
+                "<span style='color:#6c7086; font-weight:700;'>"
+                "subscriber stopped</span>"
+            )
         age_bit = f"{float(age):.0f}s" if age is not None else "—"
         ignored_h = int(gs.get("ignored_historical") or 0)
         ignored_note = ""
@@ -339,10 +361,12 @@ class GrottSetupTab(QWidget):
                 "Hybrid uses the cloud until the next live Grott frame.</span>"
             )
         self.lbl_live.setText(
+            f"<span style='color:#cdd6f4;'>"
             f"<b>Source:</b> {src} · {state}<br>"
             f"<b>Broker:</b> {host}:{port} · <b>Topic:</b> {topic}<br>"
             f"<b>Last live payload:</b> {age_bit} old · <b>Serial:</b> {serial}"
             f"{ignored_note}{stale_note}"
+            f"</span>"
         )
         if self.on_data_updated:
             try:

@@ -114,11 +114,13 @@ apply_setup_info_line_field_motif(edit)         # objectName paramsDbField
 
 **Aliases** (same QSS): `_spin_field_motif_qss()`, `_setup_info_spin_qss()`, `_flat_tariff_spin_qss()`.
 
-### Neutral inputs (not the spin motif)
+### Neutral inputs (same grey fill)
 
-Ordinary `QLineEdit` / `QComboBox` / `QTimeEdit` use **neutral** dark chrome (`_DARK_INPUT_BG`, soft border) — not electric blue — unless explicitly promoted via `apply_setup_info_line_field_motif`.
+Ordinary `QLineEdit` / `QComboBox` / `QTimeEdit` use the **same slight grey fill** as spin fields (`_SPIN_FIELD_BG`, aliased as `_DARK_INPUT_BG`) with a soft border — not electric blue — unless explicitly promoted via `apply_setup_info_line_field_motif`.
 
-**Rule of thumb:** editable numbers and Setup credential *fields that sit in the spin grid* → electric blue. Long free-text (API keys on Octopus Live, share URLs) may stay neutral or use the blue motif when they sit in a Setup pair grid.
+App start also runs `apply_input_field_fill_tree(root)` so Fusion paints that grey even when stylesheet Base is ignored.
+
+**Rule of thumb:** editable numbers and Setup credential *fields that sit in the spin grid* → electric blue. Long free-text (API keys on Octopus Live, share URLs) may stay soft-bordered or use the blue motif when they sit in a Setup pair grid. Every text entry and spin shares the lifted grey fill.
 
 ### Special spin chrome
 

@@ -53,6 +53,14 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.405", "2026-09-23", [
+        "Grott Setup Live feed shows <b>connected · fresh</b> in bold green "
+        "(and stale / not connected in bold amber or red). A label colour rule "
+        "had been painting that whole line white.",
+        "Text boxes, combos, and spin fields share the same slight grey fill "
+        "across the app (the fill spins already used), so fields no longer "
+        "blend into the dark panel.",
+    ]),
     ("2.9.404", "2026-09-23", [
         "Octopus Energy Data fetches with the API key saved on Octopus Live. "
         "The old default key was rejected by Octopus, so the charts stayed empty. "

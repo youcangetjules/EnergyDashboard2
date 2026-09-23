@@ -119,14 +119,9 @@ def _lerp_hex(c0, c1, t):
     return _rgb_to_hex(tuple(int(round(x + (y - x) * t)) for x, y in zip(a, b)))
 
 
-# Panels/dialogues: gentle lift. Text fields: barely lighter than app background.
+# Panels/dialogues: gentle lift.
 _DARK_PANEL_LIFT = 0.10
-_DARK_INPUT_LIFT = 0.06
 _DARK_SURFACE_BG = _lerp_hex(_DARK_BG, '#ffffff', _DARK_PANEL_LIFT)
-_DARK_INPUT_BG = _lerp_hex(_DARK_BG, '#ffffff', _DARK_INPUT_LIFT)
-_DARK_INPUT_BORDER = _lerp_hex(_DARK_BG, '#ffffff', 0.14)
-_SPIN_STEP_BTN_HOVER = _lerp_hex(_DARK_INPUT_BG, '#ffffff', 0.05)
-_SPIN_STEP_BTN_PRESSED = _lerp_hex(_DARK_INPUT_BG, '#000000', 0.10)
 # Combo / spin arrow strip: same fill as the field (no vertical divider).
 _COMBO_DROP_W = 20
 _INPUT_STEP_W = 18
@@ -146,6 +141,12 @@ _FLAT_TARIFF_INPUT_BORDER = _ELECTRIC_BLUE
 _FLAT_TARIFF_STEP_HOVER = _lerp_hex(_SPIN_FIELD_BG, '#ffffff', 0.08)
 _FLAT_TARIFF_STEP_PRESSED = _lerp_hex(_SPIN_FIELD_BG, '#000000', 0.08)
 _FLAT_TARIFF_FOCUS_BORDER = _ELECTRIC_BLUE
+# Text entry / combo / time / editable panels: same slight grey as spin fields.
+# (Older 6% lift off app bg looked nearly black next to motif spins.)
+_DARK_INPUT_BG = _SPIN_FIELD_BG
+_DARK_INPUT_BORDER = _lerp_hex(_SPIN_FIELD_BG, '#ffffff', 0.14)
+_SPIN_STEP_BTN_HOVER = _lerp_hex(_DARK_INPUT_BG, '#ffffff', 0.05)
+_SPIN_STEP_BTN_PRESSED = _lerp_hex(_DARK_INPUT_BG, '#000000', 0.10)
 # normal 400 + 30% of the way toward bold (700)
 _FLAT_TARIFF_FONT_WEIGHT = 490
 # Aliases — Setup & Info grid uses the global spin-field motif footprint.

@@ -197,10 +197,56 @@ def apply_spin_field_motif_tree(root) -> None:
             apply_spin_field_motif(spin)
 
 
+def apply_input_field_fill_tree(root) -> None:
+    """Paint every standalone line / combo / time field with the slight-grey fill.
+
+    Spins already get the fill via ``apply_spin_field_motif``. This pass covers
+    plain ``QLineEdit`` / ``QComboBox`` / ``QTimeEdit`` so they match (Fusion on
+    Linux often ignores app QSS for Base unless the palette is set too).
+    """
+    skip_parents = (QSpinBox, QDoubleSpinBox, QAbstractSpinBox, QComboBox)
+    for edit in root.findChildren(QLineEdit):
+        if edit.property("_pm_input_fill_exempt"):
+            continue
+        parent = edit.parentWidget()
+        if isinstance(parent, skip_parents):
+            continue
+        if edit.objectName() == "paramsDbField":
+            continue
+        edit.setAttribute(Qt.WA_StyledBackground, True)
+        edit.setAutoFillBackground(True)
+        pal = edit.palette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(_SPIN_FIELD_BG))
+        pal.setColor(QPalette.ColorRole.Window, QColor(_SPIN_FIELD_BG))
+        pal.setColor(QPalette.ColorRole.Text, QColor(_DARK_TEXT))
+        edit.setPalette(pal)
+    for combo in root.findChildren(QComboBox):
+        if combo.property("_pm_input_fill_exempt"):
+            continue
+        combo.setAttribute(Qt.WA_StyledBackground, True)
+        combo.setAutoFillBackground(True)
+        pal = combo.palette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(_SPIN_FIELD_BG))
+        pal.setColor(QPalette.ColorRole.Window, QColor(_SPIN_FIELD_BG))
+        pal.setColor(QPalette.ColorRole.Text, QColor(_DARK_TEXT))
+        combo.setPalette(pal)
+    for time_edit in root.findChildren(QTimeEdit):
+        if time_edit.property("_pm_input_fill_exempt"):
+            continue
+        time_edit.setAttribute(Qt.WA_StyledBackground, True)
+        time_edit.setAutoFillBackground(True)
+        pal = time_edit.palette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(_SPIN_FIELD_BG))
+        pal.setColor(QPalette.ColorRole.Window, QColor(_SPIN_FIELD_BG))
+        pal.setColor(QPalette.ColorRole.Text, QColor(_DARK_TEXT))
+        time_edit.setPalette(pal)
+
+
 def _input_widgets_qss():
-    """Line edits and combos use neutral chrome; spins use the electric-blue motif."""
+    """Line edits and combos share the slight-grey fill; spins add electric-blue borders."""
     return (
         f"QLineEdit, QComboBox, QTimeEdit {{"
+        f"  background: {_DARK_INPUT_BG};"
         f"  background-color: {_DARK_INPUT_BG};"
         f"  color: {_DARK_TEXT};"
         f"  border: 1px solid {_DARK_INPUT_BORDER};"
@@ -211,6 +257,7 @@ def _input_widgets_qss():
         f"  selection-color: {_DARK_TEXT};"
         f"}}"
         f"QComboBox QLineEdit {{"
+        f"  background: {_DARK_INPUT_BG};"
         f"  background-color: {_DARK_INPUT_BG};"
         f"  color: {_DARK_TEXT};"
         f"  border: none;"
@@ -220,6 +267,7 @@ def _input_widgets_qss():
         f"  border: 1px solid #6c7086;"
         f"}}"
         f"QLineEdit:disabled, QComboBox:disabled, QTimeEdit:disabled {{"
+        f"  background: {_DARK_INPUT_BG};"
         f"  background-color: {_DARK_INPUT_BG};"
         f"  color: {_DARK_OVERLAY};"
         f"}}"
@@ -386,6 +434,7 @@ def _text_panel_qss():
     """Read-only / editable multiline panels (summary boxes, client log, etc.)."""
     return (
         f"QTextEdit, QTextBrowser, QPlainTextEdit {{"
+        f"  background: {_DARK_INPUT_BG};"
         f"  background-color: {_DARK_INPUT_BG};"
         f"  color: {_DARK_TEXT};"
         f"  border: 1px solid {_DARK_INPUT_BORDER};"

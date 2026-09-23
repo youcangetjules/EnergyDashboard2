@@ -779,6 +779,8 @@ class EnergyDashboard(QMainWindow):
 
         # Electric-blue 90×20 spin fields (Export p/kWh reference) on all tabs.
         apply_spin_field_motif_tree(self)
+        # Same slight-grey fill on plain line edits / combos / time fields.
+        apply_input_field_fill_tree(self)
 
         QTimer.singleShot(0, self._init_banner_locale)
 
