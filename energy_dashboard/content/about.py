@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.410", "2026-09-23", [
+        "PV String Charge: click <b>String 1</b> or <b>String 2</b> for a "
+        "history table of measured generation. Rows open as "
+        "<b>Month → Day → Hour</b> with String 1 / String 2 kWh, total, and "
+        "the relative balance between the strings.",
+    ]),
     ("2.9.409", "2026-09-23", [
         "Octopus Live Cost: <b>Import cost</b> and <b>Export credit</b> keep "
         "this Hours window as the large figure, and add a smaller "

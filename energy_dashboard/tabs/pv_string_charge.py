@@ -38,6 +38,17 @@ _FC_FILL_ALPHA = 0.30
 _MAX_PLAUSIBLE_KW = 8.0
 
 
+class _ClickableMetricCard(QFrame):
+    """Metric card that emits ``clicked`` on left press (child labels pass through)."""
+
+    clicked = Signal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 def _as_float(val):
     if val is None or val in ("", "--", "—"):
         return None
@@ -357,10 +368,12 @@ class PvStringChargeTab(QWidget):
 
         cards = QHBoxLayout()
         cards.setSpacing(10)
-        self.card_s1 = self._metric_card("String 1 — now", _COL_S1)
-        self.card_s2 = self._metric_card("String 2 — now", _COL_S2)
+        self.card_s1 = self._metric_card("String 1 — now", _COL_S1, clickable=True)
+        self.card_s2 = self._metric_card("String 2 — now", _COL_S2, clickable=True)
         self.card_chg = self._metric_card("Battery charge (measured)", _COL_CHG)
         self.card_pv = self._metric_card("Total PV (measured)", "#fab387")
+        self.card_s1.clicked.connect(lambda: self._open_string_history(1))
+        self.card_s2.clicked.connect(lambda: self._open_string_history(2))
         for c in (self.card_s1, self.card_s2, self.card_chg, self.card_pv):
             cards.addWidget(c, 1)
         root.addLayout(cards)
@@ -405,12 +418,42 @@ class PvStringChargeTab(QWidget):
 
         self._draw_empty_chart()
 
-    def _metric_card(self, title: str, accent: str) -> QFrame:
-        frame = QFrame()
+    def _open_string_history(self, string_n: int):
+        """Month → Day → Hour generation and balance from stored lots."""
+        try:
+            from energy_dashboard.dialogs.pv_string_history import PvStringHistoryDialog
+            dlg = PvStringHistoryDialog(
+                self, self.data_logger, focus_string=int(string_n),
+            )
+            dlg.exec()
+        except Exception as e:
+            try:
+                _log.warn("PV String Charge", f"History dialog failed: {e}")
+            except Exception:
+                pass
+            QMessageBox.warning(
+                self, "PV string history",
+                f"Couldn't open the string history table:\n{e}",
+            )
+
+    def _metric_card(self, title: str, accent: str, *, clickable: bool = False):
+        frame = _ClickableMetricCard() if clickable else QFrame()
+        hover = (
+            f"QFrame:hover {{ border: 1px solid {accent}; "
+            f"background: #262637; }}"
+            if clickable else ""
+        )
         frame.setStyleSheet(
             f"QFrame {{ background: {_DARK_SURFACE_BG}; border: 1px solid #313244; "
             f"border-radius: 8px; border-top: 3px solid {accent}; }}"
+            f"{hover}"
         )
+        if clickable:
+            frame.setCursor(Qt.CursorShape.PointingHandCursor)
+            frame.setToolTip(
+                "Click for previous days: Month → Day → Hour generation "
+                "and the balance between String 1 and String 2."
+            )
         lay = QVBoxLayout(frame)
         lay.setContentsMargins(12, 10, 12, 10)
         lay.setSpacing(4)
@@ -435,6 +478,8 @@ class PvStringChargeTab(QWidget):
             f"color: {accent}; font-size: 12px; font-weight: 600; border: none;"
         )
         lay.addWidget(today_lbl)
+        for child in (title_lbl, value_lbl, sub_lbl, today_lbl):
+            child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         frame._value = value_lbl
         frame._sub = sub_lbl
         frame._today = today_lbl

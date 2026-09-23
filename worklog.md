@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-23
 
+- On PV String Charge, clicking String 1 or String 2 opens a history table of measured generation from the stored 2-minute lots. You can open Month → Day → Hour and see each string’s kWh, the total, and how the two strings share that total.
 - Octopus Live Cost cards were easy to misread: the large Import cost / Export credit figures are the Hours window (e.g. 24 h can mix yesterday and today), which looked “wrong” next to the cumulative chart’s today line. Those cards now keep the window as the large number and add a smaller `(Today: £…)` for London midnight to now.
 - The dashboard would not start: Command Sim needed a motif size name that never arrived because of how that module loads through `common`. Launch works again.
 - Setup & Info → Database Export now has **Show missing** on each engine row. It checks which logger tables are not on that database yet, lists them, and shows CREATE SQL for only those tables (PostgreSQL includes the GRANT lines for the User field).
