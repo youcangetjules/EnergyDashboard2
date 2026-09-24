@@ -10,6 +10,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-09-24
+
+- A 2.9.417 session segfaulted overnight. Crash log pointed at PySide while updating a Qt property — likely the new QLabel widgets inside Agile Year’s prior-year table cells. Those cells now paint the smaller bracketed delta without cell widgets (2.9.418). Restart the dashboard to pick it up.
+
 ## 2026-09-23
 
 - On Agile Year, Avg −1y / −2y / −3y now show the past average plus a smaller bracketed difference versus this day’s average (negative = cheaper than this year).

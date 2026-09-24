@@ -39,6 +39,22 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Open
 
+### BUG-20260924-01 — Segfault after Agile Year QLabel cell widgets (2.9.417)
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-24 01:12 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Agile Year table (`tabs/agile_year.py`); PySide GUI thread |
+| **Version found** | 2.9.417 |
+| **Version fixed** | 2.9.418 |
+
+**Symptom:** `./run-dashboard.sh` died with segmentation fault. Session started 2026-09-23 21:19 on 2.9.417; fault at 2026-09-24 01:12. Crash log: main thread in PySide `getWrapperForQObject` / `QObject::doSetProperty` during the event loop (same family as BUG-20260923-09).
+
+**Cause:** 2.9.417 used `QLabel` + `setCellWidget` on the sortable Avg −1y/−2y/−3y columns. That pattern can leave a dead Shiboken wrapper still receiving property/events.
+
+**Resolution:** Keep the smaller bracketed delta, but paint it with a `QStyledItemDelegate` and item data roles. No cell widgets on those columns.
+
 ### BUG-20260923-11 — Cost view charts should price only import
 
 | Field | Value |
@@ -76,16 +92,16 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 | Field | Value |
 |-------|--------|
 | **Opened** | 2026-09-23 10:13 (Europe/London) |
-| **Status** | open |
+| **Status** | open (related fix in 2.9.418 for a concrete trigger) |
 | **Area** | GUI thread (PySide / Qt) |
-| **Version found** | unknown (process `python EnergyDashboard2.py`, pid 823083) |
+| **Version found** | unknown (process `python EnergyDashboard2.py`, pid 823083); recurrence pid 997613 on 2.9.417 |
 | **Version fixed** | — |
 
-**Symptom:** `./run-dashboard.sh` died with `segmentation fault (core dumped)`. zsh job `[1] 823083`. systemd-coredump has the core at 10:12 BST.
+**Symptom:** `./run-dashboard.sh` died with `segmentation fault (core dumped)`. zsh job `[1] 823083`. systemd-coredump has the core at 10:12 BST. Recurred 2026-09-24 01:12 on 2.9.417 (pid 997613) with the same C stack.
 
-**Cause:** Investigating. The crashing thread was inside PySide `getWrapperForQObject` while Qt was applying a property (`QObject::doSetProperty`) from the main event loop. That is the same family as a deleted widget still receiving an event (Shiboken wrapper). WebEngine threads were alive in the same process but were not the thread that faulted.
+**Cause:** Crashing thread inside PySide `getWrapperForQObject` while Qt applies a property (`QObject::doSetProperty`) from the main event loop — deleted/wrapping widget still receiving an event. The 2.9.417 recurrence is strongly linked to QLabel `setCellWidget` on Agile Year prior-year columns (see BUG-20260924-01). Earlier dumps (before that change) may share the same Shiboken family with a different trigger.
 
-**Resolution:** Empty while open. From 2.9.411 a repeat is written to `~/.energy_dashboard_crash.log` (Python stacks plus this kind of core-dump stack) and a Crash line on the Console. That does not stop the fault.
+**Resolution:** Partial — 2.9.418 removes that cell-widget path. Earlier unexplained dumps stay open if they recur without Agile Year cell widgets. Crash logging from 2.9.411 still applies.
 
 ### BUG-20260923-06 — Setup Database Export: status and SQL panes still misaligned
 

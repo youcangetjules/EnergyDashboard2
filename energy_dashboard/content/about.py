@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.418", "2026-09-24", [
+        "Agile Year prior-year cells: draw the smaller bracketed delta with a "
+        "paint delegate instead of QLabel cell widgets (avoids a PySide "
+        "segmentation fault seen on 2.9.417).",
+    ]),
     ("2.9.417", "2026-09-23", [
         "Agile Year <b>Avg −1y / −2y / −3y</b>: each cell shows that year’s "
         "average, then in brackets (2pt smaller) the difference versus this "

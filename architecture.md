@@ -106,10 +106,16 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-24 — Agile Year prior-year delta via paint delegate (no cell widgets)
+
+- **Context:** 2.9.417 put QLabel rich-text widgets in Avg −Ny table cells. A long-running 2.9.417 session then segfaulted in PySide `getWrapperForQObject` / `QObject::doSetProperty` — the same family as BUG-20260923-09. Sorted `QTableWidget` + `setCellWidget` is a known Shiboken lifetime trap.
+- **Decision:** Keep the smaller bracketed (prior − this day) display, but paint it with a column `QStyledItemDelegate`. Store prior and this-day averages on the item roles; do not use `setCellWidget` for these columns.
+- **Consequence:** Prefer item delegates over per-cell QWidgets in sortable tables. Do not reintroduce QLabel cell widgets here for styling.
+
 ### 2026-09-23 — Agile Year same-date prior-year averages (table only)
 
 - **Context:** Comparing today’s Agile day to the same calendar date last year (and earlier) helps read whether a day is expensive for the season. The chart already shows a long window; the householder asked for the prior-year spot on the table, not another chart line. Fetch year had only asked for ~370 days, so the store stopped around 18 Sep 2025 even though Octopus had older rates for the current product. Later they asked for each past average to show how it sits relative to this year’s same-day average.
-- **Decision:** Three table columns — Avg −1y / −2y / −3y — look up the stored daily average for the same month/day that many years earlier. Each cell shows that year’s average, then in brackets (2pt smaller) prior − this day’s average (negative = cheaper than this year). Missing history or an impossible date (29 Feb) show a dash. No invented prices; the chart is unchanged. Fetch year asks for about 1100 days so one and two years of same-date averages can populate when Octopus has that tariff history.
+- **Decision:** Three table columns — Avg −1y / −2y / −3y — look up the stored daily average for the same month/day that many years earlier. Each cell shows that year’s average, then in brackets (2pt smaller) prior − this day’s average (negative = cheaper than this year). Missing history or an impossible date (29 Feb) show a dash. No invented prices; the chart is unchanged. Fetch year asks for about 1100 days so one and two years of same-date averages can populate when Octopus has that tariff history. (From 2.9.418 the smaller delta is painted by a delegate, not a cell QLabel.)
 - **Consequence:** Do not invent prior-year rates from another tariff or from a rescaled trend. The earliest day is still whatever Octopus returns for the Forecasts tariff — not a fixed calendar start. Relative deltas are display-only arithmetic on measured daily averages, not a rescale of the prices themselves.
 
 ### 2026-09-23 — Cost view prices only import on the charts

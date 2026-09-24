@@ -16,6 +16,8 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date as date_cls
 
+from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QStyleOptionViewItem
+
 from energy_dashboard.common import *
 from energy_dashboard.db.agile_year_daily import _MIN_SLOTS as _MIN_COMPLETE_SLOTS
 from energy_dashboard.tabs.agile_prices import (
@@ -26,6 +28,10 @@ from energy_dashboard.tabs.forecasts import (
     _coerce_agile_frame,
     _merge_agile_forecast_frames,
 )
+
+# Roles for Avg −Ny cells (paint delegate — no QLabel cell widgets).
+_PRIOR_AVG_ROLE = int(Qt.ItemDataRole.UserRole)
+_THIS_AVG_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 
 # About three years of half-hours so Avg −1y / −2y can fill from stored days.
 # Octopus still only returns history that exists for the tariff on Forecasts.
@@ -71,6 +77,93 @@ class _SortNumItem(QTableWidgetItem):
             return float(a) < float(b)
         except (TypeError, ValueError):
             return super().__lt__(other)
+
+
+class _PriorYearAvgDelegate(QStyledItemDelegate):
+    """Draw past-year average plus (Δ vs this day) 2pt smaller — no cell widgets.
+
+    QLabel via ``setCellWidget`` on a sorted QTableWidget has crashed PySide
+    inside ``getWrapperForQObject`` / ``doSetProperty`` (see BUG-20260924-01).
+    """
+
+    def paint(self, painter, option, index):
+        prior = index.data(_PRIOR_AVG_ROLE)
+        this_avg = index.data(_THIS_AVG_ROLE)
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        if prior is None or text in (None, "", "—"):
+            super().paint(painter, option, index)
+            return
+        try:
+            prior_f = float(prior)
+        except (TypeError, ValueError):
+            super().paint(painter, option, index)
+            return
+
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+        widget = opt.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
+
+        base_font = QFont(opt.font)
+        try:
+            base_pt = max(8, int(base_font.pointSize()))
+        except Exception:
+            base_pt = 10
+        base_font.setPointSize(base_pt)
+        small_font = QFont(base_font)
+        small_font.setPointSize(max(6, base_pt - 2))
+
+        main = f"{prior_f:.2f}"
+        delta_txt = ""
+        dcol = QColor("#a6adc8")
+        try:
+            this_f = float(this_avg) if this_avg is not None else None
+        except (TypeError, ValueError):
+            this_f = None
+        if this_f is not None:
+            delta = prior_f - this_f
+            sign = "+" if delta > 0 else ""
+            delta_txt = f"({sign}{delta:.2f})"
+            if delta > 0.05:
+                dcol = QColor("#f38ba8")
+            elif delta < -0.05:
+                dcol = QColor("#a6e3a1")
+
+        fm_main = QFontMetrics(base_font)
+        fm_small = QFontMetrics(small_font)
+        gap = 4
+        total_w = fm_main.horizontalAdvance(main)
+        if delta_txt:
+            total_w += gap + fm_small.horizontalAdvance(delta_txt)
+
+        rect = opt.rect.adjusted(4, 0, -6, 0)
+        x = rect.right() - total_w
+        if x < rect.left():
+            x = rect.left()
+
+        painter.save()
+        painter.setPen(QColor("#cdd6f4"))
+        painter.setFont(base_font)
+        main_w = fm_main.horizontalAdvance(main)
+        painter.drawText(
+            int(x), rect.top(), main_w, rect.height(),
+            int(Qt.AlignLeft | Qt.AlignVCenter),
+            main,
+        )
+        x += main_w
+        if delta_txt:
+            x += gap
+            painter.setPen(dcol)
+            painter.setFont(small_font)
+            dw = fm_small.horizontalAdvance(delta_txt)
+            painter.drawText(
+                int(x), rect.top(), dw, rect.height(),
+                int(Qt.AlignLeft | Qt.AlignVCenter),
+                delta_txt,
+            )
+        painter.restore()
 
 
 def _london_today():
@@ -478,6 +571,9 @@ class AgileYearTab(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setSortingEnabled(True)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._prior_year_delegate = _PriorYearAvgDelegate(self.table)
+        for col in (4, 5, 6):
+            self.table.setItemDelegateForColumn(col, self._prior_year_delegate)
         self._apply_table_columns()
         splitter.addWidget(self.table)
 
@@ -732,53 +828,8 @@ class AgileYearTab(QWidget):
                 item.setForeground(QBrush(QColor("#a6e3a1")))
         return item
 
-    def _clear_prior_year_cell_widgets(self):
-        """Drop rich-text labels from Avg −Ny columns before a refill."""
-        for r in range(self.table.rowCount()):
-            for col in (4, 5, 6):
-                if self.table.cellWidget(r, col) is not None:
-                    self.table.removeCellWidget(r, col)
-
-    def _prior_year_avg_widget(self, prior_avg, this_avg, *, tip=""):
-        """Past-year average with (Δ vs this year) in brackets, 2pt smaller."""
-        try:
-            base_pt = max(8, int(self.table.font().pointSize()))
-        except Exception:
-            base_pt = 10
-        small_pt = max(6, base_pt - 2)
-        try:
-            delta = float(prior_avg) - float(this_avg)
-        except (TypeError, ValueError):
-            delta = None
-        if delta is None:
-            html = f'<span style="font-size:{base_pt}pt;">{float(prior_avg):.2f}</span>'
-        else:
-            sign = "+" if delta > 0 else ""
-            # Dearer than this year → peach; cheaper → green.
-            if delta > 0.05:
-                dcol = "#f38ba8"
-            elif delta < -0.05:
-                dcol = "#a6e3a1"
-            else:
-                dcol = "#a6adc8"
-            html = (
-                f'<span style="font-size:{base_pt}pt; color:#cdd6f4;">'
-                f'{float(prior_avg):.2f}</span>'
-                f'&nbsp;<span style="font-size:{small_pt}pt; color:{dcol};">'
-                f'({sign}{delta:.2f})</span>'
-            )
-        lbl = QLabel()
-        lbl.setTextFormat(Qt.TextFormat.RichText)
-        lbl.setText(html)
-        lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        lbl.setStyleSheet("background: transparent; padding-right: 4px;")
-        if tip:
-            lbl.setToolTip(tip)
-        return lbl
-
     def _fill_table(self, rows):
         self.table.setSortingEnabled(False)
-        self._clear_prior_year_cell_widgets()
         self.table.setRowCount(len(rows))
         today = _london_today()
         for r, rec in enumerate(rows):
@@ -831,18 +882,21 @@ class AgileYearTab(QWidget):
                     prior_f = float(prior_avg)
                 except (TypeError, ValueError):
                     continue
-                item = _SortNumItem("")
-                item.setData(Qt.UserRole, prior_f)
-                item.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
                 if this_avg is not None:
                     delta = prior_f - this_avg
                     sign = "+" if delta > 0 else ""
+                    display = f"{prior_f:.2f} ({sign}{delta:.2f})"
                     rel = (
                         f"{sign}{delta:.2f} p vs this day’s average "
                         f"({this_avg:.2f} p). Negative = cheaper than this year."
                     )
                 else:
+                    display = f"{prior_f:.2f}"
                     rel = "Difference vs this day’s average not available."
+                item = _SortNumItem(display)
+                item.setData(_PRIOR_AVG_ROLE, prior_f)
+                item.setData(_THIS_AVG_ROLE, this_avg)
+                item.setTextAlignment(int(Qt.AlignRight | Qt.AlignVCenter))
                 if prior_day is not None:
                     tip = (
                         f"{prior_f:.2f} p/kWh average on "
@@ -853,15 +907,6 @@ class AgileYearTab(QWidget):
                     tip = f"{prior_f:.2f} p/kWh. {rel}"
                 item.setToolTip(tip)
                 self.table.setItem(r, col, item)
-                if this_avg is not None:
-                    self.table.setCellWidget(
-                        r, col,
-                        self._prior_year_avg_widget(prior_f, this_avg, tip=tip),
-                    )
-                else:
-                    plain = self._price_item(prior_f)
-                    plain.setToolTip(tip)
-                    self.table.setItem(r, col, plain)
 
             neg = rec["neg_hours"]
             if neg > 0.001:
