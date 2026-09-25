@@ -697,6 +697,11 @@ class DataLogger:
             return
         self._q.put(('pv_string_charge', row))
 
+    def enqueue_pv_string_voltage(self, row) -> None:
+        if not (self.sqlite_enabled or self.mysql_enabled or self.pg_enabled):
+            return
+        self._q.put(('pv_string_voltage', row))
+
     def _write_connectivity_event(self, row):
         from energy_dashboard.db.connectivity_events import write_connectivity_event
 
@@ -706,6 +711,11 @@ class DataLogger:
         from energy_dashboard.db.pv_string_charge import write_pv_string_charge
 
         write_pv_string_charge(self, row)
+
+    def _write_pv_string_voltage(self, row):
+        from energy_dashboard.db.pv_string_voltage import write_pv_string_voltage
+
+        write_pv_string_voltage(self, row)
 
     def log_shadow_score(self, row: dict):
         """Persist a Shadow Trial daily score (UPSERT keyed on day_date)."""
@@ -745,6 +755,8 @@ class DataLogger:
                     self._write_connectivity_event(payload)
                 elif kind == 'pv_string_charge':
                     self._write_pv_string_charge(payload)
+                elif kind == 'pv_string_voltage':
+                    self._write_pv_string_voltage(payload)
                 self._maybe_run_retention()
             except _BackendCooling:
                 pass

@@ -178,6 +178,7 @@ _IMPORT_TABLE_META = (
     ("agile_price_snapshots", "Agile price snapshots", ("forecast",)),
     ("agile_year_daily", "Agile Year daily stats", ("forecast",)),
     ("pv_string_charge", "PV string charge estimates", ("growatt_cloud", "grott")),
+    ("pv_string_voltage", "PV string voltage", ("growatt_cloud", "grott")),
 )
 
 _CONNECTIVITY_BOX_SERVICES = {

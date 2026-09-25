@@ -80,6 +80,12 @@ RETENTION_TARGETS: tuple[RetentionTarget, ...] = (
         note="2-minute lots of per-string PV and attributed charge; chart shows last 6 hours.",
     ),
     RetentionTarget(
+        "pv_string_voltage",
+        "PV string voltage",
+        "time",
+        note="2-minute lots of measured DC volts on each MPPT string (vPv1 / vPv2).",
+    ),
+    RetentionTarget(
         "console_log",
         "Console log file",
         None,

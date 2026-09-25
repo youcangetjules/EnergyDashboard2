@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.428", "2026-09-25", [
+        "String voltage is now stored. Each MPPT string’s measured volts "
+        "(vPv1 and vPv2) are averaged into 2-minute lots in "
+        "<code>pv_string_voltage</code>. On PostgreSQL, run the Setup "
+        "CREATE script as the database owner so the new table exists.",
+    ]),
     ("2.9.427", "2026-09-25", [
         "Page tabs that are not selected and have not updated pick up a "
         "stronger light border and a slight 10% white fill, so they stay "

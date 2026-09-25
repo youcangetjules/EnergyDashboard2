@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- String voltage now has its own database table, `pv_string_voltage`. While the dashboard is open it stores each string’s measured DC volts in 2-minute lots, so a later history view has real numbers. Days before this build stay empty. On PostgreSQL the new table is created by running the Setup script as the database owner.
 - Page tabs that are not selected and have not been refreshed now have a stronger outline and a slight white tint (10%), so they don’t disappear into the black bar.
 - On a previous day, PV String Charge now shows each string’s percentage of that day’s solar generation, beside the kilowatt-hours. Measured battery charge is also shown as a percentage of that day’s PV.
 - The bug log now keeps two separate lists. Open bugs come first. Fixed bugs are only under Fixed. A line sits between the two lists. A resolved bug is moved out of Open.

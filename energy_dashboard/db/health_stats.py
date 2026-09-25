@@ -32,6 +32,7 @@ KNOWN_TABLES = (
     ("optimiser_shadow_plans", "built_at"),
     ("optimiser_shadow_scores", "scored_at"),
     ("pv_string_charge", "timestamp"),
+    ("pv_string_voltage", "time"),
 )
 
 GROWTH_TABLES = (
@@ -46,6 +47,7 @@ GROWTH_TABLES = (
     ("optimiser_shadow_plans", "built_at"),
     ("optimiser_shadow_scores", "scored_at"),
     ("pv_string_charge", "timestamp"),
+    ("pv_string_voltage", "time"),
 )
 
 

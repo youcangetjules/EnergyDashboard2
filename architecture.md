@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-25 — String DC voltage is its own 2-minute table
+
+- **Context:** Live MPPT volts (`vPv1` / `vPv2`) were only on Growatt Live Status. `growatt_readings` stores total PV power, not per-string volts, so a previous day had nothing to chart.
+- **Decision:** `pv_string_voltage` keeps measured volts for each string, averaged into the same 2-minute UTC slots as string charge. A missing reading stays empty. It is not written as 0 V. PostgreSQL still gets the table from the owner script in Setup, not from the dashboard login.
+- **Consequence:** History starts when this build is logging. Earlier days stay empty. Do not invent volts from power or from a panel datasheet.
+
 ### 2026-09-25 — Qt wrappers stay out of the cycle collector; collection stays on
 
 - **Context:** Long sessions segfaulted while a worker was inside Python’s cycle collector (`query_tasmota_power_history`) and the main thread was painting the tab bar. The 08:10 core dump shows the main thread destroying a Qt object (`_Py_Dealloc` / Shiboken `ThreadStateSaver`) and waiting for the Python lock, which the worker held inside the collector. 2.9.419 turned automatic collection off. That was rejected (BUG-059-20260925-02).

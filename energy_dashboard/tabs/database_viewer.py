@@ -12,6 +12,7 @@ from energy_dashboard.dialogs.db_health import DbHealthDialog
 # which is keyed on the 2-minute slot time.
 _ORDER_COL = {
     "pv_string_charge": "time",
+    "pv_string_voltage": "time",
 }
 
 

@@ -25,6 +25,7 @@ DROP TABLE IF EXISTS tasmota_devices;
 DROP TABLE IF EXISTS octopus_readings;
 DROP TABLE IF EXISTS growatt_readings;
 DROP TABLE IF EXISTS connectivity_events;
+DROP TABLE IF EXISTS pv_string_voltage;
 DROP TABLE IF EXISTS pv_string_charge;
 
 CREATE TABLE growatt_readings (
@@ -179,6 +180,13 @@ CREATE TABLE pv_string_charge (
     power_string1 REAL,
     power_string2 REAL,
     charge_kw REAL,
+    samples INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE pv_string_voltage (
+    time TEXT NOT NULL PRIMARY KEY,
+    v_string1 REAL,
+    v_string2 REAL,
     samples INTEGER NOT NULL DEFAULT 1
 );
 

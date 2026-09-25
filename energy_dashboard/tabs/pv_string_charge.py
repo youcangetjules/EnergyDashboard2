@@ -28,6 +28,7 @@ from energy_dashboard.db.pv_string_charge import (
     lot_start,
     query_pv_string_charge,
 )
+from energy_dashboard.db.pv_string_voltage import log_pv_string_voltage
 
 _COL_NOW = "#94e2d5"
 _LOT = timedelta(minutes=2)
@@ -783,6 +784,14 @@ class PvStringChargeTab(QWidget):
             }
             self._ingest_lot(_sanitize_lot(sample))
             log_pv_string_charge(self.data_logger, sample)
+            log_pv_string_voltage(
+                self.data_logger,
+                {
+                    "t": sample["t"],
+                    "v1": status.get("vPv1"),
+                    "v2": status.get("vPv2"),
+                },
+            )
         self._apply_estimate(est, status)
         if record_history:
             self._draw_chart()

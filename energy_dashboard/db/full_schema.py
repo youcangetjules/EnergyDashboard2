@@ -28,6 +28,7 @@ TABLE_SUMMARIES: tuple[tuple[str, str], ...] = (
     ("optimiser_shadow_scores", "next-day score of those plans"),
     ("connectivity_events", "Connectivity Status history"),
     ("pv_string_charge", "2-minute string PV and charge lots"),
+    ("pv_string_voltage", "2-minute measured string DC volts"),
 )
 
 
@@ -47,6 +48,7 @@ def dialect_statements(dialect: str) -> tuple[str, ...]:
     from energy_dashboard.db import logger as lg
     from energy_dashboard.db import mix_chart as mc
     from energy_dashboard.db import pv_string_charge as pv
+    from energy_dashboard.db import pv_string_voltage as pvv
     from energy_dashboard.db import shadow_trial as st
 
     stmts = (
@@ -67,6 +69,7 @@ def dialect_statements(dialect: str) -> tuple[str, ...]:
         _pick(ce, "_CONNECTIVITY_EVENTS_DDL", dialect),
         *ce._CONNECTIVITY_EVENTS_IDX,
         _pick(pv, "_PV_STRING_CHARGE_DDL", dialect),
+        _pick(pvv, "_PV_STRING_VOLTAGE_DDL", dialect),
     )
     return tuple(str(s).strip() for s in stmts)
 
