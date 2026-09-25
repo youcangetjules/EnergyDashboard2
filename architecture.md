@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-25 — No Python event filter on the application
+
+- **Context:** The dashboard segfaulted on the main thread (`getWrapperForQObject` re-entered from an application event filter during `doSetProperty`). On Roof layout the satellite map never appeared, because creating the map view sets a Qt property while that filter is live (BUG-060).
+- **Decision:** Do not install a Python event filter on `QApplication`. `ui/modal_ontop.py` pins the active modal dialog from a short timer. Octopus Live watches Ctrl the same way, only while that page is shown.
+- **Consequence:** A new blocking dialog is still covered without a call-site change. Do not add `app.installEventFilter` in Python. A filter on one widget is a different path; the application-wide one is what crashed the map.
+
 ### 2026-09-25 — Panel models are a house catalogue, not telemetry
 
 - **Context:** Roof layout only offered a few generic wattages. Comparing a string’s measured volts with a module rating needs the datasheet the householder actually has, and that number must not be invented.
@@ -188,7 +194,7 @@ Newest first. Keep each entry short: context → decision → consequence.
 
 - **Context:** On KDE Wayland, Qt’s available geometry is the full monitor because a floating panel reserves no strut. Startup maximised the dashboard into that full rectangle, so the bottom of the window sat under the taskbar. Separately, a modal OK/Cancel box blocks the main window but could be stacked behind it, which freezes the app until the hidden box is found.
 - **Decision:** `ui/work_area.py` fits the main window to the usable screen (Qt’s available geometry, further inset by Plasma panel thickness). Do not call `showMaximized()` for that fit. `ui/modal_ontop.py` pins every modal dialog to stay above the app for as long as it blocks input.
-- **Consequence:** Do not size or maximise the main window to `screen.geometry()` or raw `availableGeometry()` on Wayland. New blocking dialogs are covered by the application event filter; non-modal windows (device web UI, toasts) may still go behind.
+- **Consequence:** Do not size or maximise the main window to `screen.geometry()` or raw `availableGeometry()` on Wayland. New blocking dialogs are pinned by the timer in `ui/modal_ontop.py`, not by an application event filter. Non-modal windows (device web UI, toasts) may still go behind.
 
 ### 2026-09-22 — Agile Year daily stats are a logger table, not a one-shot API view
 

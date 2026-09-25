@@ -1,17 +1,20 @@
 """Blocking dialogs stay above the rest of the app until they are answered.
 
 A modal OK / Cancel box freezes the main window. If that box slips behind
-the main window, nothing on screen can be clicked. Every application-modal
-or window-modal dialog is pinned to the top as it is shown.
+the main window, nothing on screen can be clicked.
+
+Do not install a Python event filter on QApplication. Every event is then
+handed to Python while PySide may already be inside getWrapperForQObject
+setting a property, and that second wrap SIGSEGVs (BUG-060). Roof layout's
+satellite map died that way. A short timer pins whichever dialog is modal.
 """
 from __future__ import annotations
 
-import weakref
-
-from PySide6.QtCore import QEvent, QObject, QTimer, Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QApplication, QDialog
 
 _HINT = Qt.WindowType.WindowStaysOnTopHint
+_WATCH_MS = 50
 
 
 def _blocks_app(dlg: QDialog) -> bool:
@@ -44,55 +47,24 @@ def _pin(dlg: QDialog) -> None:
     dlg.activateWindow()
 
 
-def _raise_later(dlg: QDialog) -> None:
-    if dlg is None or dlg.property("_pm_raise_pending"):
+def _watch_modal() -> None:
+    modal = QApplication.activeModalWidget()
+    if not isinstance(modal, QDialog) or not _blocks_app(modal):
         return
-    dlg.setProperty("_pm_raise_pending", True)
-    ref = weakref.ref(dlg)
-
-    def _go():
-        window = ref()
-        if window is None:
-            return
-        window.setProperty("_pm_raise_pending", False)
-        if window.isVisible() and _blocks_app(window):
-            window.raise_()
-            window.activateWindow()
-
-    QTimer.singleShot(0, _go)
-
-
-class _ModalStayOnTop(QObject):
-    def eventFilter(self, obj, event):
-        etype = event.type()
-        if isinstance(obj, QDialog) and etype in (
-            QEvent.Type.Polish,
-            QEvent.Type.Show,
-        ):
-            if _blocks_app(obj):
-                _pin(obj)
-        elif isinstance(obj, QDialog) and etype == QEvent.Type.WindowDeactivate:
-            if obj.isVisible() and _blocks_app(obj):
-                _raise_later(obj)
-        elif etype == QEvent.Type.WindowActivate:
-            modal = QApplication.activeModalWidget()
-            if (
-                isinstance(modal, QDialog)
-                and modal is not obj
-                and _blocks_app(modal)
-            ):
-                _raise_later(modal)
-        elif etype == QEvent.Type.WindowBlocked:
-            modal = QApplication.activeModalWidget()
-            if isinstance(modal, QDialog) and _blocks_app(modal):
-                _raise_later(modal)
-        return False
+    if not modal.property("_pm_ontop"):
+        _pin(modal)
+        return
+    if modal.isVisible() and not modal.isActiveWindow():
+        modal.raise_()
+        modal.activateWindow()
 
 
 def install_modal_stay_on_top(app) -> None:
-    """Install once on the QApplication. Safe to call again."""
+    """Start the modal watch once. Safe to call again."""
     if getattr(app, "_pm_modal_stay_on_top", None) is not None:
         return
-    filt = _ModalStayOnTop(app)
-    app.installEventFilter(filt)
-    app._pm_modal_stay_on_top = filt
+    timer = QTimer(app)
+    timer.setInterval(_WATCH_MS)
+    timer.timeout.connect(_watch_modal)
+    timer.start()
+    app._pm_modal_stay_on_top = timer

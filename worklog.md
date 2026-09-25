@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- The Roof layout crash is fixed. Opening that page was killing the dashboard before the satellite map could appear: a watcher on every Qt event wrapped the same object twice while a property was being set. Dialogs that need an answer still stay above the main window, but that watcher is a short timer now, not a filter on the whole application. Restart to pick up 2.9.434.
 - Panel database is a new page under Physical Plant Tools, after Roof layout. You type the modules on the roof there (maker, model, watts, size, and datasheet volts if you have them). Roof layout’s panel menu uses that list. Volts you leave blank stay blank — they are not filled from the live string reading. The 12:45 crash (pid 1622947) happened on Roof layout and the satellite map still did not appear; that is the same open BUG-060.
 - String voltage now writes the last reading for each string beside the teal “now” line, in that string’s colour, so you can see the volts without leaving the chart.
 - Dump logs is a new page under Controls, after Console. It shows the crash log, including core-dump stacks, so a segmentation fault can be read without opening the file by hand. The 10:47 crash (pid 1579891) is the same still-open main-thread fault as BUG-060.

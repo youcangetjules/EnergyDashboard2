@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.434", "2026-09-25", [
+        "Roof layout’s satellite map no longer crashes the dashboard as "
+        "it opens. The fault was an application-wide event filter "
+        "re-entering PySide while a property was set. Blocking dialogs "
+        "still stay on top.",
+    ]),
     ("2.9.433", "2026-09-25", [
         "<b>Panel database</b> is under <b>Physical Plant Tools</b>, after "
         "Roof layout. It keeps the module types on this roof (maker, model, "

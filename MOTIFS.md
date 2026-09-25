@@ -189,7 +189,7 @@ For Import / Export MPAN (and Account No on Live):
 - Content left-aligned inside the dialog margins (Connectivity detail / Wonderwatt share).
 - Dialog action buttons get primary green via `_prepare_dialog_buttons`.
 - Retention spins already share a grid column — keep labels in col 0, widgets in col 1.
-- A dialog that blocks the rest of the app (OK / Cancel / Close via `exec`) stays above every other window until it is answered. That pin is installed once in `ui/modal_ontop.py` — do not rely on each call site.
+- A dialog that blocks the rest of the app (OK / Cancel / Close via `exec`) stays above every other window until it is answered. That pin is a timer in `ui/modal_ontop.py` — do not rely on each call site, and do not install a Python event filter on the application.
 - The main window fills the usable screen and must not extend under the taskbar (`ui/work_area.py`). Do not `showMaximized()` it onto the full monitor.
 
 ### F. Database Export status + SQL (Setup & Info)

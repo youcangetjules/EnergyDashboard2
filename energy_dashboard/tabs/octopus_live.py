@@ -409,7 +409,10 @@ class OctopusLiveTab(QWidget):
         # the displayed Live Demand could be 10+ minutes behind.
         self._auto_timer_interval_override_ms = 60000
         self._auto_refresh_pending = False
-        self._ctrl_filter_active = False
+        self._ctrl_held = False
+        self._ctrl_timer = QTimer(self)
+        self._ctrl_timer.setInterval(80)
+        self._ctrl_timer.timeout.connect(self._poll_ctrl)
         # Holds the unit label widget for the live_demand card so we can
         # append "· N min ago" to it; populated in build_ui.
         self._live_demand_unit_label = None
@@ -668,39 +671,32 @@ class OctopusLiveTab(QWidget):
         super().hideEvent(event)
 
     def _set_ctrl_show_filter(self, active: bool):
-        app = QApplication.instance()
-        if not app:
+        # A filter on QApplication re-enters PySide while a property is set
+        # and SIGSEGVs (BUG-060). Watch Ctrl from a timer on this page only.
+        if active:
+            if not self._ctrl_timer.isActive():
+                self._ctrl_timer.start()
+        else:
+            self._ctrl_timer.stop()
+            self._ctrl_held = False
+            self._set_show_api_key_btn(False)
+
+    def _poll_ctrl(self):
+        held = bool(
+            QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier
+        )
+        if held == self._ctrl_held:
             return
-        if active and not self._ctrl_filter_active:
-            app.installEventFilter(self)
-            self._ctrl_filter_active = True
-        elif not active and self._ctrl_filter_active:
-            app.removeEventFilter(self)
-            self._ctrl_filter_active = False
+        self._ctrl_held = held
+        if held:
+            self._show_api_key_btn.setVisible(True)
+        else:
             self._set_show_api_key_btn(False)
 
     def _set_show_api_key_btn(self, visible: bool):
         self._show_api_key_btn.setVisible(visible)
         if not visible:
             self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-
-    def eventFilter(self, watched, event):
-        # Application-wide filters must not call super().eventFilter — that
-        # re-enters PySide's QObject wrapper path (getWrapperForQObject) and
-        # can SIGSEGV during doSetProperty / notify on Wayland.
-        if not self._ctrl_filter_active:
-            return False
-        et = event.type()
-        if et == QEvent.Type.KeyPress:
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                self._show_api_key_btn.setVisible(True)
-            elif event.key() == Qt.Key.Key_Control and not event.isAutoRepeat():
-                self._show_api_key_btn.setVisible(True)
-        elif et == QEvent.Type.KeyRelease:
-            mods = QApplication.keyboardModifiers()
-            if not (mods & Qt.KeyboardModifier.ControlModifier):
-                self._set_show_api_key_btn(False)
-        return False
 
     def _reveal_api_key(self):
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Normal)
