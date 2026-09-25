@@ -7,7 +7,7 @@ Part of the **basic instructions for the development environment** (see `AGENTS.
 ## Agent duty
 
 1. When a bug is reported or found, **add the entry under `## Open` immediately** (newest first in that section): timestamp, symptom, where it showed up.
-2. When fixed, **update that same entry** with cause, resolution, fix time, and app version (if shipped), then **move the whole entry into `## Fixed`** (newest first there). Do not delete entries. A fixed bug must not stay under Open. There is one Open section and one Fixed section.
+2. When fixed, **update that same entry** with cause, resolution, fix time, and app version (if shipped), then **move the whole entry into `## Fixed`** (newest first there). Do not delete entries. A fixed bug must not stay under Open. There is one Open section and one Fixed section, with a `---` line between them.
 3. Keep language plain English. Separate **what the user saw** from **what was wrong in software**.
 4. This log does **not** replace the in-app About changelog or `worklog.md` — it is the standing defect history.
 5. Colour the `###` title: **red** while Status starts with open, **green** when it is fixed. Use `<span style="color:red">` or `<span style="color:green">` around the whole title. Change the colour when the status changes.
@@ -128,6 +128,8 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 **Cause:** Core dump (thread 356856): SEGV in `_Py_HandlePending` while a late-started worker was in `PyImport_Import` / Shiboken. Main thread (345239) was mid-widget paint (`paintAndFlush` → QtWidgets abi → Shiboken `ThreadStateSaver` / GIL). Not the Linux WebEngine/GPU startup path (BUG-005-20260915-05 / BUG-019-20260917-05). Likely a worker/GIL/Shiboken race; Invoker AutoConnection from plain `threading.Thread` can also run slots off the GUI thread.
 
 **Resolution:** Partial hardening in **2.9.380** — `Invoker` now forces `QueuedConnection` so worker `invoke()` always posts to the GUI thread. Fresh `./run-dashboard.sh` smoke-tested ~12s without SEGV. Full root cause of the import race still open if it recurs.
+
+---
 
 ## <span style="color:green">Fixed</span>
 
