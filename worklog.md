@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- On a previous day, PV String Charge now shows each string’s percentage of that day’s solar generation, beside the kilowatt-hours. Measured battery charge is also shown as a percentage of that day’s PV.
 - The bug log now keeps two separate lists. Open bugs come first. Fixed bugs are only under Fixed. A line sits between the two lists. A resolved bug is moved out of Open.
 - Logged BUG-060-20260925-03. A 2.9.423 session segfaulted on the main thread while PySide was setting a Qt property (not the overnight background-collector crash). Still open.
 - Roof layout moved from Energy Forecasts into Physical Plant Tools. Applying it still updates the forecast.

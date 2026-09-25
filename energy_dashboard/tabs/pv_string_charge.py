@@ -430,7 +430,7 @@ class PvStringChargeTab(QWidget):
         lbl_day.setToolTip(
             "Open the calendar and pick a London day. Today includes the "
             "live reading. An earlier day shows that day’s stored lots, "
-            "and the cards show each string’s kWh for that day."
+            "each string’s kWh, and that string’s share of the day’s PV."
         )
         ctrl.addWidget(lbl_day)
         self.date_day = _LondonDayPicker(self._view_day)
@@ -847,10 +847,20 @@ class PvStringChargeTab(QWidget):
     def _set_card_title(self, card, text: str) -> None:
         card._title.setText(text)
 
+    @staticmethod
+    def _share_pct(part: float, total: float) -> str:
+        """One-decimal share of the day’s measured PV. Em dash when there is none."""
+        if total <= 0.005:
+            return "—"
+        return f"{100.0 * part / total:.1f}%"
+
     def _show_past_day_totals(self) -> None:
-        """Headline on each card is that day’s kWh, not live power."""
+        """Headline is that day’s kWh, with each string’s share of the day’s PV."""
         tot = self._today_totals()
         prefix = self._day_energy_prefix()
+        pv = tot["pv1"] + tot["pv2"]
+        p1 = self._share_pct(tot["pv1"], pv)
+        p2 = self._share_pct(tot["pv2"], pv)
         self._set_card_title(self.card_s1, "String 1")
         self._set_card_title(self.card_s2, "String 2")
         self._set_card_title(self.card_chg, "Battery charge")
@@ -859,35 +869,43 @@ class PvStringChargeTab(QWidget):
             self.card_s1,
             f"{tot['pv1']:.2f} kWh",
             f"{tot['s1']:.2f} kWh to the battery (est.)",
-            prefix,
+            f"{p1} of this day’s PV · {prefix}",
         )
         self._set_card(
             self.card_s2,
             f"{tot['pv2']:.2f} kWh",
             f"{tot['s2']:.2f} kWh to the battery (est.)",
-            prefix,
+            f"{p2} of this day’s PV · {prefix}",
         )
+        chg_share = self._share_pct(tot["chg"], pv)
         self._set_card(
             self.card_chg,
             f"{tot['chg']:.2f} kWh",
-            "measured charge this day",
+            f"{chg_share} of this day’s PV (measured charge)",
             prefix,
         )
         self._set_card(
             self.card_pv,
-            f"{tot['pv1'] + tot['pv2']:.2f} kWh",
-            f"S1 {tot['pv1']:.2f} · S2 {tot['pv2']:.2f} kWh",
-            prefix,
+            f"{pv:.2f} kWh",
+            f"S1 {tot['pv1']:.2f} kWh · S2 {tot['pv2']:.2f} kWh",
+            f"S1 {p1} · S2 {p2}",
         )
         stamp = self._view_day.strftime("%a %-d %b")
         self.box_live.setTitle("Selected day")
         self.lbl_mode.setText(f"{stamp} — stored lots")
-        self.lbl_detail.setText(
-            f"String 1 generated {tot['pv1']:.2f} kWh and String 2 "
-            f"{tot['pv2']:.2f} kWh. Estimated charge into the battery from "
-            f"those strings is {tot['s1']:.2f} kWh and {tot['s2']:.2f} kWh. "
-            f"Measured battery charge is {tot['chg']:.2f} kWh."
-        )
+        if pv <= 0.005:
+            self.lbl_detail.setText(
+                f"No PV was stored for {stamp}. "
+                f"Measured battery charge is {tot['chg']:.2f} kWh."
+            )
+        else:
+            self.lbl_detail.setText(
+                f"String 1 generated {tot['pv1']:.2f} kWh ({p1} of the day’s PV) "
+                f"and String 2 {tot['pv2']:.2f} kWh ({p2}). Estimated charge into "
+                f"the battery from those strings is {tot['s1']:.2f} kWh and "
+                f"{tot['s2']:.2f} kWh. Measured battery charge is {tot['chg']:.2f} kWh "
+                f"({chg_share} of the day’s PV)."
+            )
 
     def _show_today_card_titles(self) -> None:
         self._set_card_title(self.card_s1, "String 1 — now")

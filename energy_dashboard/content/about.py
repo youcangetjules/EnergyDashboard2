@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.426", "2026-09-25", [
+        "PV String Charge, on a previous day, shows each string’s share of "
+        "that day’s PV as a percentage, next to the kilowatt-hours. Measured "
+        "battery charge is shown as a percentage of that day’s PV as well.",
+    ]),
     ("2.9.425", "2026-09-25", [
         "Roof layout now lives under <b>Physical Plant Tools</b>, "
         "with the battery and string pages. Apply to Forecasts still "
