@@ -65,7 +65,7 @@ def _watts_or_kw_to_kw(val):
     """Return kW. Watts leftover from Grott/cloud (or bad stored lots) / 1000.
 
     Do not use ``abs(n) > 50``: dawn 10–50 W then stays as 10–50 kW and the
-    chart Y axis autoscale follows that spike (see BUG-20260917-01).
+    chart Y axis autoscale follows that spike (see BUG-015-20260917-01).
     """
     v = _as_float(val)
     if v is None:

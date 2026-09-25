@@ -12,8 +12,9 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- Bug IDs now have a running number between BUG and the date, oldest first (BUG-001-20260915-01 through BUG-059-20260925-02). The Bug Tracker tab shows those titles in red while open and green when fixed.
 - Bug tracker titles are coloured: red while a bug is open, green once it is fixed.
-- Logged BUG-20260925-02: turning off Python’s cycle collector in 2.9.419 is not the fix for the overnight segfault. Collection stays on; the crash itself is still open (BUG-20260925-01).
+- Logged BUG-059-20260925-02: turning off Python’s cycle collector in 2.9.419 is not the fix for the overnight segfault. Collection stays on; the crash itself is still open (BUG-058-20260925-01).
 - The dashboard segfaulted again after being open overnight (2.9.418, and the same pattern on 2.9.417). The crash log shows a background thread garbage-collecting while it loaded Tasmota plug history from the database, at the same moment the main thread was painting the tab bar. Python’s cycle collector now runs only on the main thread, between updates, so it does not walk Qt objects from a worker. Restart to pick up 2.9.419.
 
 ## 2026-09-24

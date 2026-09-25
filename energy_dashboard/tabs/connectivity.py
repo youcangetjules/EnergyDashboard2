@@ -1424,7 +1424,7 @@ class _ConnectivityFlowDiagram(QWidget):
             f2 = QFont("Helvetica", 8)
             p.setFont(f2)
             # Leave a few px under the title and above the bottom radius so
-            # wrapped / ALARM+detail lines are not clipped (BUG-20260922-01).
+            # wrapped / ALARM+detail lines are not clipped (BUG-030-20260922-01).
             p.drawText(
                 QRectF(
                     rect.left() + 10, rect.top() + 28,

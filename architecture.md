@@ -114,7 +114,7 @@ Newest first. Keep each entry short: context → decision → consequence.
 
 ### 2026-09-24 — Agile Year prior-year delta via paint delegate (no cell widgets)
 
-- **Context:** 2.9.417 put QLabel rich-text widgets in Avg −Ny table cells. A long-running 2.9.417 session then segfaulted in PySide `getWrapperForQObject` / `QObject::doSetProperty` — the same family as BUG-20260923-09. Sorted `QTableWidget` + `setCellWidget` is a known Shiboken lifetime trap.
+- **Context:** 2.9.417 put QLabel rich-text widgets in Avg −Ny table cells. A long-running 2.9.417 session then segfaulted in PySide `getWrapperForQObject` / `QObject::doSetProperty` — the same family as BUG-054-20260923-09. Sorted `QTableWidget` + `setCellWidget` is a known Shiboken lifetime trap.
 - **Decision:** Keep the smaller bracketed (prior − this day) display, but paint it with a column `QStyledItemDelegate`. Store prior and this-day averages on the item roles; do not use `setCellWidget` for these columns.
 - **Consequence:** Prefer item delegates over per-cell QWidgets in sortable tables. Do not reintroduce QLabel cell widgets here for styling.
 

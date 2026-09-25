@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.420", "2026-09-25", [
+        "Bug Tracker IDs now start with a running number between BUG and the "
+        "date (for example BUG-059-20260925-02). Open titles stay red and "
+        "fixed titles stay green in the tab.",
+    ]),
     ("2.9.419", "2026-09-25", [
         "Long sessions were dying with a segmentation fault while a background "
         "thread loaded Tasmota history and Python’s cycle collector walked Qt "

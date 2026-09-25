@@ -99,7 +99,18 @@ def bug_tracker_md_to_html(md: str) -> str:
         m = re.match(r"^(#{1,3})\s+(.*)$", line)
         if m:
             level = len(m.group(1))
-            text = _md_inline(m.group(2).strip())
+            raw = m.group(2).strip()
+            tone = re.match(
+                r'^<span style="color:(red|green)">(.*)</span>$',
+                raw,
+            )
+            if tone:
+                text = (
+                    f'<span style="color:{tone.group(1)}">'
+                    f"{_md_inline(tone.group(2))}</span>"
+                )
+            else:
+                text = _md_inline(raw)
             sizes = {1: "18px", 2: "15px", 3: "13px"}
             margins = {1: "0 0 10px 0", 2: "16px 0 8px 0", 3: "14px 0 6px 0"}
             out.append(

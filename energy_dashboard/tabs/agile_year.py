@@ -83,7 +83,7 @@ class _PriorYearAvgDelegate(QStyledItemDelegate):
     """Draw past-year average plus (Δ vs this day) 2pt smaller — no cell widgets.
 
     QLabel via ``setCellWidget`` on a sorted QTableWidget has crashed PySide
-    inside ``getWrapperForQObject`` / ``doSetProperty`` (see BUG-20260924-01).
+    inside ``getWrapperForQObject`` / ``doSetProperty`` (see BUG-057-20260924-01).
     """
 
     def paint(self, painter, option, index):
