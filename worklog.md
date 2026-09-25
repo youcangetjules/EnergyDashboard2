@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- Roof layout moved from Energy Forecasts into Physical Plant Tools. Applying it still updates the forecast.
 - On a previous day, PV String Charge cards were still showing live kilowatts (often 0). They now lead with that day’s kWh for each string. Day is a calendar dropdown instead of a stepper.
 - PV String Charge charts were locked to today. A Day field (and Today) now opens an earlier London day from the stored 2-minute lots. The live kilowatt cards stay as “right now”. A past day is not stretched forward to the current time.
 - On a Connectivity login (Growatt cloud and the other boxes), the test result now sits on the same row as Test, at the right, instead of a line underneath.

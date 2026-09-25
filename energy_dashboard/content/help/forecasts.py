@@ -22,6 +22,6 @@ Lat / Lon are <code>DECIMAL(10,5)</code> — values snap to 5 dp on commit and p
 <li>
 The Locale label is reverse-geocoded via OpenStreetMap Nominatim (fine zoom so village/town names appear when available) and cached.</li>
 <li>
-For multi-face roofs, use the sibling <b>Roof layout</b> tab (Google Earth / KML + panel types), then <b>Apply to Forecasts</b> — Fetch Forecasts sums one PV curve per face.</li>
+For multi-face roofs, open <b>Physical Plant Tools → Roof layout</b> (Google Earth / KML + panel types), then <b>Apply to Forecasts</b> — Fetch Forecasts sums one PV curve per face.</li>
 </ul>
 """

@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.425", "2026-09-25", [
+        "Roof layout now lives under <b>Physical Plant Tools</b>, "
+        "with the battery and string pages. Apply to Forecasts still "
+        "feeds the forecast from those roof faces.",
+    ]),
     ("2.9.424", "2026-09-25", [
         "PV String Charge: Day opens a calendar. On a previous day the "
         "cards lead with that day’s kWh for each string (and the estimated "

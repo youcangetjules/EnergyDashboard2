@@ -1,5 +1,5 @@
 """
-Energy Dashboard — Roof layout tab (Energy Forecasts group).
+Energy Dashboard — Roof layout tab (Physical Plant Tools group).
 
 Define roof faces (tilt / azimuth / kWp), pick panel types, outline faces on
 an embedded satellite map (or a Google Earth screenshot), then push a

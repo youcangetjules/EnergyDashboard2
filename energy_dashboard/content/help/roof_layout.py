@@ -7,7 +7,7 @@ TAB_CLASS = "RoofLayoutTab"
 
 HELP_TEXT = """\
 <h2>Roof layout</h2><p>
-Build a multi-face roof model for a better solar forecast. Each <b>face</b> has its own
+This page is in <b>Physical Plant Tools</b>. It builds a multi-face roof model for a better solar forecast. Each <b>face</b> has its own
 tilt, azimuth, panel type and count (kWp), plus which inverter <b>string</b> (MPPT /
 series-wired run) those panels feed. When you <b>Apply to Forecasts</b>, the Forecasts
 tab fetches one PV curve per enabled face and sums them — more accurate than a single
