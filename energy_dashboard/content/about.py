@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.419", "2026-09-25", [
+        "Long sessions were dying with a segmentation fault while a background "
+        "thread loaded Tasmota history and Python’s cycle collector walked Qt "
+        "objects. That collector now runs only on the main thread, between "
+        "screen updates.",
+    ]),
     ("2.9.418", "2026-09-24", [
         "Agile Year prior-year cells: draw the smaller bracketed delta with a "
         "paint delegate instead of QLabel cell widgets (avoids a PySide "

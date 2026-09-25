@@ -1446,61 +1446,70 @@ class DataLogger:
             "FROM tasmota_readings WHERE timestamp >= %s "
             "ORDER BY timestamp ASC"
         )
+        from energy_dashboard.core.gc_guard import pause_cyclic_gc
+
         try:
-            if self.sqlite_enabled:
-                conn = sqlite3.connect(self.sqlite_path)
-                try:
-                    cur = conn.cursor()
-                    cur.execute(q.replace("%s", "?"), (cutoff_str,))
-                    return cur.fetchall()
-                finally:
-                    conn.close()
-            if self.mysql_enabled:
-                if not self.backend_ready("mysql"):
-                    return []
-                from energy_dashboard.db.connect_probe import mysql_connect
-                try:
-                    conn = mysql_connect(
-                        self.mysql_host, self.mysql_port,
-                        self.mysql_user, self.mysql_pass, self.mysql_db,
-                    )
-                except Exception:
-                    self._mark_backend_down("mysql")
-                    raise
-                try:
-                    with conn.cursor() as cur:
-                        cur.execute(q, (cutoff_str,))
-                        rows = cur.fetchall()
-                    self._mark_backend_up("mysql")
-                    return rows
-                finally:
-                    conn.close()
-            if self.pg_enabled:
-                if not self.backend_ready("pg"):
-                    return []
-                from energy_dashboard.db.connect_probe import postgresql_connect
-                try:
-                    conn = postgresql_connect(
-                        self.pg_host, self.pg_port,
-                        self.pg_user, self.pg_pass, self.pg_db,
-                        autocommit=True,
-                    )
-                except Exception:
-                    self._mark_backend_down("pg")
-                    raise
-                try:
-                    with conn.cursor() as cur:
-                        cur.execute(q, (cutoff_str,))
-                        rows = cur.fetchall()
-                    self._mark_backend_up("pg")
-                    return rows
-                finally:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
+            with pause_cyclic_gc():
+                return self._query_tasmota_power_history_rows(
+                    q, cutoff_str,
+                )
         except Exception as e:
             self._note_read_error(e, "tasmota history")
+        return []
+
+    def _query_tasmota_power_history_rows(self, q, cutoff_str):
+        if self.sqlite_enabled:
+            conn = sqlite3.connect(self.sqlite_path)
+            try:
+                cur = conn.cursor()
+                cur.execute(q.replace("%s", "?"), (cutoff_str,))
+                return cur.fetchall()
+            finally:
+                conn.close()
+        if self.mysql_enabled:
+            if not self.backend_ready("mysql"):
+                return []
+            from energy_dashboard.db.connect_probe import mysql_connect
+            try:
+                conn = mysql_connect(
+                    self.mysql_host, self.mysql_port,
+                    self.mysql_user, self.mysql_pass, self.mysql_db,
+                )
+            except Exception:
+                self._mark_backend_down("mysql")
+                raise
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(q, (cutoff_str,))
+                    rows = cur.fetchall()
+                self._mark_backend_up("mysql")
+                return rows
+            finally:
+                conn.close()
+        if self.pg_enabled:
+            if not self.backend_ready("pg"):
+                return []
+            from energy_dashboard.db.connect_probe import postgresql_connect
+            try:
+                conn = postgresql_connect(
+                    self.pg_host, self.pg_port,
+                    self.pg_user, self.pg_pass, self.pg_db,
+                    autocommit=True,
+                )
+            except Exception:
+                self._mark_backend_down("pg")
+                raise
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(q, (cutoff_str,))
+                    rows = cur.fetchall()
+                self._mark_backend_up("pg")
+                return rows
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
         return []
 
     def query_octopus_consumption(self, start_utc, end_utc):

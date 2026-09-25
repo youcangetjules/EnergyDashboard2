@@ -10,6 +10,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-09-25
+
+- The dashboard segfaulted again after being open overnight (2.9.418, and the same pattern on 2.9.417). The crash log shows a background thread garbage-collecting while it loaded Tasmota plug history from the database, at the same moment the main thread was painting the tab bar. Python’s cycle collector now runs only on the main thread, between updates, so it does not walk Qt objects from a worker. Restart to pick up 2.9.419.
+
 ## 2026-09-24
 
 - A 2.9.417 session segfaulted overnight. Crash log pointed at PySide while updating a Qt property — likely the new QLabel widgets inside Agile Year’s prior-year table cells. Those cells now paint the smaller bracketed delta without cell widgets (2.9.418). Restart the dashboard to pick it up.

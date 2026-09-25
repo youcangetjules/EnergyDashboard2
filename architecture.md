@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-25 — Cyclic garbage collection stays on the GUI thread
+
+- **Context:** 2.9.418 still segfaulted after ~16 hours. The crashing thread was a worker inside Python’s cycle collector (`_Py_HandlePending`, “Garbage-collecting”) at `query_tasmota_power_history` while the main thread was painting the tab bar. The same worker-thread GC signature shows up in older core dumps. A large history fetch allocates enough to start a collection, and that collection walks PySide wrappers off the GUI thread.
+- **Decision:** Disable automatic cyclic GC at process start. A QTimer on the QApplication collects between events (young cycles every 10 s, a full sweep about once a minute) and skips a pass while a Tasmota history fetch is inside the database driver. Reference counting is unchanged.
+- **Consequence:** Do not re-enable automatic `gc` on worker threads. New long native fetches that allocate heavily should use `pause_cyclic_gc` so a GUI collection does not overlap them.
+
 ### 2026-09-24 — Agile Year prior-year delta via paint delegate (no cell widgets)
 
 - **Context:** 2.9.417 put QLabel rich-text widgets in Avg −Ny table cells. A long-running 2.9.417 session then segfaulted in PySide `getWrapperForQObject` / `QObject::doSetProperty` — the same family as BUG-20260923-09. Sorted `QTableWidget` + `setCellWidget` is a known Shiboken lifetime trap.
