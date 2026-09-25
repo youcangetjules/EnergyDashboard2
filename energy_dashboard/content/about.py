@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.433", "2026-09-25", [
+        "<b>Panel database</b> is under <b>Physical Plant Tools</b>, after "
+        "Roof layout. It keeps the module types on this roof (maker, model, "
+        "watts, size, and optional datasheet volts). Roof layout’s panel "
+        "list uses those rows. A blank voltage stays blank.",
+    ]),
     ("2.9.432", "2026-09-25", [
         "String voltage writes each string’s latest volts beside the "
         "teal now line, so the last reading is visible on the chart.",

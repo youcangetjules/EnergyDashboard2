@@ -18,20 +18,11 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from energy_dashboard.common import *
+from energy_dashboard.plant.panel_catalog import list_panels, panel_by_id, panel_label
 
 _SETTINGS_KEY = "forecasts/roof_layout"
 _SETTINGS_IMAGE_KEY = "forecasts/roof_layout_image"
 _SETTINGS_IMAGERY_KEY = "forecasts/roof_layout_imagery"
-
-# Common module sizes (approx overall dims in metres) — used for placement density.
-_PANEL_CATALOG = (
-    {"id": "gen_370", "name": "Generic 370 W", "wp": 370, "w_m": 1.134, "h_m": 1.722},
-    {"id": "gen_400", "name": "Generic 400 W", "wp": 400, "w_m": 1.134, "h_m": 1.722},
-    {"id": "gen_420", "name": "Generic 420 W", "wp": 420, "w_m": 1.134, "h_m": 1.722},
-    {"id": "gen_450", "name": "Generic 450 W", "wp": 450, "w_m": 1.134, "h_m": 1.903},
-    {"id": "gen_500", "name": "Generic 500 W", "wp": 500, "w_m": 1.134, "h_m": 1.962},
-    {"id": "gen_550", "name": "Generic 550 W", "wp": 550, "w_m": 1.134, "h_m": 2.278},
-)
 
 _COL_NAME, _COL_STRING, _COL_TILT, _COL_AZ, _COL_PANEL, _COL_COUNT, _COL_KWP, _COL_ON, _COL_VIZ = range(9)
 
@@ -40,14 +31,11 @@ _PAGE_MAP, _PAGE_IMAGE = 0, 1
 
 
 def _panel_by_id(pid: str) -> dict:
-    for p in _PANEL_CATALOG:
-        if p["id"] == pid:
-            return p
-    return _PANEL_CATALOG[1]
+    return panel_by_id(pid)
 
 
 def _new_plane(name: str = "South roof") -> dict:
-    pan = _PANEL_CATALOG[1]
+    pan = panel_by_id("gen_400")
     count = 8
     return {
         "id": str(uuid.uuid4()),
@@ -264,7 +252,11 @@ def _kwp_from_panels(panel_type: str, count: int) -> float:
         n = max(0, int(count))
     except (TypeError, ValueError):
         n = 0
-    return round(n * float(pan["wp"]) / 1000.0, 3)
+    try:
+        wp = float(pan.get("wp") or 0)
+    except (TypeError, ValueError):
+        wp = 0.0
+    return round(n * wp / 1000.0, 3)
 
 
 def _parse_kml_polygons(path: str) -> list[list[tuple[float, float]]]:
@@ -1981,8 +1973,7 @@ class RoofLayoutTab(QWidget):
         self.table.setItem(row, _COL_AZ, _item(f"{_norm_az_0_359(plane.get('azimuth') or 0):.1f}"))
 
         combo = QComboBox()
-        for pan in _PANEL_CATALOG:
-            combo.addItem(f"{pan['name']} ({pan['wp']} W)", pan["id"])
+        self._fill_panel_combo(combo, plane.get("panel_type") or "gen_400")
         idx = combo.findData(plane.get("panel_type") or "gen_400")
         combo.setCurrentIndex(max(0, idx))
         combo.currentIndexChanged.connect(
@@ -2513,8 +2504,33 @@ class RoofLayoutTab(QWidget):
             else:
                 self._planes[idx]["polygon"] = []
 
+    def reload_panel_choices(self):
+        """Rebuild each face’s panel menu from the Panel database."""
+        self._suppress = True
+        for row in range(self.table.rowCount()):
+            combo = self.table.cellWidget(row, _COL_PANEL)
+            if combo is None:
+                continue
+            self._fill_panel_combo(combo, combo.currentData())
+        self._suppress = False
+        for row in range(self.table.rowCount()):
+            self._recompute_kwp_cell(row)
+        self._update_summary()
+
+    def _fill_panel_combo(self, combo, current_id):
+        combo.blockSignals(True)
+        combo.clear()
+        for pan in list_panels():
+            combo.addItem(panel_label(pan), pan["id"])
+        idx = combo.findData(current_id or "gen_400")
+        if idx < 0 and combo.count():
+            idx = 0
+        combo.setCurrentIndex(idx)
+        combo.blockSignals(False)
+
     def showEvent(self, event):
         super().showEvent(event)
+        self.reload_panel_choices()
         # Chromium starts on first view of the map page, not at app startup.
         if self.view_stack.currentIndex() == _PAGE_MAP:
             self.sat_map.ensure_started()

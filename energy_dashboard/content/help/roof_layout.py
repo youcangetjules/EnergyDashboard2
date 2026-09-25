@@ -35,7 +35,8 @@ can share one string if they are series-wired together; different facings on sep
 MPPTs get different numbers.</p>
 <p><b>Azimuth</b> is degrees <b>0…359</b> only: <b>0° = south</b>, 90° = west,
 180° = north, 270° = east. <b>Flip azimuth</b> adds 180° (e.g. 55.2° → 235.2°).
-Panel presets set kWp from module wattage × count.</p>
+Panel types come from <b>Panel database</b> in this same group. kWp is
+that module’s watts × the count on the face.</p>
 <p><b>Use single-plane</b> turns multi-face fetch off again; Forecasts then uses its own
 Tilt / Azimuth / kWp fields (your saved faces are kept).</p>
 """

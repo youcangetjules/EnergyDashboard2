@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-25 — Panel models are a house catalogue, not telemetry
+
+- **Context:** Roof layout only offered a few generic wattages. Comparing a string’s measured volts with a module rating needs the datasheet the householder actually has, and that number must not be invented.
+- **Decision:** **Physical Plant Tools → Panel database** stores maker, model, rated watts, size, and optional datasheet volts (Vmp, Voc, Imp) in app settings. A blank voltage stays blank. Roof layout’s panel menu reads this list. It is not a PostgreSQL table and it is not filled from Growatt.
+- **Consequence:** Do not copy live string voltage into Vmp, and do not fill Vmp from a guessed datasheet.
+
 ### 2026-09-25 — String DC voltage is its own 2-minute table
 
 - **Context:** Live MPPT volts (`vPv1` / `vPv2`) were only on Growatt Live Status. `growatt_readings` stores total PV power, not per-string volts, so a previous day had nothing to chart.

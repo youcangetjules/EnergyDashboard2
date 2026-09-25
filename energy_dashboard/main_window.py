@@ -37,6 +37,7 @@ from energy_dashboard.tabs.optimiser import OptimiserTab
 from energy_dashboard.tabs.pot_issues import PotIssuesTab
 from energy_dashboard.tabs.pv_string_charge import PvStringChargeTab
 from energy_dashboard.tabs.pv_string_voltage import PvStringVoltageTab
+from energy_dashboard.tabs.panel_database import PanelDatabaseTab
 from energy_dashboard.tabs.roof_layout import RoofLayoutTab
 from energy_dashboard.tabs.parameters import ParametersTab
 from energy_dashboard.tabs.shadow_trial import ShadowTrialTab
@@ -683,6 +684,11 @@ class EnergyDashboard(QMainWindow):
         )
         self.roof_layout_tab.on_data_updated = (
             lambda: self.mark_tab_fresh(self.roof_layout_tab)
+        )
+
+        self.panel_database_tab = PanelDatabaseTab(self.set_status, dash=self)
+        self.panel_database_tab.on_data_updated = (
+            lambda: self.mark_tab_fresh(self.panel_database_tab)
         )
         # Let Forecasts resolve multi-plane roof faces via the dashboard.
         self.forecasts_tab.dash = self
