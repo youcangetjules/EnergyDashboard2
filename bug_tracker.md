@@ -2,12 +2,12 @@
 
 Part of the **basic instructions for the development environment** (see `AGENTS.md`).
 
-**Every bug** that affects the app — crash, wrong diagram, bad chart maths, broken save, misleading UI — is logged here. Newest first.
+**Every bug** that affects the app — crash, wrong diagram, bad chart maths, broken save, misleading UI — is logged here. Two sections: **Open**, then **Fixed**. Newest first inside each section.
 
 ## Agent duty
 
-1. When a bug is reported or found, **append an entry immediately** (even before you fix it): timestamp, symptom, where it showed up.
-2. When fixed, **update that same entry** with cause, resolution, fix time, and app version (if shipped). Do not delete entries.
+1. When a bug is reported or found, **add the entry under `## Open` immediately** (newest first in that section): timestamp, symptom, where it showed up.
+2. When fixed, **update that same entry** with cause, resolution, fix time, and app version (if shipped), then **move the whole entry into `## Fixed`** (newest first there). Do not delete entries. A fixed bug must not stay under Open. There is one Open section and one Fixed section.
 3. Keep language plain English. Separate **what the user saw** from **what was wrong in software**.
 4. This log does **not** replace the in-app About changelog or `worklog.md` — it is the standing defect history.
 5. Colour the `###` title: **red** while Status starts with open, **green** when it is fixed. Use `<span style="color:red">` or `<span style="color:green">` around the whole title. Change the colour when the status changes.
@@ -39,7 +39,7 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 ---
 
-## Open
+## <span style="color:red">Open</span>
 
 ### <span style="color:red">BUG-060-20260925-03 — Segfault on the main thread while PySide sets a property</span>
 
@@ -57,7 +57,81 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 **Resolution:**
 
+### <span style="color:red">BUG-054-20260923-09 — Dashboard segmentation fault during Qt property update</span>
 
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 10:13 (Europe/London) |
+| **Status** | open (related fix in 2.9.418 for a concrete trigger) |
+| **Area** | GUI thread (PySide / Qt) |
+| **Version found** | unknown (process `python EnergyDashboard2.py`, pid 823083); recurrence pid 997613 on 2.9.417 |
+| **Version fixed** | — |
+
+**Symptom:** `./run-dashboard.sh` died with `segmentation fault (core dumped)`. zsh job `[1] 823083`. systemd-coredump has the core at 10:12 BST. Recurred 2026-09-24 01:12 on 2.9.417 (pid 997613) with the same C stack.
+
+**Cause:** Crashing thread inside PySide `getWrapperForQObject` while Qt applies a property (`QObject::doSetProperty`) from the main event loop — deleted/wrapping widget still receiving an event. The 2.9.417 recurrence is strongly linked to QLabel `setCellWidget` on Agile Year prior-year columns (see BUG-057-20260924-01). Earlier dumps (before that change) may share the same Shiboken family with a different trigger.
+
+**Resolution:** Partial for the Agile Year cell-widget path — removed in 2.9.418. The recurring worker-thread dumps (`_Py_HandlePending` / start_thread) are BUG-058-20260925-01, fixed in 2.9.421 by keeping Qt wrappers out of the cycle collector while leaving automatic collection on. Crash logging from 2.9.411 still applies.
+
+### <span style="color:red">BUG-051-20260923-06 — Setup Database Export: status and SQL panes still misaligned</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 09:26 (Europe/London) |
+| **Status** | open |
+| **Area** | Setup & Info → Database Export (`tabs/parameters.py`) |
+| **Version found** | 2.9.406 |
+| **Version fixed** | — |
+
+**Symptom:** On Setup & Info → Database Export, the layout still does not match the agreed motif (see `MOTIFS.md` §F). Reported again with a screenshot after earlier alignment work:
+
+1. **Connected status** (e.g. “PostgreSQL DB seen” / “Database connected” / “Tables not connected (11/12)”) still sits in the **middle gap** between the Host/Port/… fields and the create-all SQL box — not immediately after the fields and left-aligned. SQLite/MySQL “Disabled” shows the same floating mid-row look.
+2. **Create-all SQL** panes on the right are not lined up as one consistent column across SQLite, MySQL, and PostgreSQL (left edges / widths disagree between rows), and the SQL side still feels too wide vs “stop around mid-window” expectations from recent layout requests.
+
+**Cause:** Investigating. Prior fix BUG-021-20260921-02 left-aligned status with `Maximum` width and gave leftover width to the SQL pane, but the three engine rows still do not share one field / status / SQL column grid in practice.
+
+**Resolution:** Empty while open. Target per motif: status immediately after the host/file fields (left-aligned); SQL panes share one left edge and width across all three engines.
+
+### <span style="color:red">BUG-049-20260923-04 — Dashboard freezes / goes sticky after running a while</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-23 09:15 (Europe/London) |
+| **Status** | open |
+| **Area** | GUI thread (Octopus Live, Growatt, matplotlib); Growatt HTTPS |
+| **Version found** | ~2.9.404 (live PID 652826, ~9.5 h uptime) |
+| **Version fixed** | — |
+
+**Symptom:** After the dashboard has been open for a while, the window stops responding cleanly — clicks and tab changes lag or feel frozen. Reported by the human; confirmed against a live long-running process on this machine.
+
+**Cause:** Investigating. Strong suspects from code + live process:
+
+1. **GUI-thread database + chart work** — Octopus Live `_update_display` (GUI) calls `_attach_cumulative_pv` → `query_growatt_pv_actual`, which opens Postgres and scans `growatt_readings` with Polars `infer_schema_length=None`, then does synchronous `canvas.draw()`. Same pattern of sync `canvas.draw()` on Tasmota. A slow DB or a large window can stall the UI for seconds on every auto-refresh.
+2. **Main-thread CPU** — live PID 652826 (~9.5 h): main thread alone was burning ~65 CPU ticks / 2 s while process RSS ~660 MB. Not a hard deadlock; more like the GUI event loop busy with work.
+3. **Growatt HTTPS half-closed sockets** — same process had two `CLOSE-WAIT` connections to `openapi.growatt.com` / `api.growatt.com` (8.211.2.163). growattServer keeps a `requests.Session`; leaked sockets can pile up over a long session.
+4. **Prior mid-session SEGV** — BUG-029-20260921-10 (Shiboken / worker race) can look like a freeze then crash; Invoker QueuedConnection partially hardened in 2.9.380 but root cause still open.
+
+**Resolution:** Empty while open. Likely fixes: move PV DB attach off the GUI thread; prefer `draw_idle`; close / recycle Growatt HTTP sessions; re-check worker→GUI Invoker paths if SEGV returns.
+
+### <span style="color:red">BUG-029-20260921-10 — Mid-session SEGV (Shiboken import vs GUI paint)</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-21 22:13 (Europe/London) |
+| **Status** | open |
+| **Area** | Qt / threading (`core/invoker.py`, worker threads) |
+| **Version found** | ~2.9.379 (PID 345239) |
+| **Version fixed** | — |
+
+**Symptom:** zsh reported `[8] 345239 segmentation fault (core dumped)` for `./run-dashboard.sh` / `EnergyDashboard2.py`. Not an immediate launch crash — the process had been running for a long session.
+
+**Cause:** Core dump (thread 356856): SEGV in `_Py_HandlePending` while a late-started worker was in `PyImport_Import` / Shiboken. Main thread (345239) was mid-widget paint (`paintAndFlush` → QtWidgets abi → Shiboken `ThreadStateSaver` / GIL). Not the Linux WebEngine/GPU startup path (BUG-005-20260915-05 / BUG-019-20260917-05). Likely a worker/GIL/Shiboken race; Invoker AutoConnection from plain `threading.Thread` can also run slots off the GUI thread.
+
+**Resolution:** Partial hardening in **2.9.380** — `Invoker` now forces `QueuedConnection` so worker `invoke()` always posts to the GUI thread. Fresh `./run-dashboard.sh` smoke-tested ~12s without SEGV. Full root cause of the import race still open if it recurs.
+
+## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-059-20260925-02 — Do not turn garbage collection off; fix the segfault</span>
 
 | Field | Value |
 |-------|--------|
@@ -136,80 +210,6 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 **Cause:** Cost mode replaced both panes with money. The bottom cumulative chart should stay energy; only the top pane and cards are money. Power’s cumulative pane also omitted Exported as its own line (export was only inside the used-energy formula).
 
 **Resolution:** Bottom chart always draws the four energy series in Power and Cost. Cost keeps £/h on top and £ on the cards. Day labels are Gen / Imp / Used / Exp.
-
-### <span style="color:red">BUG-054-20260923-09 — Dashboard segmentation fault during Qt property update</span>
-
-| Field | Value |
-|-------|--------|
-| **Opened** | 2026-09-23 10:13 (Europe/London) |
-| **Status** | open (related fix in 2.9.418 for a concrete trigger) |
-| **Area** | GUI thread (PySide / Qt) |
-| **Version found** | unknown (process `python EnergyDashboard2.py`, pid 823083); recurrence pid 997613 on 2.9.417 |
-| **Version fixed** | — |
-
-**Symptom:** `./run-dashboard.sh` died with `segmentation fault (core dumped)`. zsh job `[1] 823083`. systemd-coredump has the core at 10:12 BST. Recurred 2026-09-24 01:12 on 2.9.417 (pid 997613) with the same C stack.
-
-**Cause:** Crashing thread inside PySide `getWrapperForQObject` while Qt applies a property (`QObject::doSetProperty`) from the main event loop — deleted/wrapping widget still receiving an event. The 2.9.417 recurrence is strongly linked to QLabel `setCellWidget` on Agile Year prior-year columns (see BUG-057-20260924-01). Earlier dumps (before that change) may share the same Shiboken family with a different trigger.
-
-**Resolution:** Partial for the Agile Year cell-widget path — removed in 2.9.418. The recurring worker-thread dumps (`_Py_HandlePending` / start_thread) are BUG-058-20260925-01, fixed in 2.9.421 by keeping Qt wrappers out of the cycle collector while leaving automatic collection on. Crash logging from 2.9.411 still applies.
-
-### <span style="color:red">BUG-051-20260923-06 — Setup Database Export: status and SQL panes still misaligned</span>
-
-| Field | Value |
-|-------|--------|
-| **Opened** | 2026-09-23 09:26 (Europe/London) |
-| **Status** | open |
-| **Area** | Setup & Info → Database Export (`tabs/parameters.py`) |
-| **Version found** | 2.9.406 |
-| **Version fixed** | — |
-
-**Symptom:** On Setup & Info → Database Export, the layout still does not match the agreed motif (see `MOTIFS.md` §F). Reported again with a screenshot after earlier alignment work:
-
-1. **Connected status** (e.g. “PostgreSQL DB seen” / “Database connected” / “Tables not connected (11/12)”) still sits in the **middle gap** between the Host/Port/… fields and the create-all SQL box — not immediately after the fields and left-aligned. SQLite/MySQL “Disabled” shows the same floating mid-row look.
-2. **Create-all SQL** panes on the right are not lined up as one consistent column across SQLite, MySQL, and PostgreSQL (left edges / widths disagree between rows), and the SQL side still feels too wide vs “stop around mid-window” expectations from recent layout requests.
-
-**Cause:** Investigating. Prior fix BUG-021-20260921-02 left-aligned status with `Maximum` width and gave leftover width to the SQL pane, but the three engine rows still do not share one field / status / SQL column grid in practice.
-
-**Resolution:** Empty while open. Target per motif: status immediately after the host/file fields (left-aligned); SQL panes share one left edge and width across all three engines.
-
-### <span style="color:red">BUG-049-20260923-04 — Dashboard freezes / goes sticky after running a while</span>
-
-| Field | Value |
-|-------|--------|
-| **Opened** | 2026-09-23 09:15 (Europe/London) |
-| **Status** | open |
-| **Area** | GUI thread (Octopus Live, Growatt, matplotlib); Growatt HTTPS |
-| **Version found** | ~2.9.404 (live PID 652826, ~9.5 h uptime) |
-| **Version fixed** | — |
-
-**Symptom:** After the dashboard has been open for a while, the window stops responding cleanly — clicks and tab changes lag or feel frozen. Reported by the human; confirmed against a live long-running process on this machine.
-
-**Cause:** Investigating. Strong suspects from code + live process:
-
-1. **GUI-thread database + chart work** — Octopus Live `_update_display` (GUI) calls `_attach_cumulative_pv` → `query_growatt_pv_actual`, which opens Postgres and scans `growatt_readings` with Polars `infer_schema_length=None`, then does synchronous `canvas.draw()`. Same pattern of sync `canvas.draw()` on Tasmota. A slow DB or a large window can stall the UI for seconds on every auto-refresh.
-2. **Main-thread CPU** — live PID 652826 (~9.5 h): main thread alone was burning ~65 CPU ticks / 2 s while process RSS ~660 MB. Not a hard deadlock; more like the GUI event loop busy with work.
-3. **Growatt HTTPS half-closed sockets** — same process had two `CLOSE-WAIT` connections to `openapi.growatt.com` / `api.growatt.com` (8.211.2.163). growattServer keeps a `requests.Session`; leaked sockets can pile up over a long session.
-4. **Prior mid-session SEGV** — BUG-029-20260921-10 (Shiboken / worker race) can look like a freeze then crash; Invoker QueuedConnection partially hardened in 2.9.380 but root cause still open.
-
-**Resolution:** Empty while open. Likely fixes: move PV DB attach off the GUI thread; prefer `draw_idle`; close / recycle Growatt HTTP sessions; re-check worker→GUI Invoker paths if SEGV returns.
-
-### <span style="color:red">BUG-029-20260921-10 — Mid-session SEGV (Shiboken import vs GUI paint)</span>
-
-| Field | Value |
-|-------|--------|
-| **Opened** | 2026-09-21 22:13 (Europe/London) |
-| **Status** | open |
-| **Area** | Qt / threading (`core/invoker.py`, worker threads) |
-| **Version found** | ~2.9.379 (PID 345239) |
-| **Version fixed** | — |
-
-**Symptom:** zsh reported `[8] 345239 segmentation fault (core dumped)` for `./run-dashboard.sh` / `EnergyDashboard2.py`. Not an immediate launch crash — the process had been running for a long session.
-
-**Cause:** Core dump (thread 356856): SEGV in `_Py_HandlePending` while a late-started worker was in `PyImport_Import` / Shiboken. Main thread (345239) was mid-widget paint (`paintAndFlush` → QtWidgets abi → Shiboken `ThreadStateSaver` / GIL). Not the Linux WebEngine/GPU startup path (BUG-005-20260915-05 / BUG-019-20260917-05). Likely a worker/GIL/Shiboken race; Invoker AutoConnection from plain `threading.Thread` can also run slots off the GUI thread.
-
-**Resolution:** Partial hardening in **2.9.380** — `Invoker` now forces `QueuedConnection` so worker `invoke()` always posts to the GUI thread. Fresh `./run-dashboard.sh` smoke-tested ~12s without SEGV. Full root cause of the import race still open if it recurs.
-
-## Fixed
 
 ### <span style="color:green">BUG-053-20260923-08 — Octopus Live Cost Import cost looked wrong without Today</span>
 
@@ -653,8 +653,6 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 ---
 
-## Fixed
-
 ### <span style="color:green">BUG-023-20260921-04 — DB status said “not found” for a password failure</span>
 
 | Field | Value |
@@ -720,7 +718,6 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 **Cause:** `schema.py` only ran the original four CREATE statements. The rest existed only inside DataLogger `_ensure_*`. SQLite `_ensure` also skipped `tasmota_devices`.
 
 **Resolution:** One `full_schema` statement list drives Setup Database, live `_ensure_*`, and the Setup & Info SQL viewer. `postgres_reset_schema.sql` now drops/recreates the same set (including current `pv_string_charge` columns).
-
 
 ### <span style="color:green">BUG-019-20260917-05 — Launch logs EGL DRM + GPUInfo</span>
 
@@ -842,8 +839,6 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 ---
 
-## Fixed
-
 ### <span style="color:green">BUG-012-20260915-12 — Intermittent Grott MQTT loss of communications</span>
 
 | Field | Value |
@@ -861,8 +856,6 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 **Resolution:** Soft re-subscribe when connected+stale; full reconnect only when the socket is down. MQTT client: reconnect backoff, watchdog reconnect, disconnect/reconnect counters, events into `connectivity_events` for Show history. Connectivity Grott row shows disconnect/reconnect counts.
 
 ---
-
-## Fixed
 
 ### <span style="color:green">BUG-011-20260915-11 — Connectivity Status crash on launch (missing context menu handler)</span>
 

@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- The bug log now keeps two separate lists. Open bugs come first. Fixed bugs are only under Fixed. A resolved bug is moved out of Open.
 - Logged BUG-060-20260925-03. A 2.9.423 session segfaulted on the main thread while PySide was setting a Qt property (not the overnight background-collector crash). Still open.
 - Roof layout moved from Energy Forecasts into Physical Plant Tools. Applying it still updates the forecast.
 - On a previous day, PV String Charge cards were still showing live kilowatts (often 0). They now lead with that day’s kWh for each string. Day is a calendar dropdown instead of a stepper.
