@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.429", "2026-09-25", [
+        "Stale page tabs keep the same header size as the others. The light "
+        "outline is drawn inside the tab, so it no longer sits outside as a "
+        "halo.",
+    ]),
     ("2.9.428", "2026-09-25", [
         "String voltage is now stored. Each MPPT string’s measured volts "
         "(vPv1 and vPv2) are averaged into 2-minute lots in "

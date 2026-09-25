@@ -108,7 +108,11 @@ class FreshnessTabBar(QTabBar):
     @classmethod
     def _tab_shape_path(cls, rect):
         """Rounded top corners only — standard tab silhouette."""
-        r = cls._tab_body_rect(rect)
+        return cls._shape_for_rect(cls._tab_body_rect(rect))
+
+    @staticmethod
+    def _shape_for_rect(r):
+        """Rounded top corners on an explicit body rect."""
         rad = float(_TAB_CORNER_RADIUS)
         path = QPainterPath()
         path.moveTo(r.left(), r.bottom())
@@ -191,13 +195,19 @@ class FreshnessTabBar(QTabBar):
                     self._paint_selected_hatch(painter, shape, rect)
                 painter.setBrush(Qt.NoBrush)
                 if stale:
-                    outline, width = _TAB_OUTLINE_STALE, 1.5
-                elif selected:
-                    outline, width = _TAB_OUTLINE_SELECTED, 1.5
+                    # The outline is inset so it cannot form a halo outside
+                    # the silhouette shared with the green and blue tabs.
+                    inner = self._tab_body_rect(rect).adjusted(1.25, 1.25, -1.25, 0.0)
+                    painter.setPen(QPen(_TAB_OUTLINE_STALE, 1.0))
+                    painter.drawPath(self._shape_for_rect(inner))
                 else:
-                    outline, width = _TAB_OUTLINE_FAINT, 1.0
-                painter.setPen(QPen(outline, width))
-                painter.drawPath(shape)
+                    outline, width = (
+                        (_TAB_OUTLINE_SELECTED, 1.5)
+                        if selected
+                        else (_TAB_OUTLINE_FAINT, 1.0)
+                    )
+                    painter.setPen(QPen(outline, width))
+                    painter.drawPath(shape)
                 if selected:
                     body = self._tab_body_rect(rect)
                     painter.setPen(QColor(_DARK_BG))
