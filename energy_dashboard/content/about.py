@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.435", "2026-09-25", [
+        "Roof layout imagery: Google Satellite is the current photo only. "
+        "<b>Historic satellite</b> is the dated aerial archive (Year and "
+        "Release). Google’s tile server no longer returns older satellite versions.",
+    ]),
     ("2.9.434", "2026-09-25", [
         "Roof layout’s satellite map no longer crashes the dashboard as "
         "it opens. The fault was an application-wide event filter "

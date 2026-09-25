@@ -17,9 +17,9 @@ average tilt/azimuth.</p>
 <li>The right-hand panel is a live <b>satellite map</b> centered on the Forecasts
 lat/lon. Use the top <b>Imagery</b> menu:
 <ul>
-<li><b>Google Satellite / Hybrid</b> — current, best roof-scale zoom</li>
-<li><b>Esri Live</b> — current mosaic; bottom-right shows scene capture date</li>
-<li><b>Esri Wayback</b> — dated archive (2014→now): pick <b>Year</b> and <b>Release</b>, or ◀/▶ through timelines</li>
+<li><b>Google Satellite / Hybrid</b> — the current photo only. Google’s tile server no longer returns older satellite versions.</li>
+<li><b>Historic satellite</b> — dated aerial archive (Esri Wayback, 2014→now). Pick <b>Year</b> and <b>Release</b>, or ◀/▶ through the timeline. These are not old Google photos.</li>
+<li><b>Esri Live</b> — current mosaic; the chip at the bottom shows the scene capture date</li>
 <li><b>Sentinel-2 cloudless</b> (2018 / 2021 / 2024) — annual mosaics (~10&nbsp;m; timeline context, not panel edges)</li>
 </ul>
 <b>Use clearest image</b> scores those sources (plus a sample of Wayback dates) at the current roof and switches to the sharpest tiles — the one where panel edges look least blurred. The choice is remembered next time you open Roof Layout.</li>

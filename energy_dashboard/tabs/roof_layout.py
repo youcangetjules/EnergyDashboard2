@@ -668,9 +668,9 @@ class _SatelliteRoofMap(QWidget):
     <label>Imagery
       <select id="srcSel">
         <option value="esri_live" selected>Esri Live (current mosaic)</option>
-        <option value="wayback">Esri Wayback (dated archive)</option>
         <option value="google">Google Satellite (current)</option>
         <option value="google_hyb">Google Hybrid (current)</option>
+        <option value="wayback">Historic satellite (dated archive)</option>
         <option value="s2_2024">Sentinel-2 cloudless 2024</option>
         <option value="s2_2021">Sentinel-2 cloudless 2021</option>
         <option value="s2_2018">Sentinel-2 cloudless 2018</option>
@@ -925,8 +925,8 @@ class _SatelliteRoofMap(QWidget):
     var z = Math.round(map.getZoom());
     if (activeBase === 'google' || activeBase === 'google_hyb') {
       setMeta(
-        'Imagery: <b>Google ' + (activeBase === 'google_hyb' ? 'Hybrid' : 'Satellite') + '</b> · current · z' + z +
-        '<br><span style="color:#a6adc8">Scene date not in tiles — use Esri Live/Wayback for dated capture</span>'
+        'Imagery: <b>Google ' + (activeBase === 'google_hyb' ? 'Hybrid' : 'Satellite') + '</b> · current photo · z' + z +
+        '<br><span style="color:#a6adc8">Google’s tile server no longer serves older satellite photos. Choose <b>Historic satellite</b> for a dated archive.</span>'
       );
       return;
     }
