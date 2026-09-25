@@ -7,7 +7,7 @@ TAB_CLASS = "OctopusLiveTab"
 
 HELP_TEXT = """\
 <h2>Octopus Live</h2><p>
-Polls the Octopus consumption API on a tight cadence to give a near-real-time view of import / export and net at 1-min / 5-min / 30-min granularity. Useful when validating tariff assumptions or watching a particular event (e.g. EV charge session).</p>
+Polls the Octopus Home Mini feed for a near-real-time view of import and export. <b>30 min</b> and <b>5 min</b> are groupings Octopus provides. <b>15 min</b> is the 5-minute readings added into quarter-hour slots — Octopus has no 15-minute grouping, and asking for one used to drop the chart back onto the slower meter reading, which runs many hours behind.</p>
 <p>
 The line next to <b>Fetch Live Data</b> starts with <b>Connectivity</b>. Green <b>OK</b> means the live GraphQL stream answered. Amber <b>REST only</b> means that stream did not, so the half-hour meter (often about a day behind) is filling in. Amber <b>stale</b> means auto-refresh is on but Octopus has not answered for a few minutes. Red <b>failed</b> means the last request did not succeed. The same word sits on the bottom strip as <b>Octopus</b>, next to the database. “Latest … ago” is how old the newest meter slot is — that is separate from whether Octopus answered.</p>
 <p>

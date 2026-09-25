@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.436", "2026-09-25", [
+        "Octopus Live 15-minute view asks for 5-minute Home Mini readings "
+        "and adds them into quarter-hour slots. The old 15-minute request "
+        "was rejected, so the chart fell back to the slower meter and sat "
+        "many hours behind.",
+    ]),
     ("2.9.435", "2026-09-25", [
         "Roof layout imagery: Google Satellite is the current photo only. "
         "<b>Historic satellite</b> is the dated aerial archive (Year and "

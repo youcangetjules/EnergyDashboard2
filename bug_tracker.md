@@ -117,6 +117,22 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 ## <span style="color:green">Fixed</span>
 
+### <span style="color:green">BUG-062-20260925-05 — Octopus Live chart sits many hours behind on 15-minute view</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-25 13:33 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Octopus Live chart |
+| **Version found** | 2.9.435 |
+| **Version fixed** | 2.9.436 |
+
+**Symptom:** The Octopus Live chart was about 13 hours behind the clock. The status line said the telemetry query failed with HTTP 400 and the page had fallen back to REST, then shifted the chart to the latest meter reading.
+
+**Cause:** The 15-minute button asked Octopus for a grouping named QUARTER_HOURLY. That value is not in their telemetry list (they offer 10 seconds, 1 minute, 5 minutes, 30 minutes, and 1 hour). The request came back HTTP 400, so the page used the ordinary consumption meter, which is hours behind the Home Mini.
+
+**Resolution:** 15-minute view now requests 5-minute Home Mini readings and the chart adds those into quarter-hour slots. A rejected GraphQL call also shows Octopus’s own error text. Shipped in 2.9.436.
+
 ### <span style="color:green">BUG-060-20260925-03 — Segfault on the main thread while PySide sets a property</span>
 
 | Field | Value |

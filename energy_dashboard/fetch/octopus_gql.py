@@ -80,8 +80,18 @@ def _gql_post(query, token=None):
     if token:
         headers["Authorization"] = f"JWT {token}"
     resp = requests.post(_OCTOPUS_GQL_URL, json={"query": query}, headers=headers, timeout=30)
-    resp.raise_for_status()
-    body = resp.json()
+    body = None
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    if resp.status_code >= 400:
+        if isinstance(body, dict) and body.get("errors"):
+            raise RuntimeError(body["errors"][0].get("message", str(body["errors"])))
+        resp.raise_for_status()
+    if not isinstance(body, dict):
+        resp.raise_for_status()
+        body = resp.json()
     if "errors" in body and body["errors"]:
         raise RuntimeError(body["errors"][0].get("message", str(body["errors"])))
     return body

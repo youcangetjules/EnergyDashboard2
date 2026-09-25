@@ -861,7 +861,12 @@ class OctopusLiveTab(QWidget):
 
     def _granularity_label(self):
         gid = self.granularity_group.checkedId()
-        return {1: "HALF_HOURLY", 2: "QUARTER_HOURLY", 3: "FIVE_MINUTES"}.get(gid, "HALF_HOURLY")
+        # Octopus telemetry groupings are TEN_SECONDS, ONE_MINUTE, FIVE_MINUTES,
+        # HALF_HOURLY, HOURLY. There is no 15-minute value — asking for
+        # QUARTER_HOURLY is HTTP 400, and the page then falls back to the
+        # half-hour meter, which is many hours behind. 15 min on screen is
+        # five-minute readings summed into quarter-hour slots.
+        return {1: "HALF_HOURLY", 2: "FIVE_MINUTES", 3: "FIVE_MINUTES"}.get(gid, "HALF_HOURLY")
 
     def live_refresh_expectation(self):
         """(active, expected_seconds, detail) for the banner refresh pill."""

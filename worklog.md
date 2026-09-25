@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- Octopus Live was about half a day behind when 15-minute was selected. Octopus rejected that grouping, so the page used the ordinary meter instead of the Home Mini. 15-minute now uses the live 5-minute readings, added up into quarter-hour slots, so the chart reaches the latest half hour.
 - Roof layout can no longer show older Google satellite photos. The public tile address now returns the same current picture for every old version number. Dated aerial photos are still on the imagery menu as Historic satellite (the Esri archive), with Year and Release. Those frames are not old Google pictures.
 - The Roof layout crash is fixed. Opening that page was killing the dashboard before the satellite map could appear: a watcher on every Qt event wrapped the same object twice while a property was being set. Dialogs that need an answer still stay above the main window, but that watcher is a short timer now, not a filter on the whole application. Restart to pick up 2.9.434.
 - Panel database is a new page under Physical Plant Tools, after Roof layout. You type the modules on the roof there (maker, model, watts, size, and datasheet volts if you have them). Roof layout’s panel menu uses that list. Volts you leave blank stay blank — they are not filled from the live string reading. The 12:45 crash (pid 1622947) happened on Roof layout and the satellite map still did not appear; that is the same open BUG-060.
