@@ -118,18 +118,6 @@ def _load_link_test(key: str) -> dict | None:
     return data
 
 
-def _statement_row(key: str):
-    """Right-aligned persistent test line for a database login box."""
-    stmt = _TestStatement(key)
-    row = QHBoxLayout()
-    row.setContentsMargins(0, 4, 0, 0)
-    row.addStretch(1)
-    row.addWidget(
-        stmt, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-    )
-    return row, stmt
-
-
 def _test_when(ts: float) -> str:
     try:
         dt = _datetime.fromtimestamp(float(ts), ZoneInfo("Europe/London"))
@@ -139,7 +127,7 @@ def _test_when(ts: float) -> str:
 
 
 class _TestStatement(QLabel):
-    """Bottom-right connectivity line for a Test button.
+    """Connectivity line on the same row as Test, at the right.
 
     A pass stays green until it is an hour old, then amber.
     """
@@ -151,8 +139,7 @@ class _TestStatement(QLabel):
         self.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
-        self.setWordWrap(True)
-        self.setMinimumWidth(280)
+        self.setWordWrap(False)
         self.setStyleSheet("color: #6c7086; font-size: 11px;")
         self._timer = QTimer(self)
         self._timer.setInterval(60_000)
@@ -252,18 +239,10 @@ class _LoginPanel(QGroupBox):
         self._grid.setColumnStretch(3, 1)
         self._row = 0
         self._lay.addLayout(self._grid)
-        foot = QHBoxLayout()
-        foot.setContentsMargins(0, 4, 0, 0)
         self._note = _status_label()
-        foot.addWidget(self._note, 1)
+        self._note.setVisible(False)
+        self._lay.addWidget(self._note)
         self.statement = _TestStatement(test_key) if test_key else None
-        if self.statement is not None:
-            foot.addWidget(
-                self.statement,
-                0,
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            )
-        self._lay.addLayout(foot)
         # Older callers still write self.status; that is the left note, not the test line.
         self.status = self._note
 
@@ -289,11 +268,18 @@ class _LoginPanel(QGroupBox):
         for btn in buttons:
             row.addWidget(btn)
         row.addStretch(1)
-        self._grid.addLayout(row, self._row, 1, 1, 3, Qt.AlignmentFlag.AlignLeft)
+        if self.statement is not None:
+            row.addWidget(
+                self.statement,
+                0,
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            )
+        self._grid.addLayout(row, self._row, 1, 1, 3)
         self._row += 1
 
     def note(self, text: str) -> None:
         self._note.setText(text)
+        self._note.setVisible(bool(text))
 
     def begin_test(self) -> None:
         if self.statement is not None:
@@ -794,9 +780,11 @@ class _DatabaseLogin(QWidget):
             150,
         ))
         actions.addStretch(1)
+        stmt = _TestStatement("sqlite")
+        actions.addWidget(
+            stmt, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
         lay.addLayout(actions)
-        foot, stmt = _statement_row("sqlite")
-        lay.addLayout(foot)
         box.statement = stmt
         box._enabled = enabled
         box._path = path
@@ -867,9 +855,11 @@ class _DatabaseLogin(QWidget):
             150,
         ))
         actions.addStretch(1)
+        stmt = _TestStatement(backend)
+        actions.addWidget(
+            stmt, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
         grid.addLayout(actions, 4, 1, 1, 3)
-        foot, stmt = _statement_row(backend)
-        grid.addLayout(foot, 5, 0, 1, 4)
         box.statement = stmt
         return box
 

@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.422", "2026-09-25", [
+        "Connectivity login panels put the test result on the same row as "
+        "<b>Test connection</b>, at the right: green OK, red failed, amber "
+        "when the last pass is more than an hour old.",
+    ]),
     ("2.9.421", "2026-09-25", [
         "Fixed the overnight segmentation fault with garbage collection left "
         "on. A background history fetch was collecting cycles while the tab "

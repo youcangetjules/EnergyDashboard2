@@ -223,7 +223,7 @@ Not full motifs, but keep consistent:
 | Main page tabs | Freshness green / static blue / stale black — `ui/tab_bar.py`, palette tab tokens |
 | Group boxes | Dark surface lift (`_DARK_SURFACE_BG`), light border `#313244` / `#45475a`. **Octopus Live Monitor** title chip (`QGroupBox#octopusLiveMonitor::title`): opaque frosted-glass gradient (highlight → `#585b70` → `#313244`) + `1px solid` `_DARK_OVERLAY` (`#6c7086`), 4px radius — in `ui/styles.py` |
 | Alarms / bad state | Peach / red text (`#fab387`, `#f38ba8`) — meaning first, colour second |
-| Login-panel test line | Bottom-right of the credential panel (`_TestStatement`). Green `#a6e3a1` “Connectivity — OK”, red `#f38ba8` “Connectivity — failed”, amber `#fab387` “Connectivity - last OK (Stale >1hr since last test)” once a pass is older than an hour. Left side stays for short notes (“Saved…”). |
+| Login-panel test line | Same row as Save / Test, right-hand end (`_TestStatement`). Green `#a6e3a1` “Connectivity — OK”, red `#f38ba8` “Connectivity — failed”, amber `#fab387` “Connectivity - last OK (Stale >1hr since last test)” once a pass is older than an hour. A short note (“Saved…”) stays on the row underneath. |
 
 ---
 

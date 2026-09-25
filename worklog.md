@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- On a Connectivity login (Growatt cloud and the other boxes), the test result now sits on the same row as Test, at the right, instead of a line underneath.
 - Fixed BUG-058 and BUG-059. The 08:10 crash was a background thread inside Python’s cycle collector while the tab bar was painting and tearing down a Qt object. Automatic collection stays on. Qt objects are taken off that collector so a background pass cannot destroy one mid-repaint. Restart to pick up 2.9.421.
 - Bug tracker titles are coloured: red while a bug is open, green once it is fixed.
 - Logged BUG-059-20260925-02: turning off Python’s cycle collector in 2.9.419 is not the fix for the overnight segfault. Collection stays on; the crash itself is still open (BUG-058-20260925-01).
