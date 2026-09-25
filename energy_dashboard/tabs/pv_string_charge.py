@@ -14,9 +14,15 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 
 from PySide6.QtCore import QDate
-from PySide6.QtWidgets import QDateEdit
+from PySide6.QtWidgets import (
+    QCalendarWidget,
+    QMenu,
+    QToolButton,
+    QWidgetAction,
+)
 
 from energy_dashboard.common import *
+from energy_dashboard.ui.styles import apply_date_picker_motif
 from energy_dashboard.db.pv_string_charge import (
     log_pv_string_charge,
     lot_start,
@@ -39,6 +45,81 @@ _FC_FILL_ALPHA = 0.30
 # SPH/MIX houses here are a few kWp per string. Values above this in a "kW"
 # field are leftover watts (the old abs(n)>50 heuristic left 10–50 W as kW).
 _MAX_PLAUSIBLE_KW = 8.0
+
+
+class _LondonDayPicker(QToolButton):
+    """Dropdown calendar for one London day. Clicking the field opens it."""
+
+    dateChanged = Signal(QDate)
+
+    def __init__(self, day, parent=None):
+        super().__init__(parent)
+        self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._day = day
+        self._minimum = QDate(2020, 1, 1)
+        self._maximum = QDate(day.year, day.month, day.day)
+        self._menu = QMenu(self)
+        self._menu.setStyleSheet(
+            f"QMenu {{ background: {_DARK_SURFACE_BG}; border: 1px solid #45475a; }}"
+        )
+        self._cal = QCalendarWidget(self._menu)
+        self._cal.setGridVisible(True)
+        self._cal.setVerticalHeaderFormat(
+            QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader
+        )
+        self._cal.setMinimumDate(self._minimum)
+        self._cal.setMaximumDate(self._maximum)
+        self._cal.setSelectedDate(self._maximum)
+        self._cal.clicked.connect(self._on_calendar)
+        action = QWidgetAction(self._menu)
+        action.setDefaultWidget(self._cal)
+        self._menu.addAction(action)
+        self._menu.aboutToShow.connect(self._prepare_calendar)
+        self.setMenu(self._menu)
+        apply_date_picker_motif(self, width=168)
+        self._sync_label()
+
+    def calendarWidget(self):
+        return self._cal
+
+    def date(self) -> QDate:
+        d = self._day
+        return QDate(d.year, d.month, d.day)
+
+    def setMinimumDate(self, qdate: QDate) -> None:
+        self._minimum = qdate
+        self._cal.setMinimumDate(qdate)
+
+    def setMaximumDate(self, qdate: QDate) -> None:
+        self._maximum = qdate
+        self._cal.setMaximumDate(qdate)
+        if self.date() > qdate:
+            self.setDate(qdate)
+
+    def setDate(self, qdate: QDate) -> None:
+        if qdate < self._minimum:
+            qdate = self._minimum
+        if qdate > self._maximum:
+            qdate = self._maximum
+        day = qdate.toPython()
+        if day == self._day:
+            self._sync_label()
+            return
+        self._day = day
+        self._sync_label()
+        self._cal.setSelectedDate(qdate)
+        self.dateChanged.emit(qdate)
+
+    def _sync_label(self) -> None:
+        self.setText(self._day.strftime("%d %b %Y"))
+
+    def _prepare_calendar(self) -> None:
+        self._cal.setSelectedDate(self.date())
+
+    def _on_calendar(self, qdate: QDate) -> None:
+        self._menu.close()
+        self.setDate(qdate)
 
 
 class _ClickableMetricCard(QFrame):
@@ -347,21 +428,13 @@ class PvStringChargeTab(QWidget):
         lbl_day = QLabel("Day:")
         lbl_day.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         lbl_day.setToolTip(
-            "London day for the charts. Today includes the live reading. "
-            "An earlier day shows the stored 2-minute lots for that day only."
+            "Open the calendar and pick a London day. Today includes the "
+            "live reading. An earlier day shows that day’s stored lots, "
+            "and the cards show each string’s kWh for that day."
         )
         ctrl.addWidget(lbl_day)
-        self.date_day = QDateEdit()
-        self.date_day.setCalendarPopup(True)
-        self.date_day.setDisplayFormat("dd MMM yyyy")
+        self.date_day = _LondonDayPicker(self._view_day)
         self.date_day.setToolTip(lbl_day.toolTip())
-        qtoday = QDate(
-            self._view_day.year, self._view_day.month, self._view_day.day,
-        )
-        self.date_day.setMinimumDate(QDate(2020, 1, 1))
-        self.date_day.setMaximumDate(qtoday)
-        self.date_day.setDate(qtoday)
-        apply_spin_field_motif(self.date_day, width=148)
         self._style_day_calendar()
         self.date_day.dateChanged.connect(self._on_view_day_changed)
         ctrl.addWidget(self.date_day)
@@ -409,6 +482,7 @@ class PvStringChargeTab(QWidget):
         root.addLayout(cards)
 
         detail = QGroupBox("Live reading")
+        self.box_live = detail
         detail_lay = QVBoxLayout(detail)
         self.lbl_mode = QLabel("Mode: —")
         self.lbl_mode.setStyleSheet("color: #cdd6f4; font-weight: bold; font-size: 12px;")
@@ -511,6 +585,7 @@ class PvStringChargeTab(QWidget):
         lay.addWidget(today_lbl)
         for child in (title_lbl, value_lbl, sub_lbl, today_lbl):
             child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        frame._title = title_lbl
         frame._value = value_lbl
         frame._sub = sub_lbl
         frame._today = today_lbl
@@ -664,12 +739,13 @@ class PvStringChargeTab(QWidget):
         status = self._read_growatt_snapshot()
         if status is None:
             self._refresh_day_summaries(live=False)
-            self.lbl_mode.setText("Mode: no Growatt data")
-            self.lbl_detail.setText(
-                "No live MIX status yet. Connect / wait for Grott or Cloud "
-                "on Growatt Live Status."
-            )
-            self.lbl_updated.setText("Updated: —")
+            if self._viewing_today():
+                self.lbl_mode.setText("Mode: no Growatt data")
+                self.lbl_detail.setText(
+                    "No live MIX status yet. Connect / wait for Grott or Cloud "
+                    "on Growatt Live Status."
+                )
+                self.lbl_updated.setText("Updated: —")
             self._draw_chart()
             return
 
@@ -768,8 +844,66 @@ class PvStringChargeTab(QWidget):
             return f"Today {cap}"
         return f"{self._view_day.strftime('%a %-d %b')} {cap}"
 
+    def _set_card_title(self, card, text: str) -> None:
+        card._title.setText(text)
+
+    def _show_past_day_totals(self) -> None:
+        """Headline on each card is that day’s kWh, not live power."""
+        tot = self._today_totals()
+        prefix = self._day_energy_prefix()
+        self._set_card_title(self.card_s1, "String 1")
+        self._set_card_title(self.card_s2, "String 2")
+        self._set_card_title(self.card_chg, "Battery charge")
+        self._set_card_title(self.card_pv, "Total PV")
+        self._set_card(
+            self.card_s1,
+            f"{tot['pv1']:.2f} kWh",
+            f"{tot['s1']:.2f} kWh to the battery (est.)",
+            prefix,
+        )
+        self._set_card(
+            self.card_s2,
+            f"{tot['pv2']:.2f} kWh",
+            f"{tot['s2']:.2f} kWh to the battery (est.)",
+            prefix,
+        )
+        self._set_card(
+            self.card_chg,
+            f"{tot['chg']:.2f} kWh",
+            "measured charge this day",
+            prefix,
+        )
+        self._set_card(
+            self.card_pv,
+            f"{tot['pv1'] + tot['pv2']:.2f} kWh",
+            f"S1 {tot['pv1']:.2f} · S2 {tot['pv2']:.2f} kWh",
+            prefix,
+        )
+        stamp = self._view_day.strftime("%a %-d %b")
+        self.box_live.setTitle("Selected day")
+        self.lbl_mode.setText(f"{stamp} — stored lots")
+        self.lbl_detail.setText(
+            f"String 1 generated {tot['pv1']:.2f} kWh and String 2 "
+            f"{tot['pv2']:.2f} kWh. Estimated charge into the battery from "
+            f"those strings is {tot['s1']:.2f} kWh and {tot['s2']:.2f} kWh. "
+            f"Measured battery charge is {tot['chg']:.2f} kWh."
+        )
+
+    def _show_today_card_titles(self) -> None:
+        self._set_card_title(self.card_s1, "String 1 — now")
+        self._set_card_title(self.card_s2, "String 2 — now")
+        self._set_card_title(self.card_chg, "Battery charge (measured)")
+        self._set_card_title(self.card_pv, "Total PV (measured)")
+        self.box_live.setTitle("Live reading")
+
     def _refresh_day_summaries(self, *, live: bool = True):
         """Rewrite the energy line on each card for the day on screen."""
+        if not self._viewing_today():
+            self._show_past_day_totals()
+            label = self._view_day.strftime("%a %-d %b")
+            self.set_status(f"PV string charge: {len(self._today)} lot(s) for {label}.")
+            return
+        self._show_today_card_titles()
         tot = self._today_totals()
         prefix = self._day_energy_prefix()
         if live and self._last_est is not None:
@@ -791,21 +925,25 @@ class PvStringChargeTab(QWidget):
             self.card_pv._today.setText(
                 f"{prefix}: {tot['pv1'] + tot['pv2']:.2f} kWh"
             )
-            if not live:
-                self._set_card(
-                    self.card_s1, "—", "No live string reading",
-                    self.card_s1._today.text(),
-                )
-                self._set_card(
-                    self.card_s2, "—", "No live string reading",
-                    self.card_s2._today.text(),
-                )
-                self._set_card(self.card_chg, "—", "", self.card_chg._today.text())
-                self._set_card(self.card_pv, "—", "", self.card_pv._today.text())
+            self._set_card(
+                self.card_s1, "—", "No live string reading",
+                self.card_s1._today.text(),
+            )
+            self._set_card(
+                self.card_s2, "—", "No live string reading",
+                self.card_s2._today.text(),
+            )
+            self._set_card(self.card_chg, "—", "", self.card_chg._today.text())
+            self._set_card(self.card_pv, "—", "", self.card_pv._today.text())
         label = "today" if self._viewing_today() else self._view_day.strftime("%a %-d %b")
         self.set_status(f"PV string charge: {len(self._today)} lot(s) for {label}.")
 
     def _apply_estimate(self, est: dict, status: dict):
+        if not self._viewing_today():
+            self._show_past_day_totals()
+            self.lbl_updated.setText(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
+            return
+        self._show_today_card_titles()
         tot = self._today_totals()
         prefix = self._day_energy_prefix()
         pv1 = float(est.get("pv1_kw") or 0.0)

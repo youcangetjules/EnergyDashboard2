@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.424", "2026-09-25", [
+        "PV String Charge: Day opens a calendar. On a previous day the "
+        "cards lead with that day’s kWh for each string (and the estimated "
+        "kWh into the battery), not the live 0 kW reading.",
+    ]),
     ("2.9.423", "2026-09-25", [
         "PV String Charge can show a previous London day. The Day field "
         "and calendar load that day’s stored string and charge lots. Today "

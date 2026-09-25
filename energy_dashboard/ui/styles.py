@@ -7,7 +7,7 @@ import base64
 
 from energy_dashboard.deps import *
 from energy_dashboard.ui.palette import *
-from energy_dashboard.ui.buttons import _APP_GLOBAL_WIDGET_QSS
+from energy_dashboard.ui.buttons import PRIMARY_BUTTON_EXEMPT, _APP_GLOBAL_WIDGET_QSS
 from energy_dashboard.ui.theme_constants import _REFRESH_ALL_BTN_QSS
 
 _CHEVRON_W = 10
@@ -241,6 +241,42 @@ def apply_combo_field_motif(
     pal.setColor(QPalette.ColorRole.Window, QColor(_SPIN_FIELD_BG))
     pal.setColor(QPalette.ColorRole.Text, QColor(_DARK_TEXT))
     combo.setPalette(pal)
+
+
+def apply_date_picker_motif(button, *, width: int = 168) -> None:
+    """Dropdown date field — combo chrome, one chevron, not a day stepper."""
+    down = _chevron_svg_uri("down", _DARK_TEXT)
+    button.setProperty(PRIMARY_BUTTON_EXEMPT, True)
+    button.setFixedSize(int(width), _SPIN_FIELD_MOTIF_H)
+    button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+    button.setAttribute(Qt.WA_StyledBackground, True)
+    button.setAutoFillBackground(True)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    button.setStyleSheet(
+        f"QToolButton {{"
+        f"  background: {_SPIN_FIELD_BG};"
+        f"  background-color: {_SPIN_FIELD_BG};"
+        f"  color: {_DARK_TEXT};"
+        f"  font-weight: {_FLAT_TARIFF_FONT_WEIGHT};"
+        f"  border: 1px solid {_FLAT_TARIFF_INPUT_BORDER};"
+        f"  border-radius: {_INPUT_FIELD_RADIUS}px;"
+        f"  padding: 0 22px 0 8px;"
+        f"  text-align: left;"
+        f"}}"
+        f"QToolButton:hover {{ border: 1px solid {_FLAT_TARIFF_FOCUS_BORDER}; }}"
+        f"QToolButton::menu-indicator {{"
+        f"  image: {down};"
+        f"  subcontrol-origin: padding;"
+        f"  subcontrol-position: center right;"
+        f"  width: {_CHEVRON_W}px;"
+        f"  height: {_CHEVRON_H}px;"
+        f"  right: 6px;"
+        f"}}"
+    )
+    pal = button.palette()
+    pal.setColor(QPalette.ColorRole.Button, QColor(_SPIN_FIELD_BG))
+    pal.setColor(QPalette.ColorRole.ButtonText, QColor(_DARK_TEXT))
+    button.setPalette(pal)
 
 
 def apply_spin_field_motif_tree(root) -> None:

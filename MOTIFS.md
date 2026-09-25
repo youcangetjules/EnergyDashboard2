@@ -105,10 +105,10 @@ spin.setProperty("_pm_spin_motif_w", 140)       # respected by tree walk
 spin.setProperty("_params_db_field", True)      # → DB width
 apply_spin_field_motif_tree(root)               # main window does this once
 apply_combo_field_motif(combo, width=320)       # same grey + electric-blue border
-apply_spin_field_motif(date_edit, width=148)    # QDateEdit day picker, same field
+apply_date_picker_motif(button, width=168)      # dropdown calendar, not a stepper
 ```
 
-A day picker is a `QDateEdit` with the calendar popup and this motif (PV String Charge **Day**). Do not offer a future day.
+A day picker is a dropdown that opens a calendar (PV String Charge **Day**). Same fill and electric-blue border as a combo, one chevron, exempt from the green button motif. Do not offer a future day. Do not use spin up/down chevrons for a date.
 
 Setup & Info line edits that should *look* like spins (host, user, API key slices, etc.):
 
