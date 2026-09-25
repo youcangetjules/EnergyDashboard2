@@ -35,6 +35,7 @@ from energy_dashboard.tabs.octopus_live import OctopusLiveTab
 from energy_dashboard.tabs.optimiser import OptimiserTab
 from energy_dashboard.tabs.pot_issues import PotIssuesTab
 from energy_dashboard.tabs.pv_string_charge import PvStringChargeTab
+from energy_dashboard.tabs.pv_string_voltage import PvStringVoltageTab
 from energy_dashboard.tabs.roof_layout import RoofLayoutTab
 from energy_dashboard.tabs.parameters import ParametersTab
 from energy_dashboard.tabs.shadow_trial import ShadowTrialTab
@@ -61,6 +62,7 @@ _TAB_REFRESH_TARGETS = (
     ('combined_tab', 'refresh'),
     ('device_costs_tab', '_refresh'),
     ('pv_string_charge_tab', 'refresh_now'),
+    ('pv_string_voltage_tab', 'refresh_now'),
     ('pot_issues_tab', 'refresh_now'),
     ('analytics_tab', 'run_simulation'),
     ('advisor_tab', 'run_advisor'),
@@ -635,6 +637,12 @@ class EnergyDashboard(QMainWindow):
         self.pv_string_charge_tab.on_data_updated = (
             lambda: self.mark_tab_fresh(self.pv_string_charge_tab)
         )
+        self.pv_string_voltage_tab = PvStringVoltageTab(
+            self.growatt_tab, self.set_status, data_logger=self.data_logger,
+        )
+        self.pv_string_voltage_tab.on_data_updated = (
+            lambda: self.mark_tab_fresh(self.pv_string_voltage_tab)
+        )
 
         self.combined_tab = CombinedTab(self.growatt_tab, self.octopus_tab, self.set_status)
 
@@ -1177,6 +1185,12 @@ class EnergyDashboard(QMainWindow):
         if pst is not None:
             try:
                 pst.on_growatt_live_update()
+            except Exception:
+                pass
+        psv = getattr(self, "pv_string_voltage_tab", None)
+        if psv is not None:
+            try:
+                psv.on_growatt_live_update()
             except Exception:
                 pass
         bt = getattr(self, "battery_tab", None)

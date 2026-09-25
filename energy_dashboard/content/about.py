@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.430", "2026-09-25", [
+        "String voltage is a page under <b>Physical Plant Tools</b>, after "
+        "PV String Charge. It charts measured volts for each string across "
+        "a London day. Today includes the live reading. Earlier days use "
+        "the stored 2-minute lots only.",
+    ]),
     ("2.9.429", "2026-09-25", [
         "Stale page tabs keep the same header size as the others. The light "
         "outline is drawn inside the tab, so it no longer sits outside as a "

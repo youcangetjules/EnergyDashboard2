@@ -110,7 +110,7 @@ Newest first. Keep each entry short: context → decision → consequence.
 
 - **Context:** Live MPPT volts (`vPv1` / `vPv2`) were only on Growatt Live Status. `growatt_readings` stores total PV power, not per-string volts, so a previous day had nothing to chart.
 - **Decision:** `pv_string_voltage` keeps measured volts for each string, averaged into the same 2-minute UTC slots as string charge. A missing reading stays empty. It is not written as 0 V. PostgreSQL still gets the table from the owner script in Setup, not from the dashboard login.
-- **Consequence:** History starts when this build is logging. Earlier days stay empty. Do not invent volts from power or from a panel datasheet.
+- **Consequence:** History starts when this build is logging. Earlier days stay empty. Do not invent volts from power or from a panel datasheet. The chart is **Physical Plant Tools → String voltage**.
 
 ### 2026-09-25 — Qt wrappers stay out of the cycle collector; collection stays on
 

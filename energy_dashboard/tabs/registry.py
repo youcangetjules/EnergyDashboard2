@@ -30,6 +30,7 @@ _MAIN_TAB_BAR_REGISTRY = (
     ("combined", "combined_tab", "  Combined Dashboard  ", "usage", True),
     ("battery", "battery_tab", "  Battery Analysis  ", "physical_plant", True),
     ("pv_string_charge", "pv_string_charge_tab", "  PV String Charge  ", "physical_plant", True),
+    ("pv_string_voltage", "pv_string_voltage_tab", "  String voltage  ", "physical_plant", True),
     ("pot_issues", "pot_issues_tab", "  Potential Issues  ", "physical_plant", True),
     ("roof_layout", "roof_layout_tab", "  Roof layout  ", "physical_plant", False),
     ("forecasts", "forecasts_tab", "  Forecasts  ", "forecasts", True),
