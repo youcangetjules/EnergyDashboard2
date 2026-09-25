@@ -1446,13 +1446,8 @@ class DataLogger:
             "FROM tasmota_readings WHERE timestamp >= %s "
             "ORDER BY timestamp ASC"
         )
-        from energy_dashboard.core.gc_guard import pause_cyclic_gc
-
         try:
-            with pause_cyclic_gc():
-                return self._query_tasmota_power_history_rows(
-                    q, cutoff_str,
-                )
+            return self._query_tasmota_power_history_rows(q, cutoff_str)
         except Exception as e:
             self._note_read_error(e, "tasmota history")
         return []

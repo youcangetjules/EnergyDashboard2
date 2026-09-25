@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.421", "2026-09-25", [
+        "Fixed the overnight segmentation fault with garbage collection left "
+        "on. A background history fetch was collecting cycles while the tab "
+        "bar was destroying a Qt object mid-paint. Qt objects are no longer "
+        "on that collector; ordinary Python objects still are.",
+    ]),
     ("2.9.420", "2026-09-25", [
         "Bug Tracker IDs now start with a running number between BUG and the "
         "date (for example BUG-059-20260925-02). Open titles stay red and "

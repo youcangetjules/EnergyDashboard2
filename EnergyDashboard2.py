@@ -28,12 +28,6 @@ if _crash_spec is not None and _crash_spec.loader is not None:
     _crash_spec.loader.exec_module(_crash_mod)
     _crash_mod.install_crash_logger()
 
-# Cycle collection on a worker thread segfaults while the GUI is inside Qt.
-# Do this before the package import starts background work.
-import gc as _gc
-
-_gc.disable()
-
 # Load .env before config/tabs read credentials.
 import energy_dashboard.secrets as _secrets
 

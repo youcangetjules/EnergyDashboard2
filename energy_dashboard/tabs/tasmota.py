@@ -2223,36 +2223,33 @@ class TasmotaTab(QWidget):
             "FROM tasmota_readings WHERE timestamp >= %s "
             "ORDER BY timestamp ASC"
         )
-        from energy_dashboard.core.gc_guard import pause_cyclic_gc
-
         try:
-            with pause_cyclic_gc():
-                if backend == "sqlite":
-                    conn = sqlite3.connect(params["path"])
-                    try:
-                        cur = conn.cursor()
-                        cur.execute(q.replace("%s", "?"), (cutoff_str,))
+            if backend == "sqlite":
+                conn = sqlite3.connect(params["path"])
+                try:
+                    cur = conn.cursor()
+                    cur.execute(q.replace("%s", "?"), (cutoff_str,))
+                    rows = cur.fetchall()
+                finally:
+                    conn.close()
+            elif backend == "mysql":
+                import pymysql
+                conn = pymysql.connect(**params, charset="utf8mb4", connect_timeout=3)
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(q, (cutoff_str,))
                         rows = cur.fetchall()
-                    finally:
-                        conn.close()
-                elif backend == "mysql":
-                    import pymysql
-                    conn = pymysql.connect(**params, charset="utf8mb4", connect_timeout=3)
-                    try:
-                        with conn.cursor() as cur:
-                            cur.execute(q, (cutoff_str,))
-                            rows = cur.fetchall()
-                    finally:
-                        conn.close()
-                else:
-                    import psycopg2
-                    conn = psycopg2.connect(**params, connect_timeout=3)
-                    try:
-                        with conn.cursor() as cur:
-                            cur.execute(q, (cutoff_str,))
-                            rows = cur.fetchall()
-                    finally:
-                        conn.close()
+                finally:
+                    conn.close()
+            else:
+                import psycopg2
+                conn = psycopg2.connect(**params, connect_timeout=3)
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(q, (cutoff_str,))
+                        rows = cur.fetchall()
+                finally:
+                    conn.close()
         except Exception as e:
             _log.warn("Tasmota", f"DB history error: {e}")
             return {}

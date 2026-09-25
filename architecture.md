@@ -106,11 +106,11 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
-### 2026-09-25 — Cyclic garbage collection stays on the GUI thread
+### 2026-09-25 — Qt wrappers stay out of the cycle collector; collection stays on
 
-- **Context:** 2.9.418 still segfaulted after ~16 hours. The crashing thread was a worker inside Python’s cycle collector (`_Py_HandlePending`, “Garbage-collecting”) at `query_tasmota_power_history` while the main thread was painting the tab bar. The same worker-thread GC signature shows up in older core dumps. A large history fetch allocates enough to start a collection, and that collection walks PySide wrappers off the GUI thread.
-- **Decision:** Disable automatic cyclic GC at process start. A QTimer on the QApplication collects between events (young cycles every 10 s, a full sweep about once a minute) and skips a pass while a Tasmota history fetch is inside the database driver. Reference counting is unchanged.
-- **Consequence:** Do not re-enable automatic `gc` on worker threads. New long native fetches that allocate heavily should use `pause_cyclic_gc` so a GUI collection does not overlap them.
+- **Context:** Long sessions segfaulted while a worker was inside Python’s cycle collector (`query_tasmota_power_history`) and the main thread was painting the tab bar. The 08:10 core dump shows the main thread destroying a Qt object (`_Py_Dealloc` / Shiboken `ThreadStateSaver`) and waiting for the Python lock, which the worker held inside the collector. 2.9.419 turned automatic collection off. That was rejected (BUG-059-20260925-02).
+- **Decision:** Leave cyclic GC enabled. Remove PySide wrappers from the collector when they are created, and sweep any already alive. Reference counting still frees them on the thread that drops the last reference. Ordinary Python objects are still collected automatically.
+- **Consequence:** Do not disable `gc` to paper over this crash. New Qt objects must stay out of the cycle collector. Do not put `QLabel` cell widgets back into a sorted table.
 
 ### 2026-09-24 — Agile Year prior-year delta via paint delegate (no cell widgets)
 
