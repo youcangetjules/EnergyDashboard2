@@ -48,6 +48,7 @@ _MAIN_TAB_BAR_REGISTRY = (
     ("db_viewer", "db_viewer_tab", "  Database Viewer  ", "controls", False),
     ("export", "export_tab", "  Export  ", "controls", False),
     ("console", "console_tab", "  Console  ", "controls", False),
+    ("dump_logs", "dump_logs_tab", "  Dump logs  ", "controls", False),
     ("bug_tracker", "bug_tracker_tab", "  Bug Tracker  ", "controls", False),
     (None, "parameters_tab", "  Setup & Info  ", "controls", False),
     ("license", "license_tab", "  License  ", "controls", False),

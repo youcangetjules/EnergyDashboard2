@@ -22,6 +22,7 @@ from energy_dashboard.tabs.bug_tracker import BugTrackerTab
 from energy_dashboard.tabs.combined import CombinedTab
 from energy_dashboard.tabs.connectivity import ConnectivityStatusTab
 from energy_dashboard.tabs.console import ConsoleTab
+from energy_dashboard.tabs.dump_logs import DumpLogsTab
 from energy_dashboard.tabs.database_viewer import DatabaseViewerTab
 from energy_dashboard.tabs.device_import_costs import DeviceImportCostsTab
 from energy_dashboard.tabs.export_tab import ExportTab
@@ -743,6 +744,8 @@ class EnergyDashboard(QMainWindow):
         self.export_tab.on_data_updated = lambda: self.mark_tab_fresh(self.export_tab)
 
         self.console_tab = ConsoleTab(self)
+
+        self.dump_logs_tab = DumpLogsTab(self)
 
         self.bug_tracker_tab = BugTrackerTab(self)
 

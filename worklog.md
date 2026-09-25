@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- Dump logs is a new page under Controls, after Console. It shows the crash log, including core-dump stacks, so a segmentation fault can be read without opening the file by hand. The 10:47 crash (pid 1579891) is the same still-open main-thread fault as BUG-060.
 - String voltage is now a tab under Physical Plant Tools, next to PV String Charge. It charts each string’s measured volts for a London day. Today shows the live reading. Earlier days are the stored lots only, and days before logging started are empty.
 - Stale tab headers no longer look bigger than the rest. The light outline is drawn inside the tab, on the same shape as the green and blue ones.
 - String voltage now has its own database table, `pv_string_voltage`. While the dashboard is open it stores each string’s measured DC volts in 2-minute lots, so a later history view has real numbers. Days before this build stay empty. On PostgreSQL the new table is created by running the Setup script as the database owner.

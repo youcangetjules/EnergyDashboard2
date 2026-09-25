@@ -51,7 +51,7 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 | **Version found** | 2.9.423 |
 | **Version fixed** | — |
 
-**Symptom:** The dashboard died with a segmentation fault about 13 minutes after it started (pid 1558840, 09:49 BST). The launcher reported status 139, SIGSEGV. The crash log is `~/.energy_dashboard_crash.log`.
+**Symptom:** The dashboard died with a segmentation fault about 13 minutes after it started (pid 1558840, 09:49 BST). The launcher reported status 139, SIGSEGV. The crash log is `~/.energy_dashboard_crash.log`. Seen again at 10:47 BST the same day (pid 1579891): same main-thread stack, `getWrapperForQObject` while Qt set a property, then the application event filters called `getWrapperForQObject` again.
 
 **Cause:** The main thread was inside PySide `getWrapperForQObject` while Qt was setting a property (`QObject::doSetProperty`). That property change went out through the application event filters and called `getWrapperForQObject` again. Python’s own stack was only the Qt event loop (`app.exec`), not a background history fetch. This is the same PySide wrapper family as the Agile Year cell-widget crash (BUG-057-20260924-01), not the overnight worker-thread collector crash (BUG-058-20260925-01). The session was 2.9.423, which had just added the PV String Charge day calendar.
 
