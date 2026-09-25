@@ -39,21 +39,37 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Open
 
+### BUG-20260925-02 — Do not turn garbage collection off; fix the segfault
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-25 08:01 (Europe/London) |
+| **Status** | open |
+| **Area** | Process-wide Python GC (`EnergyDashboard2.py`, `core/gc_guard.py`) |
+| **Version found** | 2.9.419 |
+| **Version fixed** | — |
+
+**Symptom:** After the overnight segmentation fault, 2.9.419 turned off Python’s automatic cycle collector and only runs it on a timer. That is not acceptable. The crash itself still needs a fix, with garbage collection left on.
+
+**Cause:** 2.9.419 treated the collector as the thing to disable. The fault is the dashboard segfaulting (worker thread in `query_tasmota_power_history` while the tab bar paints — see BUG-20260925-01). Turning collection off hides that instead of fixing it.
+
+**Resolution:** Empty while open. Collector stays enabled. Fix the crash.
+
 ### BUG-20260925-01 — Segfault in worker garbage collection during Tasmota history fetch
 
 | Field | Value |
 |-------|--------|
 | **Opened** | 2026-09-25 07:56 (Europe/London) |
-| **Status** | fixed |
+| **Status** | open |
 | **Area** | Tasmota history query (`db/logger.py`); Python GC vs PySide |
 | **Version found** | 2.9.418 (also 2.9.417 pid 1056869) |
-| **Version fixed** | 2.9.419 |
+| **Version fixed** | — |
 
 **Symptom:** `./run-dashboard.sh` died with segmentation fault. Session pid 1220018 started 2026-09-24 12:26 on 2.9.418 and faulted 2026-09-25 04:57. Same shape as pid 1056869 (2.9.417, died 02:51 the same night).
 
 **Cause:** The crashing thread was a worker, marked “Garbage-collecting”, inside `query_tasmota_power_history` (`fetchall` of `tasmota_readings`) called from Tasmota `_fetch_db_history`. The main thread was in the tab-bar `paintEvent`. A large fetch starts Python’s cycle collector on that worker; the collector walks PySide wrappers while Qt is painting. C stack is `_Py_HandlePending` — the same signature as many older worker-thread dumps (BUG-20260923-09).
 
-**Resolution:** Automatic cyclic GC is off. A timer on the main thread collects between events, and skips a pass while a Tasmota history fetch is inside the database driver.
+**Resolution:** Empty while open. 2.9.419 turned automatic collection off; that workaround was rejected (BUG-20260925-02). The segfault is still unfixed.
 
 ### BUG-20260924-01 — Segfault after Agile Year QLabel cell widgets (2.9.417)
 
@@ -117,7 +133,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Cause:** Crashing thread inside PySide `getWrapperForQObject` while Qt applies a property (`QObject::doSetProperty`) from the main event loop — deleted/wrapping widget still receiving an event. The 2.9.417 recurrence is strongly linked to QLabel `setCellWidget` on Agile Year prior-year columns (see BUG-20260924-01). Earlier dumps (before that change) may share the same Shiboken family with a different trigger.
 
-**Resolution:** Partial — 2.9.418 removes the Agile Year cell-widget path. The recurring worker-thread dumps (`_Py_HandlePending` / start_thread) match BUG-20260925-01 and are addressed in 2.9.419 by keeping cyclic GC on the GUI thread. Crash logging from 2.9.411 still applies.
+**Resolution:** Partial — 2.9.418 removes the Agile Year cell-widget path. The recurring worker-thread dumps (`_Py_HandlePending` / start_thread) are BUG-20260925-01, still open. 2.9.419 turned the collector off; that was rejected (BUG-20260925-02). Crash logging from 2.9.411 still applies.
 
 ### BUG-20260923-06 — Setup Database Export: status and SQL panes still misaligned
 
