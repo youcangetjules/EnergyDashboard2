@@ -179,16 +179,24 @@ class FreshnessTabBar(QTabBar):
                 selected = bool(option.state & QStyle.StateFlag.State_Selected)
                 shape = self._tab_shape_path(rect)
                 bg = self._bg_for(i)
+                stale = (
+                    not selected
+                    and bg.name(QColor.NameFormat.HexRgb).lower()
+                    == _TAB_PAGE_NOT_UPDATED.lower()
+                )
+                if stale:
+                    bg = QColor(_TAB_PAGE_NOT_UPDATED_IDLE)
                 painter.fillPath(shape, bg)
                 if selected:
                     self._paint_selected_hatch(painter, shape, rect)
                 painter.setBrush(Qt.NoBrush)
-                painter.setPen(
-                    QPen(
-                        _TAB_OUTLINE_SELECTED if selected else _TAB_OUTLINE_FAINT,
-                        1.5 if selected else 1.0,
-                    ),
-                )
+                if stale:
+                    outline, width = _TAB_OUTLINE_STALE, 1.5
+                elif selected:
+                    outline, width = _TAB_OUTLINE_SELECTED, 1.5
+                else:
+                    outline, width = _TAB_OUTLINE_FAINT, 1.0
+                painter.setPen(QPen(outline, width))
                 painter.drawPath(shape)
                 if selected:
                     body = self._tab_body_rect(rect)

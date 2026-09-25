@@ -24,6 +24,8 @@ _TAB_CORNER_RADIUS = 8
 # Faint tab chrome (ARGB) — visible on coloured page tabs.
 _TAB_OUTLINE_FAINT = QColor(69, 71, 90, 72)
 _TAB_OUTLINE_SELECTED = QColor(205, 214, 244, 160)
+# Unselected stale tabs: outline must read on the black bar (the faint stroke does not).
+_TAB_OUTLINE_STALE = QColor(205, 214, 244, 230)
 
 # Updateable pages: green → black fade over 20 minutes after last refresh.
 _TAB_FRESH_MAX_AGE_SEC = 1200
@@ -122,6 +124,8 @@ def _lerp_hex(c0, c1, t):
 # Panels/dialogues: gentle lift.
 _DARK_PANEL_LIFT = 0.10
 _DARK_SURFACE_BG = _lerp_hex(_DARK_BG, '#ffffff', _DARK_PANEL_LIFT)
+# Unselected page tabs that have not updated: 10% white so they separate from the bar.
+_TAB_PAGE_NOT_UPDATED_IDLE = _lerp_hex(_TAB_PAGE_NOT_UPDATED, '#ffffff', 0.10)
 # Combo / spin arrow strip: same fill as the field (no vertical divider).
 _COMBO_DROP_W = 20
 _INPUT_STEP_W = 18

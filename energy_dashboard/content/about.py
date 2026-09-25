@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.427", "2026-09-25", [
+        "Page tabs that are not selected and have not updated pick up a "
+        "stronger light border and a slight 10% white fill, so they stay "
+        "visible on the black tab bar.",
+    ]),
     ("2.9.426", "2026-09-25", [
         "PV String Charge, on a previous day, shows each string’s share of "
         "that day’s PV as a percentage, next to the kilowatt-hours. Measured "
