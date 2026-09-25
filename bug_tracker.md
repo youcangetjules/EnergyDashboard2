@@ -10,6 +10,7 @@ Part of the **basic instructions for the development environment** (see `AGENTS.
 2. When fixed, **update that same entry** with cause, resolution, fix time, and app version (if shipped). Do not delete entries.
 3. Keep language plain English. Separate **what the user saw** from **what was wrong in software**.
 4. This log does **not** replace the in-app About changelog or `worklog.md` — it is the standing defect history.
+5. Colour the `###` title: **red** while Status starts with open, **green** when it is fixed. Use `<span style="color:red">` or `<span style="color:green">` around the whole title. Change the colour when the status changes.
 
 ## Entry template
 
@@ -39,7 +40,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Open
 
-### BUG-20260925-02 — Do not turn garbage collection off; fix the segfault
+### <span style="color:red">BUG-20260925-02 — Do not turn garbage collection off; fix the segfault</span>
 
 | Field | Value |
 |-------|--------|
@@ -55,7 +56,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Empty while open. Collector stays enabled. Fix the crash.
 
-### BUG-20260925-01 — Segfault in worker garbage collection during Tasmota history fetch
+### <span style="color:red">BUG-20260925-01 — Segfault in worker garbage collection during Tasmota history fetch</span>
 
 | Field | Value |
 |-------|--------|
@@ -71,7 +72,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Empty while open. 2.9.419 turned automatic collection off; that workaround was rejected (BUG-20260925-02). The segfault is still unfixed.
 
-### BUG-20260924-01 — Segfault after Agile Year QLabel cell widgets (2.9.417)
+### <span style="color:green">BUG-20260924-01 — Segfault after Agile Year QLabel cell widgets (2.9.417)</span>
 
 | Field | Value |
 |-------|--------|
@@ -87,7 +88,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Keep the smaller bracketed delta, but paint it with a `QStyledItemDelegate` and item data roles. No cell widgets on those columns.
 
-### BUG-20260923-11 — Cost view charts should price only import
+### <span style="color:green">BUG-20260923-11 — Cost view charts should price only import</span>
 
 | Field | Value |
 |-------|--------|
@@ -103,7 +104,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Top chart is import £/h only. Bottom chart keeps Gen / Used / Exp as kWh; Imported is cumulative £ on a right-hand axis. Day notes show import £ only.
 
-### BUG-20260923-10 — Octopus Live Cost hid the four energy measures
+### <span style="color:green">BUG-20260923-10 — Octopus Live Cost hid the four energy measures</span>
 
 | Field | Value |
 |-------|--------|
@@ -119,7 +120,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Bottom chart always draws the four energy series in Power and Cost. Cost keeps £/h on top and £ on the cards. Day labels are Gen / Imp / Used / Exp.
 
-### BUG-20260923-09 — Dashboard segmentation fault during Qt property update
+### <span style="color:red">BUG-20260923-09 — Dashboard segmentation fault during Qt property update</span>
 
 | Field | Value |
 |-------|--------|
@@ -135,7 +136,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Partial — 2.9.418 removes the Agile Year cell-widget path. The recurring worker-thread dumps (`_Py_HandlePending` / start_thread) are BUG-20260925-01, still open. 2.9.419 turned the collector off; that was rejected (BUG-20260925-02). Crash logging from 2.9.411 still applies.
 
-### BUG-20260923-06 — Setup Database Export: status and SQL panes still misaligned
+### <span style="color:red">BUG-20260923-06 — Setup Database Export: status and SQL panes still misaligned</span>
 
 | Field | Value |
 |-------|--------|
@@ -154,7 +155,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Empty while open. Target per motif: status immediately after the host/file fields (left-aligned); SQL panes share one left edge and width across all three engines.
 
-### BUG-20260923-04 — Dashboard freezes / goes sticky after running a while
+### <span style="color:red">BUG-20260923-04 — Dashboard freezes / goes sticky after running a while</span>
 
 | Field | Value |
 |-------|--------|
@@ -175,7 +176,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Empty while open. Likely fixes: move PV DB attach off the GUI thread; prefer `draw_idle`; close / recycle Growatt HTTP sessions; re-check worker→GUI Invoker paths if SEGV returns.
 
-### BUG-20260921-10 — Mid-session SEGV (Shiboken import vs GUI paint)
+### <span style="color:red">BUG-20260921-10 — Mid-session SEGV (Shiboken import vs GUI paint)</span>
 
 | Field | Value |
 |-------|--------|
@@ -193,7 +194,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Fixed
 
-### BUG-20260923-08 — Octopus Live Cost Import cost looked wrong without Today
+### <span style="color:green">BUG-20260923-08 — Octopus Live Cost Import cost looked wrong without Today</span>
 
 | Field | Value |
 |-------|--------|
@@ -209,7 +210,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Keep the window total as the large figure; add smaller muted `(Today: £…)` to the right (same for Export credit). Tooltips and help spell out window vs today.
 
-### BUG-20260923-07 — Dashboard would not start (Command Sim NameError)
+### <span style="color:green">BUG-20260923-07 — Dashboard would not start (Command Sim NameError)</span>
 
 | Field | Value |
 |-------|--------|
@@ -225,7 +226,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Import `_SPIN_FIELD_MOTIF_DB_W` and the motif helpers explicitly from `ui.palette` / `ui.styles`.
 
-### BUG-20260923-05 — Grott Setup “connected · fresh” looked white
+### <span style="color:green">BUG-20260923-05 — Grott Setup “connected · fresh” looked white</span>
 
 | Field | Value |
 |-------|--------|
@@ -241,7 +242,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Dropped the stylesheet colour; “connected · fresh” is bold green (`#a6e3a1`), with bold amber/red for stale / not connected.
 
-### BUG-20260923-03 — Octopus Energy Data chart stays empty
+### <span style="color:green">BUG-20260923-03 — Octopus Energy Data chart stays empty</span>
 
 | Field | Value |
 |-------|--------|
@@ -257,7 +258,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** The API key box and the fetch use the saved Octopus Live key. A rejected fetch writes the reason on the chart instead of leaving a white plot.
 
-### BUG-20260923-02 — Database Viewer table list was missing logger tables
+### <span style="color:green">BUG-20260923-02 — Database Viewer table list was missing logger tables</span>
 
 | Field | Value |
 |-------|--------|
@@ -273,7 +274,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** The menu is now that full set (twelve tables), and the popup is tall enough to show every name. Status uses the same set, including the two shadow-trial tables.
 
-### BUG-20260923-01 — Broker test hid where the database host is set
+### <span style="color:green">BUG-20260923-01 — Broker test hid where the database host is set</span>
 
 | Field | Value |
 |-------|--------|
@@ -289,7 +290,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** The test and the collector status line name both places and the current values. `/health` reports the host, port, and database the process was started with (no password). The example env file no longer contains a site address.
 
-### BUG-20260922-16 — Battery simulator stays blank when history is too short
+### <span style="color:green">BUG-20260922-16 — Battery simulator stays blank when history is too short</span>
 
 | Field | Value |
 |-------|--------|
@@ -305,7 +306,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.399** — fewer than 48 half-hour slots (one day) from Growatt or from the Octopus fallback stops the run. The charts and Simulation Results say how many slots were found and what to do next.
 
-### BUG-20260922-15 — Run Advisor stays dark green after a good run
+### <span style="color:green">BUG-20260922-15 — Run Advisor stays dark green after a good run</span>
 
 | Field | Value |
 |-------|--------|
@@ -321,7 +322,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.399** — a finished run paints Run Advisor `#5daf6e` with black text (same green as a fresh page tab). A failed run paints it black with white text.
 
-### BUG-20260922-14 — Launch still prints EGL DRM and GPUInfo lines
+### <span style="color:green">BUG-20260922-14 — Launch still prints EGL DRM and GPUInfo lines</span>
 
 | Field | Value |
 |-------|--------|
@@ -337,7 +338,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.398** — drop those flags on launch. Keep `QT_OPENGL=software` and the software-OpenGL attribute. Hardware GPU is still `POWERMODEL_WEBENGINE_GPU=1`.
 
-### BUG-20260922-13 — Maximise shortened the window
+### <span style="color:green">BUG-20260922-13 — Maximise shortened the window</span>
 
 | Field | Value |
 |-------|--------|
@@ -353,7 +354,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.397** — maximise stays maximised. Height is the full usable screen (above the taskbar). Width is still capped to that monitor.
 
-### BUG-20260922-12 — Maximise made the window wider than the screen
+### <span style="color:green">BUG-20260922-12 — Maximise made the window wider than the screen</span>
 
 | Field | Value |
 |-------|--------|
@@ -369,7 +370,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.396** — maximise snaps the frame to that monitor’s usable resolution. The layout is not allowed to ask for a minimum bigger than that screen.
 
-### BUG-20260922-11 — Main window could grow past its monitor
+### <span style="color:green">BUG-20260922-11 — Main window could grow past its monitor</span>
 
 | Field | Value |
 |-------|--------|
@@ -385,7 +386,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.392** — the maximum is the usable area of the screen the window is on (still clear of the taskbar). Moving to another monitor updates the limit.
 
-### BUG-20260922-10 — Two dashboards kick each other off MQTT every few seconds
+### <span style="color:green">BUG-20260922-10 — Two dashboards kick each other off MQTT every few seconds</span>
 
 | Field | Value |
 |-------|--------|
@@ -401,7 +402,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.391** — one shared broker connection named `energy_dashboard` for Grott and Tasmota. A second dashboard does not open another session. Restart and leave a single window running.
 
-### BUG-20260922-09 — Octopus link missing from the status line
+### <span style="color:green">BUG-20260922-09 — Octopus link missing from the status line</span>
 
 | Field | Value |
 |-------|--------|
@@ -417,7 +418,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.388** — the live line leads with Connectivity (OK / REST only / stale / failed) from the last real API attempt. The footer shows the same state as Octopus. Meter-slot age stays on the line as “latest … ago”.
 
-### BUG-20260922-08 — Main window sized itself under the taskbar
+### <span style="color:green">BUG-20260922-08 — Main window sized itself under the taskbar</span>
 
 | Field | Value |
 |-------|--------|
@@ -433,7 +434,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.387** — the window is fitted to the usable screen. Plasma panels are asked for their edge and thickness, and that strip is kept clear. Maximise is turned into the same fit, so the bottom edge stays above the taskbar.
 
-### BUG-20260922-07 — Blocking OK/Cancel box can hide behind the main window
+### <span style="color:green">BUG-20260922-07 — Blocking OK/Cancel box can hide behind the main window</span>
 
 | Field | Value |
 |-------|--------|
@@ -449,7 +450,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.387** — every dialog that blocks the app is pinned to the top when it opens, and raised again if another window tries to cover it. Boxes that do not block the app can still go behind.
 
-### BUG-20260922-06 — Connectivity Test line stuck on “Testing…”
+### <span style="color:green">BUG-20260922-06 — Connectivity Test line stuck on “Testing…”</span>
 
 | Field | Value |
 |-------|--------|
@@ -465,7 +466,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** **2.9.386** — each login panel keeps a connectivity line in the bottom-right. A fresh pass is green, a failure is red, and a pass older than one hour is amber with “Connectivity - last OK (Stale >1hr since last test)”. The time is stored in settings, so it is still there after the window is closed.
 
-### BUG-20260922-05 — Agile Year end-of-chart spike ≠ table
+### <span style="color:green">BUG-20260922-05 — Agile Year end-of-chart spike ≠ table</span>
 
 | Field | Value |
 |-------|--------|
@@ -481,7 +482,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Remove twin axes before redraw. Ignore slots longer than two hours. Omit days with fewer than 40 half-hour slots from chart, table, and `agile_year_daily`. Daily stats are stored so the view can reload without that phantom point coming back.
 
-### BUG-20260922-04 — Forecast charts wasted vertical space
+### <span style="color:green">BUG-20260922-04 — Forecast charts wasted vertical space</span>
 
 | Field | Value |
 |-------|--------|
@@ -497,7 +498,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Margins are now computed from the real canvas height and shared between first build and redraw: top sized to the pane title (~24 px), bottom to the day-label band (capped at 18%), `hspace` 0.18. Text drawn inside the axes (day labels, per-day kWh totals) gets y-axis headroom instead of figure margin. The Forecast Summary panes start shorter (72 px) and the splitter favours the charts 8:1. Plot area goes from roughly 64% to about 80% of the canvas. File: `tabs/forecasts.py`.
 
-### BUG-20260922-03 — Growatt Physical panel crowded, values clipped
+### <span style="color:green">BUG-20260922-03 — Growatt Physical panel crowded, values clipped</span>
 
 | Field | Value |
 |-------|--------|
@@ -513,7 +514,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Four columns (Dashboard model + Today | Battery equipage | Grid & PV live | Pack & status live) with a fixed 132 px wrapping title column, values that expand into the rest of the column, vertical dividers, and shorter titles with the full detail kept in tooltips. Alignment now lives on the labels, and wrapping labels declare height-for-width so rows grow instead of clipping. File: `tabs/growatt.py`.
 
-### BUG-20260922-02 — Growatt API popup too narrow; no connection test
+### <span style="color:green">BUG-20260922-02 — Growatt API popup too narrow; no connection test</span>
 
 | Field | Value |
 |-------|--------|
@@ -529,7 +530,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Login popups open at 1200 px wide; cloud Username / Password / API key / Serial expand with the dialog. **Test connection** on the Growatt API popup (and Setup & Info) always probes Growatt cloud, not Grott MQTT. Result text stays on the popup status line.
 
-### BUG-20260922-01 — Architecture diagram boxes clip subtitle text
+### <span style="color:green">BUG-20260922-01 — Architecture diagram boxes clip subtitle text</span>
 
 | Field | Value |
 |-------|--------|
@@ -545,7 +546,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Raised standard cards to 52 px (dashboard 118, inverter 190), gave battery packs a bit more height, and left more padding under titles for wrapped subtitle text. File: `tabs/connectivity.py`.
 
-### BUG-20260921-09 — Sparse Grott heartbeats re-ambered registers a full frame had just published
+### <span style="color:green">BUG-20260921-09 — Sparse Grott heartbeats re-ambered registers a full frame had just published</span>
 
 | Field | Value |
 |-------|--------|
@@ -563,7 +564,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260921-08 — Setup SQL created the tables but never granted access
+### <span style="color:green">BUG-20260921-08 — Setup SQL created the tables but never granted access</span>
 
 | Field | Value |
 |-------|--------|
@@ -581,7 +582,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260921-07 — Tabs and Close frozen by Battery Analysis error box
+### <span style="color:green">BUG-20260921-07 — Tabs and Close frozen by Battery Analysis error box</span>
 
 | Field | Value |
 |-------|--------|
@@ -599,7 +600,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260921-06 — EMQX login tried to create logger tables and the server looked down
+### <span style="color:green">BUG-20260921-06 — EMQX login tried to create logger tables and the server looked down</span>
 
 | Field | Value |
 |-------|--------|
@@ -617,7 +618,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260921-05 — Ingest looked empty because the DB login cannot read logger tables
+### <span style="color:green">BUG-20260921-05 — Ingest looked empty because the DB login cannot read logger tables</span>
 
 | Field | Value |
 |-------|--------|
@@ -637,7 +638,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Fixed
 
-### BUG-20260921-04 — DB status said “not found” for a password failure
+### <span style="color:green">BUG-20260921-04 — DB status said “not found” for a password failure</span>
 
 | Field | Value |
 |-------|--------|
@@ -653,7 +654,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Three explicit lines: `{engine} DB seen`, `Database connected`, `Tables connected (n/n)`. Hover for the real reason. Password failures mark DB seen (server answered) and not connected.
 
-### BUG-20260921-03 — App sluggish when a database is disconnected
+### <span style="color:green">BUG-20260921-03 — App sluggish when a database is disconnected</span>
 
 | Field | Value |
 |-------|--------|
@@ -669,7 +670,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** 3-second connect timeout; exponential backoff (5–60 s) after failure; connectivity events and PV-string lots go through the writer thread. Test Connection still probes immediately (with the short timeout).
 
-### BUG-20260921-02 — DB connected/disabled status centred on the right
+### <span style="color:green">BUG-20260921-02 — DB connected/disabled status centred on the right</span>
 
 | Field | Value |
 |-------|--------|
@@ -687,7 +688,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Follow-up:** Alignment still wrong in practice — see open **BUG-20260923-06** (status floats mid-row; SQL panes not one shared column).
 
-### BUG-20260921-01 — Setup Database created only four tables
+### <span style="color:green">BUG-20260921-01 — Setup Database created only four tables</span>
 
 | Field | Value |
 |-------|--------|
@@ -704,7 +705,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 **Resolution:** One `full_schema` statement list drives Setup Database, live `_ensure_*`, and the Setup & Info SQL viewer. `postgres_reset_schema.sql` now drops/recreates the same set (including current `pv_string_charge` columns).
 
 
-### BUG-20260917-05 — Launch logs EGL DRM + GPUInfo
+### <span style="color:green">BUG-20260917-05 — Launch logs EGL DRM + GPUInfo</span>
 
 | Field | Value |
 |-------|--------|
@@ -720,7 +721,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Software OpenGL attribute before `QApplication`, `QT_XCB_GL_INTEGRATION=none`, quieter EGL/Chromium logs. Hardware GPU remains `POWERMODEL_WEBENGINE_GPU=1`.
 
-### BUG-20260917-04 — Battery Analysis capacity ignores Growatt Live Status
+### <span style="color:green">BUG-20260917-04 — Battery Analysis capacity ignores Growatt Live Status</span>
 
 | Field | Value |
 |-------|--------|
@@ -736,7 +737,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Capacity is a proper spin. Default is Growatt Live Status (detected modules × 6.5 kWh, or Grott rated capacity). The user can change it; **Save** stores it (and updates Setup). Live updates refresh the default until Save.
 
-### BUG-20260917-03 — AC charge stop control unusable
+### <span style="color:green">BUG-20260917-03 — AC charge stop control unusable</span>
 
 | Field | Value |
 |-------|--------|
@@ -752,7 +753,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 **Resolution:** Full electric-blue spin 0–100%. **Save** keeps the local target. **Set on inverter** uses cached cloud auth, a more tolerant settings parse, and a 2.5 s read-back.
 
-### BUG-20260917-02 — PV String Charge live kW missing from charts
+### <span style="color:green">BUG-20260917-02 — PV String Charge live kW missing from charts</span>
 
 | Field | Value |
 |-------|--------|
@@ -770,7 +771,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260917-01 — PV String Charge left axis ~40 kW at dawn
+### <span style="color:green">BUG-20260917-01 — PV String Charge left axis ~40 kW at dawn</span>
 
 | Field | Value |
 |-------|--------|
@@ -788,7 +789,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260916-02 — PV String Charge chart looked swapped vs cards
+### <span style="color:green">BUG-20260916-02 — PV String Charge chart looked swapped vs cards</span>
 
 | Field | Value |
 |-------|--------|
@@ -806,7 +807,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260916-01 — Grott feed “lost” while MQTT still connected
+### <span style="color:green">BUG-20260916-01 — Grott feed “lost” while MQTT still connected</span>
 
 | Field | Value |
 |-------|--------|
@@ -826,7 +827,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Fixed
 
-### BUG-20260915-12 — Intermittent Grott MQTT loss of communications
+### <span style="color:green">BUG-20260915-12 — Intermittent Grott MQTT loss of communications</span>
 
 | Field | Value |
 |-------|--------|
@@ -846,7 +847,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ## Fixed
 
-### BUG-20260915-11 — Connectivity Status crash on launch (missing context menu handler)
+### <span style="color:green">BUG-20260915-11 — Connectivity Status crash on launch (missing context menu handler)</span>
 
 | Field | Value |
 |-------|--------|
@@ -864,7 +865,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260915-10 — Wonderwatt detail dialog showed raw HTML tags
+### <span style="color:green">BUG-20260915-10 — Wonderwatt detail dialog showed raw HTML tags</span>
 
 | Field | Value |
 |-------|--------|
@@ -882,7 +883,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260915-09 — PVOutput upload thread TypeError on _log.info/warn
+### <span style="color:green">BUG-20260915-09 — PVOutput upload thread TypeError on _log.info/warn</span>
 
 | Field | Value |
 |-------|--------|
@@ -900,7 +901,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260915-08 — Modbus flow direction wrong; lines passed under boxes
+### <span style="color:green">BUG-20260915-08 — Modbus flow direction wrong; lines passed under boxes</span>
 
 | Field | Value |
 |-------|--------|
@@ -918,7 +919,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260915-07 — Diagram still showed WiFi Direct + LAN Direct boxes
+### <span style="color:green">BUG-20260915-07 — Diagram still showed WiFi Direct + LAN Direct boxes</span>
 
 | Field | Value |
 |-------|--------|
@@ -936,7 +937,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260915-06 — Connectivity diagram chained Wi‑Fi→API and LAN→Grott
+### <span style="color:green">BUG-20260915-06 — Connectivity diagram chained Wi‑Fi→API and LAN→Grott</span>
 
 | Field | Value |
 |-------|--------|
@@ -954,7 +955,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260915-05 — Startup SEGV “GPUInfo not initialized on GpuInfoUpdate”
+### <span style="color:green">BUG-20260915-05 — Startup SEGV “GPUInfo not initialized on GpuInfoUpdate”</span>
 
 | Field | Value |
 |-------|--------|
@@ -972,7 +973,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260915-04 — Tasmota pin-chart SyntaxError on launch
+### <span style="color:green">BUG-20260915-04 — Tasmota pin-chart SyntaxError on launch</span>
 
 | Field | Value |
 |-------|--------|
@@ -990,7 +991,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260915-03 — “Pin chart 2 to max 500 W” not user-settable
+### <span style="color:green">BUG-20260915-03 — “Pin chart 2 to max 500 W” not user-settable</span>
 
 | Field | Value |
 |-------|--------|
@@ -1008,7 +1009,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260915-02 — Roof Layout imagery chip covered map attribution
+### <span style="color:green">BUG-20260915-02 — Roof Layout imagery chip covered map attribution</span>
 
 | Field | Value |
 |-------|--------|
@@ -1026,7 +1027,7 @@ IDs are `BUG-` + date + two-digit sequence for that day (`01`, `02`, …).
 
 ---
 
-### BUG-20260915-01 — Tasmota matplotlib tight_layout UserWarning
+### <span style="color:green">BUG-20260915-01 — Tasmota matplotlib tight_layout UserWarning</span>
 
 | Field | Value |
 |-------|--------|
