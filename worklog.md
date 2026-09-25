@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- PV String Charge charts were locked to today. A Day field (and Today) now opens an earlier London day from the stored 2-minute lots. The live kilowatt cards stay as “right now”. A past day is not stretched forward to the current time.
 - On a Connectivity login (Growatt cloud and the other boxes), the test result now sits on the same row as Test, at the right, instead of a line underneath.
 - Fixed BUG-058 and BUG-059. The 08:10 crash was a background thread inside Python’s cycle collector while the tab bar was painting and tearing down a Qt object. Automatic collection stays on. Qt objects are taken off that collector so a background pass cannot destroy one mid-repaint. Restart to pick up 2.9.421.
 - Bug tracker titles are coloured: red while a bug is open, green once it is fixed.

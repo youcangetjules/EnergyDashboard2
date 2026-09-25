@@ -13,6 +13,9 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime, timedelta, timezone
 
+from PySide6.QtCore import QDate
+from PySide6.QtWidgets import QDateEdit
+
 from energy_dashboard.common import *
 from energy_dashboard.db.pv_string_charge import (
     log_pv_string_charge,
@@ -160,11 +163,8 @@ def _london_tz():
     return pytz.timezone("Europe/London")
 
 
-def _london_midnight(now=None):
-    """Today's 00:00 in Europe/London, as an aware datetime."""
-    london = _london_tz()
-    n = now.astimezone(london) if now is not None else datetime.now(london)
-    return london.localize(datetime(n.year, n.month, n.day, 0, 0, 0))
+def _london_today():
+    return datetime.now(_london_tz()).date()
 
 
 def _integrate_kwh(rows, key: str, *, until=None) -> float:
@@ -299,6 +299,7 @@ class PvStringChargeTab(QWidget):
         self.on_data_updated = None
         self._history = deque()
         self._today = deque()
+        self._view_day = _london_today()
         self._last_est = None
         self._ax_cum = None
         self._ax_day = None
@@ -337,11 +338,40 @@ class PvStringChargeTab(QWidget):
         ctrl.addWidget(self.btn_refresh)
         self.btn_reload = QPushButton("Reload charts")
         self.btn_reload.setToolTip(
-            "Re-read stored 2-minute lots for today (London midnight onwards)."
+            "Re-read stored 2-minute lots for the day shown on the charts."
         )
         self.btn_reload.clicked.connect(self._reload_history)
         _apply_primary_button_style(self.btn_reload)
         ctrl.addWidget(self.btn_reload)
+        ctrl.addSpacing(16)
+        lbl_day = QLabel("Day:")
+        lbl_day.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        lbl_day.setToolTip(
+            "London day for the charts. Today includes the live reading. "
+            "An earlier day shows the stored 2-minute lots for that day only."
+        )
+        ctrl.addWidget(lbl_day)
+        self.date_day = QDateEdit()
+        self.date_day.setCalendarPopup(True)
+        self.date_day.setDisplayFormat("dd MMM yyyy")
+        self.date_day.setToolTip(lbl_day.toolTip())
+        qtoday = QDate(
+            self._view_day.year, self._view_day.month, self._view_day.day,
+        )
+        self.date_day.setMinimumDate(QDate(2020, 1, 1))
+        self.date_day.setMaximumDate(qtoday)
+        self.date_day.setDate(qtoday)
+        apply_spin_field_motif(self.date_day, width=148)
+        self._style_day_calendar()
+        self.date_day.dateChanged.connect(self._on_view_day_changed)
+        ctrl.addWidget(self.date_day)
+        self.btn_today = QPushButton("Today")
+        self.btn_today.setFixedWidth(72)
+        self.btn_today.setToolTip("Show today’s charts again (London).")
+        self.btn_today.setEnabled(False)
+        self.btn_today.clicked.connect(self._go_today)
+        _apply_primary_button_style(self.btn_today)
+        ctrl.addWidget(self.btn_today)
         ctrl.addSpacing(16)
         lbl_scan = QLabel("Scan every (min):")
         lbl_scan.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
@@ -405,11 +435,12 @@ class PvStringChargeTab(QWidget):
         enable_bar_value_hover(self.canvas)
         chart_lay.addWidget(self.canvas, 1)
         hint = QLabel(
-            "Both charts share today from London midnight to midnight tomorrow. "
-            "The top pane is instantaneous kW (strings, measured charge, solar "
-            "forecast). The bottom pane is today’s running kWh total. The teal "
-            "line is Now. Live string kW is marked on that line so it stays "
-            "readable even when only a few minutes of today exist."
+            "Both charts share one London day, midnight to midnight. "
+            "Day picks an earlier day from the stored lots. Today still "
+            "includes the live reading; the teal line is Now and only "
+            "appears on today. The top pane is instantaneous kW (strings, "
+            "measured charge, solar forecast). The bottom pane is that "
+            "day’s running kWh total."
         )
         hint.setStyleSheet(f"color: {_DARK_SUBTEXT}; font-size: 10px;")
         hint.setWordWrap(True)
@@ -524,6 +555,7 @@ class PvStringChargeTab(QWidget):
 
     def refresh_now(self):
         """Refresh Page / Refresh All / button hook."""
+        self._sync_day_limit()
         self._sample(record_history=True)
         if self.on_data_updated:
             try:
@@ -535,17 +567,66 @@ class PvStringChargeTab(QWidget):
         """Called from the main window when Growatt live data refreshes."""
         self._sample(record_history=True)
 
+    def _viewing_today(self) -> bool:
+        return self._view_day == _london_today()
+
+    def _style_day_calendar(self):
+        cal = self.date_day.calendarWidget()
+        cal.setStyleSheet(
+            f"QCalendarWidget QWidget {{ background: {_DARK_SURFACE_BG}; "
+            f"color: {_DARK_TEXT}; }}"
+            f"QCalendarWidget QToolButton {{ color: {_DARK_TEXT}; "
+            f"background: {_DARK_SURFACE_BG}; }}"
+            "QCalendarWidget QAbstractItemView:enabled {"
+            f" color: {_DARK_TEXT}; background: {_DARK_SURFACE_BG};"
+            " selection-background-color: #89b4fa; selection-color: #1e1e2e; }"
+        )
+
+    def _sync_day_limit(self):
+        """Keep the picker from offering a future London day."""
+        today = _london_today()
+        self.date_day.blockSignals(True)
+        self.date_day.setMaximumDate(QDate(today.year, today.month, today.day))
+        self.date_day.blockSignals(False)
+        if hasattr(self, "btn_today"):
+            self.btn_today.setEnabled(self._view_day < today)
+
+    def _on_view_day_changed(self, qdate: QDate):
+        day = qdate.toPython()
+        if day == self._view_day:
+            return
+        self._view_day = day
+        self._sync_day_limit()
+        self._load_history()
+        self._draw_chart()
+        self._refresh_day_summaries()
+
+    def _go_today(self):
+        today = _london_today()
+        self.date_day.setDate(QDate(today.year, today.month, today.day))
+
+    def _day_title_stamp(self) -> str:
+        if self._viewing_today():
+            return "today from 00:00"
+        return self._view_day.strftime("%a %-d %b %Y")
+
+    def _empty_lots_text(self) -> str:
+        if self._viewing_today():
+            return "No stored lots since midnight yet"
+        return "No stored lots for this day"
+
     def _reload_history(self):
         self._load_history()
         self._draw_chart()
-        n_today = len(self._today)
-        self.set_status(
-            f"PV string charge: {n_today} lot(s) today."
-        )
+        self._refresh_day_summaries()
 
     def _load_history(self):
-        midnight = _london_midnight().astimezone(timezone.utc)
-        rows = query_pv_string_charge(self.data_logger, start_utc=midnight)
+        start, _now, end, _london = self._day_bounds()
+        rows = query_pv_string_charge(
+            self.data_logger,
+            start_utc=start.astimezone(timezone.utc),
+            end_utc=(end - timedelta(seconds=1)).astimezone(timezone.utc),
+        )
         self._today.clear()
         for raw in rows:
             row = _sanitize_lot(dict(raw))
@@ -554,9 +635,13 @@ class PvStringChargeTab(QWidget):
         self._sync_chart_history()
 
     def _trim_today(self):
-        cutoff = _london_midnight().astimezone(timezone.utc)
-        while self._today and _aware_utc(self._today[0]["t"]) < cutoff:
+        start, _now, end, _london = self._day_bounds()
+        start_utc = start.astimezone(timezone.utc)
+        end_utc = end.astimezone(timezone.utc)
+        while self._today and _aware_utc(self._today[0]["t"]) < start_utc:
             self._today.popleft()
+        while self._today and _aware_utc(self._today[-1]["t"]) >= end_utc:
+            self._today.pop()
 
     def _sync_chart_history(self):
         self._history.clear()
@@ -578,26 +663,7 @@ class PvStringChargeTab(QWidget):
     def _sample(self, *, record_history: bool):
         status = self._read_growatt_snapshot()
         if status is None:
-            tot = self._today_totals()
-            cap = self._today_caption()
-            self._set_card(
-                self.card_s1, "—", "No live string reading",
-                f"Today {cap}: {tot['pv1']:.2f} kWh PV · "
-                f"{tot['s1']:.2f} kWh to battery (est.)",
-            )
-            self._set_card(
-                self.card_s2, "—", "No live string reading",
-                f"Today {cap}: {tot['pv2']:.2f} kWh PV · "
-                f"{tot['s2']:.2f} kWh to battery (est.)",
-            )
-            self._set_card(
-                self.card_chg, "—", "",
-                f"Today {cap}: {tot['chg']:.2f} kWh charged (measured)",
-            )
-            self._set_card(
-                self.card_pv, "—", "",
-                f"Today {cap}: {tot['pv1'] + tot['pv2']:.2f} kWh",
-            )
+            self._refresh_day_summaries(live=False)
             self.lbl_mode.setText("Mode: no Growatt data")
             self.lbl_detail.setText(
                 "No live MIX status yet. Connect / wait for Grott or Cloud "
@@ -646,7 +712,13 @@ class PvStringChargeTab(QWidget):
             self._draw_chart()
 
     def _ingest_lot(self, sample: dict):
-        """Keep at most one in-memory row per 2-minute lot (running mean)."""
+        """Keep at most one in-memory row per 2-minute lot (running mean).
+
+        A past day on screen stays as stored. Live samples still go to the
+        database from ``_sample``; they are not mixed into that day.
+        """
+        if not self._viewing_today():
+            return
         lot_t = lot_start(sample["t"])
         keys = ("s1", "s2", "chg", "pv1", "pv2")
         target = self._today
@@ -666,29 +738,76 @@ class PvStringChargeTab(QWidget):
         self._trim_history()
 
     def _today_totals(self) -> dict:
-        now = datetime.now(timezone.utc)
+        # Hold the last power through "now" only on today. A finished day
+        # is the stored samples — not stretched to the current clock.
+        until = datetime.now(timezone.utc) if self._viewing_today() else None
         rows = list(self._today)
         return {
-            "pv1": _integrate_kwh(rows, "pv1", until=now),
-            "pv2": _integrate_kwh(rows, "pv2", until=now),
-            "s1": _integrate_kwh(rows, "s1", until=now),
-            "s2": _integrate_kwh(rows, "s2", until=now),
-            "chg": _integrate_kwh(rows, "chg", until=now),
+            "pv1": _integrate_kwh(rows, "pv1", until=until),
+            "pv2": _integrate_kwh(rows, "pv2", until=until),
+            "s1": _integrate_kwh(rows, "s1", until=until),
+            "s2": _integrate_kwh(rows, "s2", until=until),
+            "chg": _integrate_kwh(rows, "chg", until=until),
         }
 
     def _today_caption(self) -> str:
-        """'since 00:00' or the first sample time if we joined the day late."""
-        midnight = _london_midnight()
+        """'since 00:00' or the first sample time if logging started late."""
+        start, _now, _end, london = self._day_bounds()
         if not self._today:
-            return "since 00:00 (no stored lots yet)"
-        first = _aware_utc(self._today[0]["t"]).astimezone(_london_tz())
-        if first > midnight + timedelta(minutes=12):
+            if self._viewing_today():
+                return "since 00:00 (no stored lots yet)"
+            return "no stored lots"
+        first = _aware_utc(self._today[0]["t"]).astimezone(london)
+        if first > start + timedelta(minutes=12):
             return f"since {first.strftime('%H:%M')} (samples start)"
         return "since 00:00"
 
+    def _day_energy_prefix(self) -> str:
+        cap = self._today_caption()
+        if self._viewing_today():
+            return f"Today {cap}"
+        return f"{self._view_day.strftime('%a %-d %b')} {cap}"
+
+    def _refresh_day_summaries(self, *, live: bool = True):
+        """Rewrite the energy line on each card for the day on screen."""
+        tot = self._today_totals()
+        prefix = self._day_energy_prefix()
+        if live and self._last_est is not None:
+            self._apply_estimate(
+                self._last_est, self._read_growatt_snapshot() or {},
+            )
+        else:
+            self.card_s1._today.setText(
+                f"{prefix}: {tot['pv1']:.2f} kWh PV · "
+                f"{tot['s1']:.2f} kWh to battery (est.)"
+            )
+            self.card_s2._today.setText(
+                f"{prefix}: {tot['pv2']:.2f} kWh PV · "
+                f"{tot['s2']:.2f} kWh to battery (est.)"
+            )
+            self.card_chg._today.setText(
+                f"{prefix}: {tot['chg']:.2f} kWh charged (measured)"
+            )
+            self.card_pv._today.setText(
+                f"{prefix}: {tot['pv1'] + tot['pv2']:.2f} kWh"
+            )
+            if not live:
+                self._set_card(
+                    self.card_s1, "—", "No live string reading",
+                    self.card_s1._today.text(),
+                )
+                self._set_card(
+                    self.card_s2, "—", "No live string reading",
+                    self.card_s2._today.text(),
+                )
+                self._set_card(self.card_chg, "—", "", self.card_chg._today.text())
+                self._set_card(self.card_pv, "—", "", self.card_pv._today.text())
+        label = "today" if self._viewing_today() else self._view_day.strftime("%a %-d %b")
+        self.set_status(f"PV string charge: {len(self._today)} lot(s) for {label}.")
+
     def _apply_estimate(self, est: dict, status: dict):
         tot = self._today_totals()
-        cap = self._today_caption()
+        prefix = self._day_energy_prefix()
         pv1 = float(est.get("pv1_kw") or 0.0)
         pv2 = float(est.get("pv2_kw") or 0.0)
         tot_pv = float(est.get("ppv_kw") or 0.0)
@@ -710,14 +829,14 @@ class PvStringChargeTab(QWidget):
             self.card_s1,
             f"{pv1:.2f} kW",
             f"{share_pv1:.0f}% of PV now · {chg_now}",
-            f"Today {cap}: {tot['pv1']:.2f} kWh PV · "
+            f"{prefix}: {tot['pv1']:.2f} kWh PV · "
             f"{tot['s1']:.2f} kWh to battery (est.)",
         )
         self._set_card(
             self.card_s2,
             f"{pv2:.2f} kW",
             f"{share_pv2:.0f}% of PV now · {chg_now2}",
-            f"Today {cap}: {tot['pv2']:.2f} kWh PV · "
+            f"{prefix}: {tot['pv2']:.2f} kWh PV · "
             f"{tot['s2']:.2f} kWh to battery (est.)",
         )
         chg = est.get("charge_kw")
@@ -725,13 +844,13 @@ class PvStringChargeTab(QWidget):
             self.card_chg,
             "—" if chg is None else f"{chg:.2f} kW",
             "chargePower (measured) now",
-            f"Today {cap}: {tot['chg']:.2f} kWh charged (measured)",
+            f"{prefix}: {tot['chg']:.2f} kWh charged (measured)",
         )
         self._set_card(
             self.card_pv,
             f"{tot_pv:.2f} kW",
             f"S1 {pv1:.2f} · S2 {pv2:.2f} kW now",
-            f"Today {cap}: {tot['pv1'] + tot['pv2']:.2f} kWh (S1 {tot['pv1']:.2f} · "
+            f"{prefix}: {tot['pv1'] + tot['pv2']:.2f} kWh (S1 {tot['pv1']:.2f} · "
             f"S2 {tot['pv2']:.2f})",
         )
 
@@ -778,7 +897,8 @@ class PvStringChargeTab(QWidget):
 
     def _day_bounds(self):
         london = _london_tz()
-        start = _london_midnight()
+        day = self._view_day
+        start = london.localize(datetime(day.year, day.month, day.day, 0, 0, 0))
         now = datetime.now(london)
         end = start + timedelta(days=1)
         return start, now, end, london
@@ -875,33 +995,37 @@ class PvStringChargeTab(QWidget):
     def _draw_empty_chart(self):
         ax, ax_day = self._prep_axes()
         d0, now, d1, london = self._day_bounds()
-        ax.set_title("Instantaneous (kW) — today from 00:00", fontsize=11, pad=4)
+        stamp = self._day_title_stamp()
+        empty = self._empty_lots_text()
+        ax.set_title(f"Instantaneous (kW) — {stamp}", fontsize=11, pad=4)
         ax.set_ylabel("kW")
         ax.text(
-            0.5, 0.5, "No stored lots since midnight yet",
+            0.5, 0.5, empty,
             ha="center", va="center", transform=ax.transAxes,
             color=_DARK_SUBTEXT, fontsize=11,
         )
         self._style_time_axis(ax, london, d0, d1, hour_interval=2)
         ax.tick_params(labelbottom=False)
-        ax.axvline(now, color=_COL_NOW, linestyle="--", linewidth=self._line_w())
-        ax_day.set_title(
-            "Cumulative (kWh) — today from 00:00", fontsize=11, pad=4,
-        )
+        if self._viewing_today():
+            ax.axvline(now, color=_COL_NOW, linestyle="--", linewidth=self._line_w())
+        ax_day.set_title(f"Cumulative (kWh) — {stamp}", fontsize=11, pad=4)
         ax_day.set_ylabel("kWh")
         ax_day.text(
-            0.5, 0.5, "No stored lots since midnight yet",
+            0.5, 0.5, empty,
             ha="center", va="center", transform=ax_day.transAxes,
             color=_DARK_SUBTEXT, fontsize=11,
         )
         self._style_time_axis(ax_day, london, d0, d1, hour_interval=2)
-        ax_day.axvline(now, color=_COL_NOW, linestyle="--", linewidth=self._line_w())
+        if self._viewing_today():
+            ax_day.axvline(now, color=_COL_NOW, linestyle="--", linewidth=self._line_w())
         self._apply_chart_layout()
         self.canvas.draw_idle()
 
     def _draw_instantaneous(self, ax, london, t0, t1, now, lw):
-        """Today’s measured string kW, charge kW, and forecast kW."""
-        ax.set_title("Instantaneous (kW) — today from 00:00", fontsize=11, pad=4)
+        """Measured string kW, charge kW, and forecast kW for the day on screen."""
+        ax.set_title(
+            f"Instantaneous (kW) — {self._day_title_stamp()}", fontsize=11, pad=4,
+        )
         times, pv1, pv2, chg = [], None, None, None
         if self._history:
             times = [_aware_utc(h["t"]).astimezone(london) for h in self._history]
@@ -943,7 +1067,7 @@ class PvStringChargeTab(QWidget):
             )
         else:
             ax.text(
-                0.5, 0.5, "No stored lots since midnight yet",
+                0.5, 0.5, self._empty_lots_text(),
                 ha="center", va="center", transform=ax.transAxes,
                 color=_DARK_SUBTEXT, fontsize=11,
             )
@@ -961,7 +1085,8 @@ class PvStringChargeTab(QWidget):
         ax.set_ylim(0.0, max(0.5, peak * 1.15 if peak > 0 else 0.5))
         self._style_time_axis(ax, london, t0, t1, hour_interval=2)
         ax.tick_params(labelbottom=False)
-        ax.axvline(now, color=_COL_NOW, linestyle="--", linewidth=lw, zorder=8)
+        if self._viewing_today():
+            ax.axvline(now, color=_COL_NOW, linestyle="--", linewidth=lw, zorder=8)
         if ax.get_legend_handles_labels()[1]:
             ax.legend(
                 loc="upper left", fontsize=8, framealpha=0.6,
@@ -970,16 +1095,18 @@ class PvStringChargeTab(QWidget):
         return fc_t, fc_kw
 
     def _draw_cumulative(self, ax, london, d0, now, d1, lw):
-        """Energy today from 00:00: each string, both, forecast (all kWh)."""
-        ax.set_title("Cumulative (kWh) — today from 00:00", fontsize=11, pad=4)
+        """Energy for the day on screen: each string, both, forecast (all kWh)."""
+        ax.set_title(
+            f"Cumulative (kWh) — {self._day_title_stamp()}", fontsize=11, pad=4,
+        )
         rows = list(self._today)
         times = []
         if rows:
             raw_t = [_aware_utc(h["t"]).astimezone(london) for h in rows]
             pv1 = np.array([h.get("pv1") or 0.0 for h in rows], dtype=float)
             pv2 = np.array([h.get("pv2") or 0.0 for h in rows], dtype=float)
-            # Hold the last lot through "now" so the running total meets the cards.
-            if raw_t[-1] < now:
+            # On today, hold the last lot through now so the total matches the cards.
+            if self._viewing_today() and raw_t[-1] < now:
                 raw_t.append(now)
                 pv1 = np.append(pv1, pv1[-1])
                 pv2 = np.append(pv2, pv2[-1])
@@ -1007,7 +1134,7 @@ class PvStringChargeTab(QWidget):
             )
         else:
             ax.text(
-                0.5, 0.42, "No stored lots since midnight yet",
+                0.5, 0.42, self._empty_lots_text(),
                 ha="center", va="center", transform=ax.transAxes,
                 color=_DARK_SUBTEXT, fontsize=11,
             )
@@ -1041,7 +1168,8 @@ class PvStringChargeTab(QWidget):
         ax.set_ylabel("kWh")
         ax.set_ylim(0.0, max(0.2, peak * 1.15 if peak > 0 else 0.2))
         self._style_time_axis(ax, london, d0, d1, hour_interval=2)
-        ax.axvline(now, color=_COL_NOW, linestyle="--", linewidth=lw, zorder=8)
+        if self._viewing_today():
+            ax.axvline(now, color=_COL_NOW, linestyle="--", linewidth=lw, zorder=8)
         if ax.get_legend_handles_labels()[1]:
             ax.legend(
                 loc="upper left", fontsize=8, framealpha=0.6,

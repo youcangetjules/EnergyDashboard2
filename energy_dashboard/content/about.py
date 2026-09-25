@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.423", "2026-09-25", [
+        "PV String Charge can show a previous London day. The Day field "
+        "and calendar load that day’s stored string and charge lots. Today "
+        "still includes the live reading; a past day does not invent energy "
+        "up to the current clock.",
+    ]),
     ("2.9.422", "2026-09-25", [
         "Connectivity login panels put the test result on the same row as "
         "<b>Test connection</b>, at the right: green OK, red failed, amber "
