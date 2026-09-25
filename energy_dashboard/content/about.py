@@ -53,6 +53,10 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.432", "2026-09-25", [
+        "String voltage writes each string’s latest volts beside the "
+        "teal now line, so the last reading is visible on the chart.",
+    ]),
     ("2.9.431", "2026-09-25", [
         "<b>Dump logs</b> is under <b>Controls</b>, after Console. It shows "
         "the crash log (segmentation faults and other fatal signals), "

@@ -151,11 +151,13 @@ class PvStringVoltageTab(QWidget):
                 pass
 
     def on_growatt_live_update(self):
-        """Live volts on the cards. The chart stays the stored lots until Reload."""
+        """Live volts on the cards, and beside the now line when today is on screen."""
         self._read_live()
         if self._viewing_today():
-            self._paint_cards()
-            self.lbl_updated.setText(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
+            self._paint()
+            return
+        self._paint_cards()
+        self.lbl_updated.setText(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -295,7 +297,8 @@ class PvStringVoltageTab(QWidget):
         ax.xaxis.set_major_locator(mdates.HourLocator(interval=2, tz=london))
         ax.grid(axis="y", color=_DARK_GRID, linewidth=0.4)
         if self._viewing_today():
-            ax.axvline(now, color=_COL_NOW, linestyle="--", linewidth=1.0)
+            ax.axvline(now, color=_COL_NOW, linestyle="--", linewidth=1.0, zorder=4)
+            self._label_beside_now(ax, now, end, v1, v2)
         self.fig.subplots_adjust(left=0.07, right=0.98, top=0.90, bottom=0.12)
         self.canvas.draw_idle()
         if not self._lots:
@@ -309,6 +312,46 @@ class PvStringVoltageTab(QWidget):
                 "volts in that 2-minute slot. A missing string is left blank, not 0 V."
             )
         self.lbl_updated.setText(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
+
+    def _label_beside_now(self, ax, now, day_end, v1, v2):
+        """Write each string's latest volts just beside the now line."""
+        latest = []
+        for values, color in ((v1, _COL_S1), (v2, _COL_S2)):
+            reading = None
+            for item in reversed(values):
+                if item is not None:
+                    reading = item
+                    break
+            if reading is not None:
+                latest.append((reading, color))
+        if not latest:
+            return
+        hours_left = (day_end - now).total_seconds() / 3600.0
+        if hours_left < 2.0:
+            dx, ha = -8, "right"
+        else:
+            dx, ha = 8, "left"
+        y0, y1 = ax.get_ylim()
+        span = max(float(y1 - y0), 1.0)
+        placed = []
+        for reading, color in latest:
+            dy = 0
+            for prev in placed:
+                if abs(reading - prev) < span * 0.05:
+                    dy = 11 if reading >= prev else -11
+            placed.append(reading)
+            ax.annotate(
+                f"{reading:.0f} V",
+                xy=(now, reading),
+                xytext=(dx, dy),
+                textcoords="offset points",
+                ha=ha,
+                va="center",
+                color=color,
+                fontsize=9,
+                zorder=9,
+                annotation_clip=False,
+            )
 
 
 __all__ = ["PvStringVoltageTab"]

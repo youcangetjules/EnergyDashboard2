@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-25
 
+- String voltage now writes the last reading for each string beside the teal “now” line, in that string’s colour, so you can see the volts without leaving the chart.
 - Dump logs is a new page under Controls, after Console. It shows the crash log, including core-dump stacks, so a segmentation fault can be read without opening the file by hand. The 10:47 crash (pid 1579891) is the same still-open main-thread fault as BUG-060.
 - String voltage is now a tab under Physical Plant Tools, next to PV String Charge. It charts each string’s measured volts for a London day. Today shows the live reading. Earlier days are the stored lots only, and days before logging started are empty.
 - Stale tab headers no longer look bigger than the rest. The light outline is drawn inside the tab, on the same shape as the green and blue ones.

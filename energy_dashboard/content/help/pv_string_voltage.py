@@ -14,9 +14,10 @@ They are not a panel datasheet, and they are not estimated from power.</p>
 <p>
 <b>Day</b> opens a calendar for a London day. <b>Today</b> returns to the
 current day. On today the big figures are the live volts, and the chart
-includes that reading. On an earlier day the big figure is the average of
-the stored lots, with the low and high beside it. The teal line is “now”
-and only appears on today.</p>
+includes that reading. The latest volts for each string are written just
+beside the teal “now” line. On an earlier day the big figure is the
+average of the stored lots, with the low and high beside it. That line
+only appears on today.</p>
 <p>
 Samples are 2-minute lots in <code>pv_string_voltage</code>. A lot is
 written while the dashboard is open and Growatt Live Status has a reading.

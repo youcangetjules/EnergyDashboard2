@@ -133,6 +133,22 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 ## <span style="color:green">Fixed</span>
 
+### <span style="color:green">BUG-061-20260925-04 — String voltage chart hides the last reading beside the now line</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-25 12:05 (Europe/London) |
+| **Status** | fixed |
+| **Area** | String voltage chart |
+| **Version found** | 2.9.431 |
+| **Version fixed** | 2.9.432 |
+
+**Symptom:** Today’s string-voltage chart drew the two traces up to the teal “now” line and did not write the last volts next to that line.
+
+**Cause:** The chart plotted the stored lots (and the live point, when Growatt Live Status had one) and the now line, and never labelled the latest reading.
+
+**Resolution:** On today, each string’s latest measured volts are written just beside the now line, in that string’s colour. A new live reading repaints that label. Shipped in 2.9.432.
+
 ### <span style="color:green">BUG-059-20260925-02 — Do not turn garbage collection off; fix the segfault</span>
 
 | Field | Value |
