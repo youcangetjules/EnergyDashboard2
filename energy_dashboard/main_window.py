@@ -1667,6 +1667,7 @@ class EnergyDashboard(QMainWindow):
         for hit in hits:
             if hit.should_notify:
                 self._desktop_alarm_notify(hit)
+                self._sms_alarm_notify(hit)
 
     def _log_grott_lost_edge(self, hits, grott_connected, grott_age_s) -> None:
         """Persist Grott stale / recover into connectivity_events (Show history)."""
@@ -1734,6 +1735,24 @@ class EnergyDashboard(QMainWindow):
             tray.showMessage(hit.title, hit.detail, icon, 12000)
         except Exception as e:
             _log.warn("Alarms", f"Desktop notify failed: {e}")
+
+    def _sms_alarm_notify(self, hit) -> None:
+        """Text the alarm on the same cadence as the desktop pop-up."""
+        title = str(getattr(hit, "title", "") or "Alarm")
+        detail = str(getattr(hit, "detail", "") or "")
+
+        def work() -> None:
+            try:
+                from energy_dashboard.fetch.sms_gateway import load_sms_config, send_sms
+                ok, info = send_sms(load_sms_config(), f"{title}. {detail}")
+            except Exception as exc:
+                ok, info = False, str(exc).splitlines()[0][:180]
+            if ok:
+                return
+            QTimer.singleShot(0, lambda m=info: self.set_status(f"SMS not sent: {m}"))
+
+        import threading
+        threading.Thread(target=work, daemon=True).start()
 
     def eventFilter(self, obj, event):
         if (
