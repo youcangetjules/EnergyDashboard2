@@ -28,6 +28,43 @@ from energy_dashboard.config import (
 )
 
 
+# Grott display key → what the householder sees, and the Growatt field names.
+_GROTT_FILL_PLAIN = {
+    "soc": ("Battery state of charge", "SOC"),
+    "bat_power": ("Battery power (charging or discharging)", "chargePower, pdisCharge1"),
+    "pv_power": ("Solar power, both strings", "ppv"),
+    "grid_power": ("Power to or from the grid", "pactouser, pactogrid"),
+    "load_power": ("Power the house is using", "pLocalLoad"),
+    "etoday": ("Solar energy today", "epvToday"),
+    "etotal": ("Solar energy since install", "epvTotal"),
+    "echargetoday": ("Energy into the battery today", "echargetoday"),
+    "edischargetoday": ("Energy out of the battery today", "edischarge1Today"),
+    "grid_v": ("Grid voltage", "vAc1"),
+    "grid_hz": ("Grid frequency", "fAc"),
+    "bat_v": ("Battery voltage", "vBat"),
+    "bat_vdsp": ("Battery voltage from the inverter DSP", "vbatdsp"),
+    "bat_type": ("Battery type", "wBatteryType"),
+    "pv1": ("String 1 voltage and power", "vPv1, pPv1"),
+    "pv2": ("String 2 voltage and power", "vPv2, pPv2"),
+    "pv_pmax": ("Inverter PV power limit", "pmax"),
+    "sys_lost": ("Inverter online / lost flag", "lost, status"),
+    "load_etoday": ("House energy today", "elocalLoadToday"),
+    "imp_etoday": ("Grid import today", "eToUserToday"),
+    "exp_etoday": ("Grid export today", "etoGridToday"),
+}
+
+
+def _grott_fill_lines(names) -> list[str]:
+    """One plain-English line per register Grott did not publish."""
+    lines = []
+    for key in names:
+        label, fields = _GROTT_FILL_PLAIN.get(
+            str(key), (str(key), str(key)),
+        )
+        lines.append(f"{label} — Growatt field {fields}")
+    return lines
+
+
 # Connectivity row → database tables whose growth that row can show.
 _ROW_HISTORY_TABLES = {
     "Growatt server": ("growatt_readings", "growatt_mix_chart"),
@@ -1084,19 +1121,23 @@ class _ConnectivityFlowDiagram(QWidget):
         if t.get("api_filled_count"):
             n = int(t.get("api_filled_count") or 0)
             names = list(t.get("api_filled_fields") or ())
+            named = _grott_fill_lines(names)
             detail = (
-                "Live path is still Grott/Hybrid, but empty fields were filled "
-                "from the cloud API. Amber labels on Growatt Live mark those values."
+                "Grott did not publish these on the latest frame. "
+                "The Growatt cloud filled them in. Growatt Live shows them in amber."
             )
-            if names:
-                shown = ", ".join(names[:8])
-                if len(names) > 8:
-                    shown += f", +{len(names) - 8} more"
-                detail = f"{detail} Currently: {shown}."
+            if named:
+                detail = detail + "\n" + "\n".join(f"• {line}" for line in named)
+            elif n:
+                detail = (
+                    f"{detail}\nThe live frame did not keep the field names "
+                    f"({n} patched)."
+                )
             findings.append({
                 "severity": "warn",
                 "headline": f"Grott missing {n} register(s) — patched from Growatt cloud (amber)",
                 "detail": detail,
+                "registers": named,
                 "box": "growatt_cloud",
             })
 
@@ -1784,6 +1825,9 @@ class _ConnectivityFlowDiagram(QWidget):
 
     def _hit_key_at(self, pos):
         pt = QPointF(pos)
+        banner = getattr(self, "_banner_rect", None)
+        if banner is not None and banner.contains(pt):
+            return "degraded"
         for key, _title, rect in reversed(self._hit_regions):
             if rect.contains(pt):
                 return key
@@ -2112,7 +2156,41 @@ class _ConnectivityFlowDiagram(QWidget):
                 blocks.append(format_policy_block(target, stats.get(target.key)))
         return title, "\n\n".join(blocks)
 
+    def _degraded_popup_body(self) -> str:
+        findings = self._degradation_findings()
+        if not findings:
+            return "Nothing is degraded right now."
+        blocks = []
+        for f in findings:
+            sev = str(f.get("severity") or "warn").upper()
+            blocks.append(f"[{sev}] {f.get('headline')}")
+            named = list(f.get("registers") or [])
+            if named:
+                blocks.append(
+                    "These are the registers Grott did not send. "
+                    "The cloud value is used instead:"
+                )
+                blocks.extend(f"  • {line}" for line in named)
+            else:
+                detail = (f.get("detail") or "").strip()
+                if detail:
+                    blocks.append(detail)
+            blocks.append("")
+        blocks.append("Click a highlighted box on the diagram for that path’s login and status.")
+        return "\n".join(blocks).strip()
+
+    def _show_degraded_details(self):
+        dlg = _ConnectivityDetailDialog(
+            "Degraded",
+            self._degraded_popup_body(),
+            self,
+        )
+        dlg.exec()
+
     def _show_box_details(self, box_key):
+        if box_key == "degraded":
+            self._show_degraded_details()
+            return
         tab = self._tab
         if box_key in ("database", "export", "storage") and tab is not None:
             tab.open_ring_buffers_dialog(box_key)
@@ -2281,6 +2359,12 @@ class _ConnectivityFlowDiagram(QWidget):
             Qt.AlignLeft | Qt.AlignVCenter,
             tag,
         )
+        p.setFont(QFont("Helvetica", 8))
+        p.drawText(
+            QRectF(rect.left() + 10, y, rect.width() - 20, 14),
+            Qt.AlignRight | Qt.AlignVCenter,
+            "click for the exact problem",
+        )
         y += 15.0
         p.setFont(QFont("Helvetica", 8))
         p.setPen(QColor("#fde68a" if severity != "bad" else "#fecdd3"))
@@ -2364,9 +2448,12 @@ class _ConnectivityFlowDiagram(QWidget):
             lx += 11.0 + wd + gap
 
         if deg_lines:
+            self._banner_rect = QRectF(12, 42, W - 24, banner_h - 40.0)
             self._draw_degradation_banner(
-                p, QRectF(12, 42, W - 24, banner_h - 40.0), deg_sev, deg_lines,
+                p, self._banner_rect, deg_sev, deg_lines,
             )
+        else:
+            self._banner_rect = None
 
         # Blueprint -> widget transform (non-uniform, like React preserveAspectRatio='none').
         layout = self._compute_layout(W, H, header_h=max(46.0, banner_h + 6.0))

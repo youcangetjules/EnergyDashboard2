@@ -8,7 +8,7 @@ from energy_dashboard.deps import *
 # each routine update. Bump minor or major only when explicitly requested.
 APP_VERSION_MAJOR = 2
 APP_VERSION_MINOR = 9
-APP_VERSION_PATCH = 439
+APP_VERSION_PATCH = 440
 APP_VERSION = f"{APP_VERSION_MAJOR}.{APP_VERSION_MINOR}.{APP_VERSION_PATCH}"
 
 

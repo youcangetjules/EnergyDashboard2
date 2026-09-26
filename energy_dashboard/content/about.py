@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.440", "2026-09-26", [
+        "Click the <b>DEGRADED</b> banner on Connectivity to see the exact "
+        "problem. When Grott is missing registers, the window names each "
+        "one and the Growatt field behind it.",
+    ]),
     ("2.9.439", "2026-09-26", [
         "Connectivity Status shows each logged table’s row count and "
         "current disk size. <b>Table history</b> on a row opens a chart of "

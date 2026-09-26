@@ -117,6 +117,22 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 ## <span style="color:green">Fixed</span>
 
+### <span style="color:green">BUG-065-20260926-03 — Degraded banner does not name the missing registers</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 11:15 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Connectivity diagram |
+| **Version found** | 2.9.439 |
+| **Version fixed** | 2.9.440 |
+
+**Symptom:** The DEGRADED strip said Grott was missing 3 registers, but not which three. Clicking the strip did nothing.
+
+**Cause:** The strip only drew a count. The field names were kept for the diagram boxes, and the strip itself was not a click target.
+
+**Resolution:** Clicking DEGRADED opens a window that lists each missing register in plain English, with the Growatt field name. Shipped in 2.9.440.
+
 ### <span style="color:green">BUG-064-20260926-02 — Connectivity table size column stays blank</span>
 
 | Field | Value |
