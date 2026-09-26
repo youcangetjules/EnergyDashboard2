@@ -2,16 +2,17 @@
 
 Part of the **basic instructions for the development environment** (see `AGENTS.md`).
 
-**Every bug** that affects the app — crash, wrong diagram, bad chart maths, broken save, misleading UI — is logged here. Two sections: **Open**, then **Fixed**. Newest first inside each section.
+**Every bug** that affects the app — crash, wrong diagram, bad chart maths, broken save, misleading UI — is logged here. Three sections: **Progress per day**, then **Open**, then **Fixed**. Newest first inside Open and Fixed.
 
 ## Agent duty
 
 1. When a bug is reported or found, **add the entry under `## Open` immediately** (newest first in that section): timestamp, symptom, where it showed up.
-2. When fixed, **update that same entry** with cause, resolution, fix time, and app version (if shipped), then **move the whole entry into `## Fixed`** (newest first there). Do not delete entries. A fixed bug must not stay under Open. There is one Open section and one Fixed section, with a `---` line between them.
+2. When fixed, **update that same entry** with cause, resolution, fix time, and app version (if shipped), then **move the whole entry into `## Fixed`** (newest first there). Do not delete entries. A fixed bug must not stay under Open. There is one Progress per day section, one Open section, and one Fixed section. A `---` line sits above Progress per day, and another between Open and Fixed.
 3. Keep language plain English. Separate **what the user saw** from **what was wrong in software**.
 4. This log does **not** replace the in-app About changelog or `worklog.md` — it is the standing defect history.
 5. Colour the `###` title: **red** while Status starts with open, **green** when it is fixed. Use `<span style="color:red">` or `<span style="color:green">` around the whole title. Change the colour when the status changes.
 6. Give each new bug the next running sequence number (one higher than the highest already in this file). Put it between `BUG` and the date. Never renumber or reuse an old sequence.
+7. When you open or fix a bug, update **Progress per day** in the same edit. Count an opened bug on its **Opened** London day. Count a fix on the About changelog day of **Version fixed**. If that version only says the fix was the same day, use the opened day. **Still open** is how many bugs were still open at the end of that day. Newest day first. Do not invent a day.
 
 ## Entry template
 
@@ -38,6 +39,22 @@ Copy this block for each new bug:
 IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + date + two-digit sequence for that day (`01`, `02`, …). Example: `BUG-059-20260925-02`.
 
 ---
+
+## Progress per day
+
+Opened is the day the bug was logged. Fixed is the day that fix shipped (the About changelog day for **Version fixed**). Still open is how many were still open at the end of that day. Newest day first.
+
+| Day | Opened | Fixed | Still open |
+|-----|--------|-------|------------|
+| 2026-09-26 | 5 | 5 | 4 |
+| 2026-09-25 | 5 | 5 | 4 |
+| 2026-09-24 | 1 | 1 | 4 |
+| 2026-09-23 | 11 | 8 | 4 |
+| 2026-09-22 | 16 | 16 | 1 |
+| 2026-09-21 | 10 | 9 | 1 |
+| 2026-09-17 | 5 | 5 | 0 |
+| 2026-09-16 | 2 | 2 | 0 |
+| 2026-09-15 | 12 | 12 | 0 |
 
 ## <span style="color:red">Open</span>
 

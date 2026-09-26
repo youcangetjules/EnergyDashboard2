@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.443", "2026-09-26", [
+        "Bug Tracker starts with progress per day: how many bugs were "
+        "opened, how many were fixed, and how many were still open at "
+        "the end of that day.",
+    ]),
     ("2.9.442", "2026-09-26", [
         "A Connectivity popup stays open. It was appearing for a second "
         "and then vanishing, which left the dashboard waiting and unable "

@@ -10,7 +10,9 @@ HELP_TEXT = """\
 This page shows the project’s standing defect log — the same
 <code>bug_tracker.md</code> file at the root of the PowerModel folder.</p>
 <p>
-<b>Open</b> bugs are listed first, then <b>Fixed</b>, newest first in each
+<b>Progress per day</b> sits above the log: how many bugs were opened,
+how many were fixed, and how many were still open at the end of that day.
+<b>Open</b> bugs come next, then <b>Fixed</b>, newest first in each
 section. Each entry has a short ID: a running number, then the date
 (for example <code>BUG-059-20260925-02</code>). Open titles are red; fixed
 titles are green. The entry also says what you saw, what was wrong in
