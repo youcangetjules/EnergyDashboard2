@@ -10,6 +10,12 @@ from energy_dashboard.core.alarms import (
     DEFAULT_HOLD_MINUTES,
     DEFAULT_PV_MIN_KW,
     DEFAULT_NOTIFY_COOLDOWN_S,
+    DEFAULT_GROTT_LOST_HOLD_S,
+    DEFAULT_DB_DISCONNECT_HOLD_S,
+    DEFAULT_DB_INGEST_HOLD_S,
+    DEFAULT_INVERTER_LOST_HOLD_S,
+    DEFAULT_TASMOTA_MQTT_HOLD_S,
+    DEFAULT_TASMOTA_STALE_S,
 )
 import re
 from energy_dashboard.dialogs.about_history import AboutDialog, HelpDialog, HistoryDialog
@@ -1270,6 +1276,18 @@ class EnergyDashboard(QMainWindow):
             notify_cooldown_s=float(
                 s.value("alarms/notify_cooldown_s", DEFAULT_NOTIFY_COOLDOWN_S)
             ),
+            grott_lost_hold_s=float(s.value("alarms/grott_lost_hold_s", DEFAULT_GROTT_LOST_HOLD_S)),
+            db_disconnect_hold_s=float(
+                s.value("alarms/db_disconnect_hold_s", DEFAULT_DB_DISCONNECT_HOLD_S)
+            ),
+            db_ingest_hold_s=float(s.value("alarms/db_ingest_hold_s", DEFAULT_DB_INGEST_HOLD_S)),
+            inverter_lost_hold_s=float(
+                s.value("alarms/inverter_lost_hold_s", DEFAULT_INVERTER_LOST_HOLD_S)
+            ),
+            tasmota_mqtt_hold_s=float(
+                s.value("alarms/tasmota_mqtt_hold_s", DEFAULT_TASMOTA_MQTT_HOLD_S)
+            ),
+            tasmota_stale_s=float(s.value("alarms/tasmota_stale_s", DEFAULT_TASMOTA_STALE_S)),
         )
 
     def apply_alarm_settings_from_ui(
@@ -1594,7 +1612,9 @@ class EnergyDashboard(QMainWindow):
         try:
             tt = getattr(self, "tasmota_tab", None)
             if tt is not None and hasattr(tt, "alarm_snapshot"):
-                tas = tt.alarm_snapshot() or {}
+                tas = tt.alarm_snapshot(
+                    stale_s=float(self.alarm_monitor.tasmota_stale_s),
+                ) or {}
         except Exception:
             tas = {}
         tas_offline = list(tas.get("offline") or [])

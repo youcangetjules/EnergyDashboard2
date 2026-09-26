@@ -31,8 +31,15 @@ example “logging is switched on”. Optional.</li>
 The palette is a short scrolling list for each colour. Drag a block from a
 list into a slot of the same colour; a signal will not drop into a comparison
 slot. You should see the coloured block follow the pointer. <b>Right-click</b>
-a slot to empty it. Rules are numbered down the left. Hovering a rule shows
-the whole sentence.</p>
+a slot to empty it, or drag the block down to the bin. Rules are numbered
+down the left. The three bars on the left of a rule are its handle: drag
+that to change the order, or drag it into the bin to remove the whole rule.
+Hovering a rule shows the whole sentence.</p>
+<p>
+Click a block that has a number — a length of time, the hold time, the
+low-battery line, or the spare-solar minimum — and a box opens so you can
+change that figure. The alarm uses the new number. The sentence stays one
+of the built-in alarms, so it still fires.</p>
 <p>
 The line itself is the syntax, in the form
 <b>WHEN</b> signal comparison threshold <b>FOR</b> how long
@@ -43,7 +50,6 @@ The rules sit at the bottom of the page. A complete sentence that is
 not one of the built-in alarms still does not fire — the hover says so.
 The thing that actually raises alarms is still the built-in rule in the code.</p>
 <p>
-<b>Add rule</b> gives you an empty line, <b>Reset</b> puts the built-in rules
-back, and the <b>×</b> at the end of a line takes it off the page.
-<b>Alarms page</b> jumps to the live view in Dashboards.</p>
+<b>Add rule</b> gives you an empty line, and <b>Reset</b> puts the built-in
+rules back. <b>Alarms page</b> jumps to the live view in Dashboards.</p>
 """

@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 20:03
+
+- On Alarm defs, clicking a block that has a number — a length of time, the hold time, the low-battery line, or the spare-solar minimum — opens a box so that figure can be changed. The alarm uses the new number.
+- Each rule has a small handle on the left. Drag it to change the order. A bin at the bottom right takes a single block, or the whole rule if the handle is dropped there.
+
 ### 19:54
 
 - On Alarm defs, a finished rule was only a green outline, and Syntax Correct was green writing with nothing behind it. The rule is now filled in, and those words sit on a solid green background.

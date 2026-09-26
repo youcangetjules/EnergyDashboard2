@@ -339,6 +339,14 @@ class AlarmMonitor:
     notify_cooldown_s: float = DEFAULT_NOTIFY_COOLDOWN_S
     enabled: bool = True
     desktop_enabled: bool = True
+    # Per-alarm waits. Alarm defs edits these; the catalogue phrase stays put
+    # so a built-in rule still matches after the number changes.
+    grott_lost_hold_s: float = DEFAULT_GROTT_LOST_HOLD_S
+    db_disconnect_hold_s: float = DEFAULT_DB_DISCONNECT_HOLD_S
+    db_ingest_hold_s: float = DEFAULT_DB_INGEST_HOLD_S
+    inverter_lost_hold_s: float = DEFAULT_INVERTER_LOST_HOLD_S
+    tasmota_mqtt_hold_s: float = DEFAULT_TASMOTA_MQTT_HOLD_S
+    tasmota_stale_s: float = DEFAULT_TASMOTA_STALE_S
 
     _below_since: float | None = field(default=None, init=False)
     _sun_waste_since: float | None = field(default=None, init=False)
@@ -367,6 +375,12 @@ class AlarmMonitor:
         pv_min_kw: float | None = None,
         charge_idle_kw: float | None = None,
         notify_cooldown_s: float | None = None,
+        grott_lost_hold_s: float | None = None,
+        db_disconnect_hold_s: float | None = None,
+        db_ingest_hold_s: float | None = None,
+        inverter_lost_hold_s: float | None = None,
+        tasmota_mqtt_hold_s: float | None = None,
+        tasmota_stale_s: float | None = None,
     ) -> None:
         if enabled is not None:
             self.enabled = bool(enabled)
@@ -381,6 +395,18 @@ class AlarmMonitor:
         if notify_cooldown_s is not None:
             # Retained for settings compat; desktop repeats use notify_backoff_interval_s.
             self.notify_cooldown_s = max(60.0, float(notify_cooldown_s))
+        if grott_lost_hold_s is not None:
+            self.grott_lost_hold_s = min(600.0, max(5.0, float(grott_lost_hold_s)))
+        if db_disconnect_hold_s is not None:
+            self.db_disconnect_hold_s = min(600.0, max(10.0, float(db_disconnect_hold_s)))
+        if db_ingest_hold_s is not None:
+            self.db_ingest_hold_s = min(1800.0, max(30.0, float(db_ingest_hold_s)))
+        if inverter_lost_hold_s is not None:
+            self.inverter_lost_hold_s = min(1800.0, max(60.0, float(inverter_lost_hold_s)))
+        if tasmota_mqtt_hold_s is not None:
+            self.tasmota_mqtt_hold_s = min(600.0, max(5.0, float(tasmota_mqtt_hold_s)))
+        if tasmota_stale_s is not None:
+            self.tasmota_stale_s = min(3600.0, max(60.0, float(tasmota_stale_s)))
 
     def clear(self) -> None:
         self._below_since = None
@@ -637,11 +663,11 @@ class AlarmMonitor:
         # fresh window so startup / first heartbeat is not a false alarm.
         # Already-stale snapshot: age has already exceeded fresh_s.
         if not connected:
-            hold_s = DEFAULT_GROTT_LOST_HOLD_S
+            hold_s = self.grott_lost_hold_s
         elif age_s is None:
-            hold_s = max(DEFAULT_GROTT_LOST_HOLD_S, float(fresh_s))
+            hold_s = max(self.grott_lost_hold_s, float(fresh_s))
         else:
-            hold_s = DEFAULT_GROTT_LOST_HOLD_S
+            hold_s = self.grott_lost_hold_s
         if (now - self._grott_lost_since) < hold_s:
             return None
         dur_s = now - self._grott_lost_since
@@ -703,7 +729,7 @@ class AlarmMonitor:
             self._drop_alarm("db_disconnected")
         if (
             self._db_disc_since is not None
-            and (now - self._db_disc_since) >= DEFAULT_DB_DISCONNECT_HOLD_S
+            and (now - self._db_disc_since) >= self.db_disconnect_hold_s
         ):
             dur_s = now - self._db_disc_since
             err = (db_error or "connection failed").strip()
@@ -741,7 +767,7 @@ class AlarmMonitor:
             self._drop_alarm("db_ingest_stale")
         if (
             self._db_ingest_since is not None
-            and (now - self._db_ingest_since) >= DEFAULT_DB_INGEST_HOLD_S
+            and (now - self._db_ingest_since) >= self.db_ingest_hold_s
         ):
             who = []
             if growatt_writing:
@@ -781,7 +807,7 @@ class AlarmMonitor:
             self._drop_alarm("inverter_comms_lost")
         if (
             self._inv_lost_since is not None
-            and (now - self._inv_lost_since) >= DEFAULT_INVERTER_LOST_HOLD_S
+            and (now - self._inv_lost_since) >= self.inverter_lost_hold_s
         ):
             reason = (inverter_comms_reason or "offline").strip()
             dur_m = (now - self._inv_lost_since) / 60.0
@@ -808,7 +834,7 @@ class AlarmMonitor:
             self._drop_alarm("tasmota_mqtt_lost")
         if (
             self._tasmota_mqtt_since is not None
-            and (now - self._tasmota_mqtt_since) >= DEFAULT_TASMOTA_MQTT_HOLD_S
+            and (now - self._tasmota_mqtt_since) >= self.tasmota_mqtt_hold_s
         ):
             dur_s = now - self._tasmota_mqtt_since
             hits.append(self._raise(
@@ -840,7 +866,7 @@ class AlarmMonitor:
             self._drop_alarm("tasmota_offline")
         if (
             self._tasmota_off_since is not None
-            and (now - self._tasmota_off_since) >= DEFAULT_TASMOTA_STALE_S
+            and (now - self._tasmota_off_since) >= self.tasmota_stale_s
         ):
             labels = ", ".join(self._tasmota_offline_labels[:6])
             extra = (
@@ -856,7 +882,7 @@ class AlarmMonitor:
                     f"{n} Tasmota device{'s' if n != 1 else ''} not reporting"
                 ),
                 detail=(
-                    f"No telemetry for at least {DEFAULT_TASMOTA_STALE_S / 60.0:.0f} "
+                    f"No telemetry for at least {self.tasmota_stale_s / 60.0:.0f} "
                     f"min from: {labels}{extra}. "
                     "Wi-Fi drop, a powered-off plug, or a stuck Tasmota firmware "
                     "are the usual causes — not a chart bug."

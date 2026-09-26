@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.464", "2026-09-26", [
+        "Alarm defs: click a time or a limit to change that number. A bin at the bottom takes a block, or a whole rule if you drag its handle there. The handle also changes the order.",
+    ]),
     ("2.9.463", "2026-09-26", [
         "Alarm defs: a complete rule is filled green, and Syntax Correct sits on a green background. The rules sit at the bottom of the page.",
     ]),
