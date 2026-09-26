@@ -41,6 +41,22 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 ## <span style="color:red">Open</span>
 
+### <span style="color:red">BUG-066-20260926-04 — Connectivity Status freezes when a box or button is clicked</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 11:21 (Europe/London) |
+| **Status** | open |
+| **Area** | Connectivity Status |
+| **Version found** | 2.9.440 |
+| **Version fixed** | — |
+
+**Symptom:** The Connectivity Status page is unstable. Clicking a box on the diagram, or a button on the page, freezes the app. The window stops responding.
+
+**Cause:** Investigating.
+
+**Resolution:** Empty while open.
+
 ### <span style="color:red">BUG-054-20260923-09 — Dashboard segmentation fault during Qt property update</span>
 
 | Field | Value |
@@ -116,6 +132,22 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-067-20260926-05 — Show Alarms on Connectivity crashes</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 11:22 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Connectivity Status |
+| **Version found** | 2.9.440 |
+| **Version fixed** | 2.9.441 |
+
+**Symptom:** Right-click a Connectivity row and choose Show Alarms. The app prints `AttributeError: 'list' object has no attribute 'values'` and the alarm window does not open. The same session also printed `Connection to (222.20.20.122, 8899) failed: timed out`.
+
+**Cause:** The live alarms are stored as a dictionary. The menu wrapped that dictionary in `list(...)` first, which throws the keys away, then called `.values()` on the list. The diagram refresh had the same mistake, but it swallowed the error. The 8899 line is the Modbus gateway not answering; that probe already runs off the window thread.
+
+**Resolution:** Read the alarm dictionary’s values (or a list, if that is what is stored). Shipped in 2.9.441.
 
 ### <span style="color:green">BUG-065-20260926-03 — Degraded banner does not name the missing registers</span>
 

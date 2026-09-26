@@ -53,6 +53,10 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.441", "2026-09-26", [
+        "Show Alarms on a Connectivity row no longer crashes. The live "
+        "alarm list was being read as if it were already a plain list.",
+    ]),
     ("2.9.440", "2026-09-26", [
         "Click the <b>DEGRADED</b> banner on Connectivity to see the exact "
         "problem. When Grott is missing registers, the window names each "

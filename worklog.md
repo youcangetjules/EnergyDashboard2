@@ -12,6 +12,8 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+- Show Alarms on Connectivity crashed. The code wrapped the alarm dictionary in a list and then asked that list for `.values()`. It now reads the alarms correctly. The “connection to port 8899 timed out” line is the local Modbus gateway not answering; that probe already runs in the background and is not this crash.
+- Logged BUG-066. Connectivity Status freezes when a diagram box or a button is clicked. Still open.
 - Clicking the DEGRADED banner on Connectivity now opens the exact problem. If Grott is missing registers, that window names each one (what it measures, and the Growatt field) instead of only saying how many are missing.
 - Connectivity Status was leaving the table-size column blank. One table was asked for a column it does not have, the database then refused the rest of the read, and the page threw the sizes away. Sizes show again (rows and the disk size right now). Each row has a Table history button that charts how the stored rows have grown, day by day.
 - Roof layout’s imagery menu has its own Google historic choice. Older Google photos are not on the tile address any more, so that choice opens Google Earth’s timeline in the map panel. Satellite map brings the roof outline back. The dated archive menu is still the separate Esri set, not old Google pictures.

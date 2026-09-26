@@ -54,6 +54,18 @@ _GROTT_FILL_PLAIN = {
 }
 
 
+def _active_alarm_hits(mon) -> list:
+    """Live alarms from AlarmMonitor. `_active` is a dict of hits."""
+    if mon is None:
+        return []
+    raw = getattr(mon, "_active", None)
+    if isinstance(raw, dict):
+        return list(raw.values())
+    if isinstance(raw, (list, tuple)):
+        return list(raw)
+    return []
+
+
 def _grott_fill_lines(names) -> list[str]:
     """One plain-English line per register Grott did not publish."""
     lines = []
@@ -3399,7 +3411,7 @@ class ConnectivityStatusTab(QWidget):
         rows = self._collect_service_events(label, service_key)
         # Also surface *active* AlarmMonitor hits that map to this row.
         mon = getattr(self.dash, "alarm_monitor", None)
-        active = list(getattr(mon, "_active", {}) or {}).values() if mon else []
+        active = _active_alarm_hits(mon)
         for hit in active:
             akey = str(getattr(hit, "key", "") or "")
             # Map live alarms onto the row that owns them.
@@ -4617,7 +4629,7 @@ class ConnectivityStatusTab(QWidget):
         hits = []
         if mon is not None:
             try:
-                hits = list(getattr(mon, "_active", {}) or {}).values()
+                hits = _active_alarm_hits(mon)
             except Exception:
                 hits = []
         self.set_diagram_alarms(hits)
