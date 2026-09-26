@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+- Roof layout’s imagery menu has its own Google historic choice. Older Google photos are not on the tile address any more, so that choice opens Google Earth’s timeline in the map panel. Satellite map brings the roof outline back. The dated archive menu is still the separate Esri set, not old Google pictures.
 - String voltage can show one London day, or a rolling 24-hour window. The rolling window puts “now” where 22:00 sits on the day chart: 22 hours of history and two empty hours to the right, so the latest volts still fit beside the line. Today stays the default. The day menu was stuck on yesterday after midnight; opening it now allows today.
 
 ## 2026-09-25

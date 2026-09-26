@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.438", "2026-09-26", [
+        "Roof layout imagery has <b>Google historic</b>. It opens Google "
+        "Earth’s timeline in the map panel. Satellite map brings the roof "
+        "outline back. Historic satellite stays the separate dated archive.",
+    ]),
     ("2.9.437", "2026-09-26", [
         "String voltage has <b>Today</b> and <b>Rolling 24Hr</b>. Today is "
         "one London day and is the default. Rolling 24Hr draws now where "

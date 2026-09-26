@@ -593,6 +593,7 @@ class _SatelliteRoofMap(QWidget):
     polygonChanged = Signal()
     drawFinished = Signal()
     edgePicked = Signal(str, object)  # kind 'top'|'bottom', [[lon,lat],[lon,lat]]
+    googleHistoricShown = Signal(float, float)
 
     _HTML = """<!DOCTYPE html>
 <html>
@@ -670,6 +671,7 @@ class _SatelliteRoofMap(QWidget):
         <option value="esri_live" selected>Esri Live (current mosaic)</option>
         <option value="google">Google Satellite (current)</option>
         <option value="google_hyb">Google Hybrid (current)</option>
+        <option value="google_hist">Google historic</option>
         <option value="wayback">Historic satellite (dated archive)</option>
         <option value="s2_2024">Sentinel-2 cloudless 2024</option>
         <option value="s2_2021">Sentinel-2 cloudless 2021</option>
@@ -759,7 +761,21 @@ class _SatelliteRoofMap(QWidget):
   var wbByYear = {};
   var wbIdx = 0;
 
+  function openGoogleHistoric() {
+    var c = map.getCenter();
+    setMeta(
+      'Imagery: <b>Google historic</b> · opening Earth’s timeline at this roof' +
+      '<br><span style="color:#a6adc8">Turn on Historical imagery in Earth. Satellite map brings the roof outline back.</span>'
+    );
+    setHint('Google historic uses Earth’s own timeline. Satellite map brings the roof outline back.');
+    document.title = 'GEHIST ' + c.lat.toFixed(6) + ' ' + c.lng.toFixed(6);
+  }
+
   function setActiveLayer(key) {
+    if (key === 'google_hist') {
+      openGoogleHistoric();
+      return;
+    }
     if (activeLayer) map.removeLayer(activeLayer);
     activeBase = key;
     activeLayer = layersByKey[key] || layersByKey.esri_live;
@@ -926,7 +942,7 @@ class _SatelliteRoofMap(QWidget):
     if (activeBase === 'google' || activeBase === 'google_hyb') {
       setMeta(
         'Imagery: <b>Google ' + (activeBase === 'google_hyb' ? 'Hybrid' : 'Satellite') + '</b> · current photo · z' + z +
-        '<br><span style="color:#a6adc8">Google’s tile server no longer serves older satellite photos. Choose <b>Historic satellite</b> for a dated archive.</span>'
+        '<br><span style="color:#a6adc8">Older Google photos are <b>Google historic</b> (Earth’s timeline). Historic satellite is the separate dated archive.</span>'
       );
       return;
     }
@@ -1343,6 +1359,7 @@ class _SatelliteRoofMap(QWidget):
         self._pending_az_guide: dict | None = None
         self._pending_imagery: tuple | None = None
         self._draw_mode = False
+        self._showing_earth = False
         self._web = None
         self._init_lat = float(init_lat)
         self._init_lon = float(init_lon)
@@ -1387,21 +1404,50 @@ class _SatelliteRoofMap(QWidget):
         from PySide6.QtWebEngineWidgets import QWebEngineView
 
         self._web = QWebEngineView()
-        html = (
+        self._web.setHtml(self._leaflet_html(), QUrl("https://localhost/"))
+        self._web.loadFinished.connect(self._on_load_finished)
+        self._web.page().titleChanged.connect(self._on_title)
+        self._lay.addWidget(self._web, 1)
+
+    def _leaflet_html(self) -> str:
+        return (
             self._HTML
             .replace("__INIT_LAT__", f"{self._init_lat:.6f}")
             .replace("__INIT_LON__", f"{self._init_lon:.6f}")
         )
-        self._web.setHtml(html, QUrl("https://localhost/"))
-        self._web.loadFinished.connect(self._on_load_finished)
-        self._web.page().titleChanged.connect(self._on_title)
-        self._lay.addWidget(self._web, 1)
+
+    def is_google_historic(self) -> bool:
+        return bool(self._showing_earth)
+
+    def show_leaflet(self):
+        """Leave Google Earth and load the roof-outline map again."""
+        if self._web is None or not self._showing_earth:
+            return
+        self._showing_earth = False
+        self._ready = False
+        self._web.setHtml(self._leaflet_html(), QUrl("https://localhost/"))
+
+    def show_google_historic(self, lat: float, lon: float):
+        """Google’s dated photos are Earth’s timeline, not a tile version."""
+        if self._web is None or self._showing_earth:
+            return
+        self._showing_earth = True
+        self._ready = False
+        self.googleHistoricShown.emit(float(lat), float(lon))
+        url = (
+            f"https://earth.google.com/web/@{float(lat)},{float(lon)},"
+            "120a,400d,35y,0h,0t,0r"
+        )
+        self._web.setUrl(QUrl(url))
 
     @property
     def available(self) -> bool:
         return self._web_ok
 
     def _on_load_finished(self, ok: bool):
+        if self._showing_earth:
+            self._ready = False
+            return
         self._ready = bool(ok)
         if not self._ready:
             return
@@ -1434,6 +1480,15 @@ class _SatelliteRoofMap(QWidget):
 
     def _on_title(self, title: str):
         t = title or ""
+        if t.startswith("GEHIST"):
+            parts = t.split()
+            try:
+                lat = float(parts[1])
+                lon = float(parts[2])
+            except (IndexError, ValueError):
+                lat, lon = self._init_lat, self._init_lon
+            self.show_google_historic(lat, lon)
+            return
         if t.startswith("DRAWOFF"):
             self._draw_mode = False
             self.drawFinished.emit()
@@ -1662,7 +1717,9 @@ class RoofLayoutTab(QWidget):
         toolbar = QHBoxLayout()
 
         self.btn_sat = QPushButton("Satellite map")
-        self.btn_sat.setToolTip("Show live aerial imagery at the Forecasts location.")
+        self.btn_sat.setToolTip(
+            "Show the roof-outline map. Leaves Google historic if that is open."
+        )
         self.btn_sat.clicked.connect(self._show_satellite)
         toolbar.addWidget(self.btn_sat)
 
@@ -1837,6 +1894,7 @@ class RoofLayoutTab(QWidget):
         lat0, lon0 = self._forecast_latlon()
         self.view_stack = QStackedWidget()
         self.sat_map = _SatelliteRoofMap(lat0, lon0)
+        self.sat_map.googleHistoricShown.connect(self._on_google_historic)
         self.sat_map.polygonChanged.connect(self._on_map_polygon_changed)
         self.sat_map.drawFinished.connect(self._on_draw_finished)
         self.sat_map.edgePicked.connect(self._on_edge_picked)
@@ -2538,6 +2596,8 @@ class RoofLayoutTab(QWidget):
 
     def _show_satellite(self):
         self.sat_map.ensure_started()
+        if self.sat_map.is_google_historic():
+            self.sat_map.show_leaflet()
         self.view_stack.setCurrentIndex(_PAGE_MAP)
         self._center_map_on_forecasts()
         self.canvas_hint.setText(
@@ -2757,6 +2817,17 @@ class RoofLayoutTab(QWidget):
             "Adjust tilt/panel count, then Apply to Forecasts."
         )
         self._update_summary()
+
+    def _on_google_historic(self, lat: float, lon: float):
+        self.view_stack.setCurrentIndex(_PAGE_MAP)
+        self.canvas_hint.setText(
+            "Google historic: in Earth, turn on Historical imagery (the timeline). "
+            "Satellite map brings the roof outline back."
+        )
+        self.set_status(
+            f"Google historic at {lat:.5f}, {lon:.5f}. "
+            "Dated Google photos are Earth’s timeline, not the Esri archive."
+        )
 
     def _open_google_earth(self):
         lat, lon = self._forecast_latlon()

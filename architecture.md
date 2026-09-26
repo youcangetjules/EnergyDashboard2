@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Google historic is Earth, not a tile version
+
+- **Context:** Roof layout used to offer older Google satellite versions. The public tile address now returns the current photo for every old version number. Dated Google photos are still in Google Earth, on its historical-imagery timeline. They are not the Esri Wayback archive.
+- **Decision:** The imagery menu has a separate **Google historic** choice. It loads Google Earth web in the map panel at the roof. The outline map comes back with **Satellite map**. Do not decrypt Earth tile databases, and do not label Esri frames as Google.
+- **Consequence:** Drawing a roof outline is paused while Earth is open. Historic satellite stays the Esri dated archive.
+
 ### 2026-09-25 — No Python event filter on the application
 
 - **Context:** The dashboard segfaulted on the main thread (`getWrapperForQObject` re-entered from an application event filter during `doSetProperty`). On Roof layout the satellite map never appeared, because creating the map view sets a Qt property while that filter is live (BUG-060).

@@ -18,7 +18,8 @@ average tilt/azimuth.</p>
 lat/lon. Use the top <b>Imagery</b> menu:
 <ul>
 <li><b>Google Satellite / Hybrid</b> — the current photo only. Google’s tile server no longer returns older satellite versions.</li>
-<li><b>Historic satellite</b> — dated aerial archive (Esri Wayback, 2014→now). Pick <b>Year</b> and <b>Release</b>, or ◀/▶ through the timeline. These are not old Google photos.</li>
+<li><b>Google historic</b> — Google Earth’s own timeline for this roof, in the map panel. Turn on <b>Historical imagery</b> there. <b>Satellite map</b> brings the roof outline back. These are Google’s dated photos, not the archive below.</li>
+<li><b>Historic satellite</b> — dated aerial archive (Esri Wayback, 2014→now). Pick <b>Year</b> and <b>Release</b>, or ◀/▶ through the timeline.</li>
 <li><b>Esri Live</b> — current mosaic; the chip at the bottom shows the scene capture date</li>
 <li><b>Sentinel-2 cloudless</b> (2018 / 2021 / 2024) — annual mosaics (~10&nbsp;m; timeline context, not panel edges)</li>
 </ul>
