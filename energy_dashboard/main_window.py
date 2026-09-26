@@ -45,6 +45,7 @@ from energy_dashboard.tabs.shadow_trial import ShadowTrialTab
 from PySide6.QtWidgets import QWidgetAction
 
 from energy_dashboard.ui.system_status_bar import tray_database_lines
+from energy_dashboard.ui.tray_icon import powermon_tray_icon, style_tray_info
 from energy_dashboard.ui.work_area import client_cap, fit_window_to_work_area
 from energy_dashboard.tabs.smart_advisor import SmartAdvisorTab
 from energy_dashboard.tabs.tasmota import TasmotaTab
@@ -1277,14 +1278,12 @@ class EnergyDashboard(QMainWindow):
             return
         try:
             tray = QSystemTrayIcon(self)
-            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
-            tray.setIcon(icon if not icon.isNull() else self.windowIcon())
+            tray.setIcon(powermon_tray_icon())
             tray.setToolTip("PowerMon — right-click for broker, health, and alarms")
             menu = QMenu(self)
             self._tray_stat_labels = []
             for _ in range(4):
                 lab = QLabel("—")
-                lab.setStyleSheet("background: transparent; padding: 2px 16px;")
                 act = QWidgetAction(menu)
                 act.setDefaultWidget(lab)
                 menu.addAction(act)
@@ -1297,6 +1296,7 @@ class EnergyDashboard(QMainWindow):
             menu.addAction("Alarms").triggered.connect(self._tray_show_alarms)
             menu.addSeparator()
             menu.addAction("Quit PowerMon").triggered.connect(self._tray_quit_app)
+            style_tray_info(menu, self._tray_stat_labels)
             menu.aboutToShow.connect(self._tray_refresh_menu)
             tray.setContextMenu(menu)
             tray.activated.connect(self._tray_activated)

@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 15:11
+
+- The tray icon is a sun and a battery instead of a warning triangle. The database lines on that menu now use light text on the same dark background as the rest of the dashboard, so they can be read.
+
 ### 14:25
 
 - Right-click the tray icon for how much data landed in the last 15 minutes and the last hour, how many streams are writing, and the database address, plus Start/Stop Broker, system health, a Settings placeholder, alarms, and Quit PowerMon. Closing the window now leaves the app in the tray. Quit PowerMon is the way out.

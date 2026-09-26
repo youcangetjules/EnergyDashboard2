@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.450", "2026-09-26", [
+        "The tray icon is a sun and a battery, and the database lines on "
+        "that menu use light text on the same dark background as the rest "
+        "of the dashboard.",
+    ]),
     ("2.9.449", "2026-09-26", [
         "Right-click the tray icon for database traffic, Start/Stop Broker, "
         "system health, a Settings placeholder, alarms, and Quit PowerMon. "

@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-26 | 9 | 9 | 4 |
+| 2026-09-26 | 10 | 10 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
 | 2026-09-23 | 11 | 8 | 4 |
@@ -133,6 +133,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-072-20260926-10 — Tray menu database lines are hard to read</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 15:08 (Europe/London) |
+| **Status** | fixed |
+| **Area** | System tray menu |
+| **Version found** | 2.9.449 |
+| **Version fixed** | 2.9.450 |
+
+**Symptom:** The database address, 15-minute and 1-hour totals, and stream count at the top of the tray menu do not stand out. The words are there, but the contrast against the menu is poor.
+
+**Cause:** Those lines are labels painted with the dashboard’s pale text, while the menu behind them stays the desktop colour. Pale text on a light menu disappears.
+
+**Resolution:** The tray menu, including those lines, uses the same light text on a dark background as the rest of the dashboard. Shipped in 2.9.450.
 
 ### <span style="color:green">BUG-071-20260926-09 — PV String Charge does not show string 1 and 2 contributions</span>
 
