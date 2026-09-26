@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.457", "2026-09-26", [
+        "The tray database lines are ordinary menu entries now, so they read like Stop Broker instead of showing a blank strip.",
+    ]),
     ("2.9.456", "2026-09-26", [
         "The group strip says Physical Plant and Import/Export.",
     ]),

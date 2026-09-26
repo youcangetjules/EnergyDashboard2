@@ -26,68 +26,31 @@ def powermon_tray_icon() -> QIcon:
     return icon
 
 
-# Painted by hand. A QLabel in this menu inherits the app stylesheet and
-# comes out the same colour as the menu, so the figures disappear.
-_INFO_BG = QColor("#1e1e2e")
-_INFO_FG = QColor("#ffffff")
-
-
-class TrayInfoLine(QWidget):
-    """One database line in the tray menu. Draws its own text."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._text = "—"
-        self.setMinimumHeight(22)
-        self.setMinimumWidth(240)
-
-    def setText(self, text: str) -> None:
-        self._text = text or "—"
-        self.update()
-
-    def text(self) -> str:
-        return self._text
-
-    def sizeHint(self):
-        return QSize(280, 22)
-
-    def paintEvent(self, _event):
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), _INFO_BG)
-        painter.setPen(_INFO_FG)
-        font = painter.font()
-        font.setPixelSize(13)
-        painter.setFont(font)
-        painter.drawText(
-            self.rect().adjusted(14, 0, -10, 0),
-            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-            self._text,
-        )
-        painter.end()
-
-
 def style_tray_info(menu, _labels=None) -> None:
     """Paint the tray menu like the rest of the app.
 
-    The database lines are ``TrayInfoLine`` widgets. They do not use a
-    stylesheet, because a label in this menu was coming out the same
-    colour as the background.
+    Every row, including the database lines, is a plain menu entry. A widget
+    embedded in this menu rendered as a blank strip on KDE (BUG-074), so the
+    figures are ordinary items and take this item colour.
     """
     menu.setStyleSheet(
         f"""
         QMenu {{
             background-color: {_DARK_SURFACE_BG};
-            color: {_DARK_TEXT};
+            color: #ffffff;
             border: 1px solid #45475a;
             padding: 4px 0px;
         }}
         QMenu::item {{
-            color: {_DARK_TEXT};
+            color: #ffffff;
             background-color: transparent;
             padding: 6px 28px 6px 16px;
         }}
         QMenu::item:selected {{
             background-color: {_DARK_SURFACE0};
+            color: #ffffff;
+        }}
+        QMenu::item:disabled {{
             color: {_DARK_TEXT};
         }}
         QMenu::separator {{

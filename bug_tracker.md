@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-26 | 11 | 11 | 4 |
+| 2026-09-26 | 12 | 12 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
 | 2026-09-23 | 11 | 8 | 4 |
@@ -133,6 +133,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-074-20260926-12 — Tray database block renders blank</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 15:40 (Europe/London) |
+| **Status** | fixed |
+| **Area** | System tray menu |
+| **Version found** | 2.9.453 (running process confirmed on that build) |
+| **Version fixed** | 2.9.457 |
+
+**Symptom:** The block above Stop Broker is an empty dark strip. Two earlier colour fixes did not change it. The running dashboard was confirmed to be on the build that contained the second fix, so this is not a stale process.
+
+**Cause:** Those four lines were widgets embedded in the menu (`QWidgetAction`). On this KDE desktop the embedded widget reserves its height but never paints, so no colour change could ever show the text. Painting by hand inside the widget did not help either — the widget itself is not drawn. Menu entries next to it (Stop Broker, Settings) render normally.
+
+**Resolution:** The four lines are ordinary menu entries, like Stop Broker, so they use the menu's own item drawing and white item colour. Clicking one opens Show system health. A failure while formatting them now says so instead of leaving the row blank. Shipped in 2.9.457.
 
 ### <span style="color:green">BUG-073-20260926-11 — Tray database lines still unreadable</span>
 

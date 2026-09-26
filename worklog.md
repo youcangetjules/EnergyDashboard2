@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 15:42
+
+- The tray database lines are ordinary menu entries now, the same kind as Stop Broker. They had been small embedded panels, and this desktop reserves the space for those but never draws them — which is why two colour fixes changed nothing. Clicking one of the lines opens Show system health.
+
 ### 15:39
 
 - The group strip now says Physical Plant and Import/Export. Help pages that point at those groups use the same short names.

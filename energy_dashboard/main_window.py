@@ -43,14 +43,8 @@ from energy_dashboard.tabs.panel_database import PanelDatabaseTab
 from energy_dashboard.tabs.roof_layout import RoofLayoutTab
 from energy_dashboard.tabs.parameters import ParametersTab
 from energy_dashboard.tabs.shadow_trial import ShadowTrialTab
-from PySide6.QtWidgets import QWidgetAction
-
 from energy_dashboard.ui.system_status_bar import tray_database_lines
-from energy_dashboard.ui.tray_icon import (
-    TrayInfoLine,
-    powermon_tray_icon,
-    style_tray_info,
-)
+from energy_dashboard.ui.tray_icon import powermon_tray_icon, style_tray_info
 from energy_dashboard.ui.work_area import client_cap, fit_window_to_work_area
 from energy_dashboard.tabs.smart_advisor import SmartAdvisorTab
 from energy_dashboard.tabs.tasmota import TasmotaTab
@@ -1304,13 +1298,13 @@ class EnergyDashboard(QMainWindow):
             tray.setIcon(powermon_tray_icon())
             tray.setToolTip("PowerMon — right-click for broker, health, and alarms")
             menu = QMenu(self)
-            self._tray_stat_labels = []
-            for _ in range(4):
-                lab = TrayInfoLine(menu)
-                act = QWidgetAction(menu)
-                act.setDefaultWidget(lab)
-                menu.addAction(act)
-                self._tray_stat_labels.append(lab)
+            # Ordinary menu entries, not embedded widgets: a widget dropped into
+            # a tray menu rendered as a blank strip on this desktop (BUG-074).
+            self._tray_stat_actions = []
+            for text in tray_database_lines(None):
+                act = menu.addAction(text)
+                act.triggered.connect(self._tray_show_health)
+                self._tray_stat_actions.append(act)
             menu.addSeparator()
             self._tray_act_broker = menu.addAction("Start Broker")
             self._tray_act_broker.triggered.connect(self._tray_toggle_broker)
@@ -1319,7 +1313,7 @@ class EnergyDashboard(QMainWindow):
             menu.addAction("Alarms").triggered.connect(self._tray_show_alarms)
             menu.addSeparator()
             menu.addAction("Quit PowerMon").triggered.connect(self._tray_quit_app)
-            style_tray_info(menu, self._tray_stat_labels)
+            style_tray_info(menu)
             menu.aboutToShow.connect(self._tray_refresh_menu)
             tray.setContextMenu(menu)
             tray.activated.connect(self._tray_activated)
@@ -1362,10 +1356,17 @@ class EnergyDashboard(QMainWindow):
             self.activateWindow()
 
     def _tray_refresh_menu(self):
-        status = getattr(getattr(self, "system_status", None), "last_status", None)
-        lines = tray_database_lines(status)
-        for lab, text in zip(self._tray_stat_labels, lines):
-            lab.setText(text)
+        try:
+            status = getattr(getattr(self, "system_status", None), "last_status", None)
+            lines = tray_database_lines(status)
+            for act, text in zip(self._tray_stat_actions, lines):
+                act.setText(text)
+        except Exception as exc:
+            # An empty info block is worse than a stale one — say what happened.
+            _log.warn("Alarms", f"Tray database lines failed: {exc}")
+            for act in getattr(self, "_tray_stat_actions", []):
+                if not act.text().strip():
+                    act.setText("Database figures unavailable")
         self._tray_apply_broker_label()
         self._tray_probe_broker()
 
