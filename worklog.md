@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 20:15
+
+- Alarm defs can now use string A voltage and string B voltage as signals, and “has a differential of” as the comparison. Volts is a threshold: click it and a box asks how many volts.
+
 ### 20:11
 
 - On Alarm defs the block lists now run down to the rules, instead of stopping short and leaving a gap. A bar between the lists and the rules can be dragged to give either side more room.

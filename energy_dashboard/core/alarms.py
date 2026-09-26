@@ -288,7 +288,9 @@ ALARM_BLOCKS: tuple[AlarmBlocks, ...] = (
 # Blocks worth offering that no built-in alarm uses on its own. They let a
 # householder write a sentence of their own; it stays a draft either way.
 ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
-    "comparison": ("stays above", "stops"),
+    "signal": ("string A voltage", "string B voltage"),
+    "comparison": ("has a differential of", "stays above", "stops"),
+    "threshold": ("Volts",),
     "duration": ("about 5 minutes", "an hour"),
     "outcome": ("Warning", "Critical"),
 }

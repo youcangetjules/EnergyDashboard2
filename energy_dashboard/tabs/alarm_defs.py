@@ -151,6 +151,8 @@ class _Param:
             return f"{int(round(stored))}%"
         if self.suffix.strip() == "kW":
             return f"{float(stored):.1f} kW"
+        if self.suffix.strip() == "V":
+            return f"{int(round(float(stored)))} V"
         if self.scale != 1.0:
             n = int(round(float(stored) / self.scale))
             return "1 minute" if n == 1 else f"{n} minutes"
@@ -200,6 +202,15 @@ _PARAMS = (
         "counts as wasted when the battery is low and barely charging.",
         "alarms/pv_min_kw",
         0.2, 20, 1, 1.0, " kW", 1.0, "pv_min_kw",
+        keep_words=True,
+    ),
+    _Param(
+        "Volts",
+        "Volts",
+        "How many volts this block stands for. With “has a differential of”, "
+        "that is the gap between the two string voltages.",
+        "alarms/diff_volts",
+        1, 600, 0, 20.0, " V", 1.0, "volts",
         keep_words=True,
     ),
     _Param(
@@ -299,7 +310,7 @@ def _write_param(spec: _Param, spin_value: float, dash) -> None:
         return
     settings.setValue(spec.key, stored)
     settings.sync()
-    if dash is None:
+    if spec.monitor == "volts" or dash is None:
         return
     monitor = getattr(dash, "alarm_monitor", None)
     if monitor is not None:

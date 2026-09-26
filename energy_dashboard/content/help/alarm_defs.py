@@ -36,10 +36,14 @@ down the left. The three bars on the left of a rule are its handle: drag
 that to change the order, or drag it into the bin to remove the whole rule.
 Hovering a rule shows the whole sentence.</p>
 <p>
+The lists also include <b>string A voltage</b>, <b>string B voltage</b>,
+<b>has a differential of</b>, and <b>Volts</b>. Click <b>Volts</b> to set how
+many volts that block means.</p>
+<p>
 Click a block that has a number — a length of time, the hold time, the
-low-battery line, or the spare-solar minimum — and a box opens so you can
-change that figure. The alarm uses the new number. The sentence stays one
-of the built-in alarms, so it still fires.</p>
+low-battery line, the spare-solar minimum, or Volts — and a box opens so you
+can change that figure. Where the sentence is one of the built-in alarms, the
+alarm uses the new number.</p>
 <p>
 The line itself is the syntax, in the form
 <b>WHEN</b> signal comparison threshold <b>FOR</b> how long

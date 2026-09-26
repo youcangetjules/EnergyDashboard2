@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.466", "2026-09-26", [
+        "Alarm defs: signal can be string A voltage or string B voltage. Comparison can be “has a differential of”. Threshold can be Volts, which opens a box to set the number.",
+    ]),
     ("2.9.465", "2026-09-26", [
         "Alarm defs: the block lists fill down to the rules, and a bar between them can be dragged to give either side more room.",
     ]),
