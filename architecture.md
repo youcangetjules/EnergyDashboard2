@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Alarm defs is one line per rule
+
+- **Context:** Six big wells per rule, stacked in two rows, plus a palette of wrapping chips, pushed the nine built-in alarms off the bottom of the screen.
+- **Decision:** The palette for each kind of block is a fixed-height scrolling list of 20px rows. Each rule is a single 28px line: `when` signal comparison threshold `for` duration `while` context `then` outcome, then a Live/Draft mark. The sentence is the tooltip on that line. The blocks, the grammar, and `alarms/defs_blocks` are unchanged.
+- **Consequence:** Do not grow the slots back into cards. Do not put the sentence on a second line under the rule.
+
 ### 2026-09-26 — Alarm defs blocks are atomic, not whole phrases
 
 - **Context:** The drag pieces were whole clauses (“stays below the low-battery line for the hold time”). They were too long to read, overlapped in the palette, and hid the fact that one clause is really three separate parameters.

@@ -53,6 +53,10 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.460", "2026-09-26", [
+        "Alarm defs is much shorter: the palette is a small scrolling list per colour, and each rule is a single line of slots.",
+        "Hover a rule to read the whole sentence. Right-click a slot to empty it, as before.",
+    ]),
     ("2.9.459", "2026-09-26", [
         "Alarm defs now drags one small block at a time — signal, comparison, threshold, how long, an optional extra condition, and the outcome — instead of long sentences.",
         "Each kind of block has its own colour and its own palette column, and a block only drops into a box of the same colour. Right-click a box to empty it.",

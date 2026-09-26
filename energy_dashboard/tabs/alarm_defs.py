@@ -4,10 +4,10 @@ Energy Dashboard — Alarm defs tab (Controls group).
 Describes the alarms. What is sounding right now is the Alarms page in
 Dashboards (`tabs/alarms.py`).
 
-An alarm is built from its smallest pieces: a signal, a comparison, a
-threshold, how long it has to hold, an optional extra condition, and the
-outcome. Drag those blocks into a row and the line underneath is the
-syntax. A row that matches a built-in alarm is live; anything else is a
+An alarm is one line of small blocks: signal, comparison, threshold, how
+long, an optional extra condition, and the outcome. The palette above is a
+short scrolling list per kind — drag a row from a list into the matching
+slot. A line that matches a built-in alarm is live; anything else is a
 draft and does not fire.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 
 from PySide6.QtCore import QMimeData
-from PySide6.QtGui import QDrag
+from PySide6.QtGui import QDrag, QFontMetrics
 
 from energy_dashboard.common import *
 from energy_dashboard.core.alarms import (
@@ -30,8 +30,10 @@ from energy_dashboard.core.alarms import (
 
 _MIME = "application/x-powermon-alarm-piece"
 _QS_RULES = "alarms/defs_blocks"
+_ROW_H = 28
+_PALETTE_H = 118
 
-# One colour per kind of block, so a row reads as a sentence of parts.
+# One colour per kind of block, so a line reads as a sentence of parts.
 _KIND_COLOR = {
     "signal": "#89b4fa",
     "comparison": "#94e2d5",
@@ -48,10 +50,14 @@ _KIND_LABEL = {
     "context": "While (optional)",
     "outcome": "Outcome",
 }
-# Short palette-column captions.
 _KIND_SHORT = dict(_KIND_LABEL, duration="How long", context="While")
-_ROW_1 = ("signal", "comparison", "threshold")
-_ROW_2 = ("duration", "context", "outcome")
+# Little words between the slots, so the line still reads as a sentence.
+_BEFORE = {
+    "signal": "when",
+    "duration": "for",
+    "context": "while",
+    "outcome": "then",
+}
 # Reads properly in "Still needs a signal and an outcome."
 _KIND_NOUN = dict(
     signal="a signal",
@@ -83,26 +89,35 @@ def _decode_piece(mime: QMimeData) -> tuple[str, str]:
     return kind.strip(), text.strip()
 
 
-class AlarmChip(QLabel):
-    """One draggable block."""
+class _PaletteChip(QLabel):
+    """One palette row. Fixed height, so a long block scrolls instead of growing."""
 
     def __init__(self, kind: str, text: str, parent=None):
-        super().__init__(text, parent)
+        super().__init__(parent)
         self.kind = kind
+        self._full = text
         self._press = None
-        self.setWordWrap(True)
+        self.setFixedHeight(20)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setToolTip(f"Drag into a {_KIND_LABEL[kind]} box")
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        self.setToolTip(text)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.setStyleSheet(
             "QLabel {"
             f"  background: {_KIND_COLOR[kind]};"
             "  color: #1e1e2e;"
-            "  border-radius: 4px;"
-            "  padding: 3px 7px;"
+            "  border-radius: 3px;"
+            "  padding: 0px 6px;"
             "  font-size: 11px;"
             "}"
         )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        shown = QFontMetrics(self.font()).elidedText(
+            self._full, Qt.TextElideMode.ElideRight, max(24, self.width() - 14),
+        )
+        if shown != self.text():
+            self.setText(shown)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -116,14 +131,37 @@ class AlarmChip(QLabel):
             return
         drag = QDrag(self)
         mime = QMimeData()
-        mime.setData(_MIME, f"{self.kind}\n{self.text()}".encode("utf-8"))
+        mime.setData(_MIME, f"{self.kind}\n{self._full}".encode("utf-8"))
         drag.setMimeData(mime)
         drag.exec(Qt.DropAction.CopyAction)
         self._press = None
 
 
-class AlarmWell(QFrame):
-    """Drop target for one kind of block. Right-click empties it."""
+def _palette_list(kind: str) -> QScrollArea:
+    """Short scrolling list of one kind of block."""
+    host = QWidget()
+    col = QVBoxLayout(host)
+    col.setContentsMargins(2, 2, 2, 2)
+    col.setSpacing(2)
+    for text in alarm_palette(kind):
+        col.addWidget(_PaletteChip(kind, text))
+    col.addStretch(1)
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setFixedHeight(_PALETTE_H)
+    scroll.setWidget(host)
+    scroll.setToolTip(f"Drag a {_KIND_SHORT[kind].lower()} into a slot of the same colour")
+    scroll.setStyleSheet(
+        "QScrollArea { background: #181825; border: 1px solid #313244; border-radius: 4px; }"
+    )
+    host.setStyleSheet("background: #181825;")
+    return scroll
+
+
+class _Slot(QFrame):
+    """One drop target on a rule line. Right-click empties it."""
 
     changed = Signal()
 
@@ -132,60 +170,58 @@ class AlarmWell(QFrame):
         self.kind = kind
         self._text = ""
         self.setAcceptDrops(True)
-        self.setMinimumHeight(54)
-        self.setToolTip(
-            f"{_KIND_LABEL[kind]} — drop a {_KIND_SHORT[kind].lower()} block here. "
-            "Right-click to empty it."
-        )
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(7, 4, 7, 5)
-        layout.setSpacing(1)
-        self._title = QLabel(_KIND_LABEL[kind])
-        self._title.setStyleSheet(
-            "color: #a6adc8; font-size: 10px; background: transparent;"
-        )
+        self.setFixedHeight(_ROW_H)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(6, 0, 6, 0)
         self._body = QLabel("")
-        self._body.setWordWrap(True)
-        layout.addWidget(self._title)
-        layout.addWidget(self._body, 1)
+        self._body.setWordWrap(False)
+        self._body.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        lay.addWidget(self._body)
         self.set_piece("")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._text:
+            return
+        shown = QFontMetrics(self._body.font()).elidedText(
+            self._text, Qt.TextElideMode.ElideRight, max(24, self._body.width()),
+        )
+        if shown != self._body.text():
+            self._body.setText(shown)
 
     def text(self) -> str:
         return self._text
 
     def set_piece(self, text: str) -> None:
         self._text = (text or "").strip()
-        optional = self.kind not in ALARM_PIECE_REQUIRED
+        colour = _KIND_COLOR[self.kind]
         if self._text:
             self._body.setText(self._text)
             self._body.setStyleSheet(
-                "color: #1e1e2e; font-size: 12px; background: transparent;"
+                "color: #1e1e2e; font-size: 11px; background: transparent;"
             )
-            self._title.setStyleSheet(
-                "color: #45475a; font-size: 10px; background: transparent;"
+            self.setStyleSheet(
+                f"_Slot {{ background: {colour}; border-radius: 3px; }}"
             )
+            self.setToolTip(f"{self._text}\nRight-click to empty this slot.")
         else:
-            self._body.setText("not used" if optional else f"drop a {_KIND_SHORT[self.kind].lower()}")
+            optional = self.kind not in ALARM_PIECE_REQUIRED
+            self._body.setText("—" if optional else _KIND_SHORT[self.kind].lower())
             self._body.setStyleSheet(
-                "color: #6c7086; font-size: 12px; background: transparent;"
+                "color: #6c7086; font-size: 11px; background: transparent;"
             )
-            self._title.setStyleSheet(
-                "color: #a6adc8; font-size: 10px; background: transparent;"
-            )
-        self._paint()
-
-    def _paint(self) -> None:
-        colour = _KIND_COLOR[self.kind]
-        if self._text:
             self.setStyleSheet(
-                "AlarmWell {" f"  background: {colour};" "  border-radius: 6px; }"
-            )
-        else:
-            self.setStyleSheet(
-                "AlarmWell {"
+                "_Slot {"
                 "  background: #181825;"
                 f"  border: 1px dashed {colour};"
-                "  border-radius: 6px; }"
+                "  border-radius: 3px;"
+                "}"
+            )
+            self.setToolTip(
+                f"Drop a {_KIND_SHORT[self.kind].lower()} here."
+                + (" Optional." if optional else "")
             )
 
     def mousePressEvent(self, event):
@@ -215,134 +251,119 @@ class AlarmWell(QFrame):
         self.changed.emit()
 
 
-class AlarmRuleCard(QFrame):
-    """One row of blocks, plus the sentence they make."""
+class _RuleLine(QWidget):
+    """One alarm on a single line of slots."""
 
     changed = Signal()
     remove_requested = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet(
-            "AlarmRuleCard { background: #181825; border: 1px solid #313244; "
-            "border-radius: 6px; }"
-        )
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(10, 8, 10, 8)
-        outer.setSpacing(6)
-
-        self.wells: dict[str, AlarmWell] = {}
-        for kinds in (_ROW_1, _ROW_2):
-            row = QHBoxLayout()
-            row.setSpacing(8)
-            for kind in kinds:
-                well = AlarmWell(kind)
-                well.changed.connect(self._on_changed)
-                self.wells[kind] = well
-                row.addWidget(well, 1)
-            outer.addLayout(row)
-
-        foot = QHBoxLayout()
-        self.syntax = QLabel("")
-        self.syntax.setWordWrap(True)
-        self.syntax.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.syntax.setStyleSheet(
-            "color: #cdd6f4; font-size: 12px; background: transparent;"
-        )
-        foot.addWidget(self.syntax, 1)
+        self.setFixedHeight(_ROW_H + 4)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        self.slots: dict[str, _Slot] = {}
+        for kind in ALARM_PIECE_KINDS:
+            word = _BEFORE.get(kind)
+            if word:
+                lab = QLabel(word)
+                lab.setStyleSheet("color: #6c7086; font-size: 10px;")
+                lab.setFixedWidth(34 if kind != "signal" else 36)
+                row.addWidget(lab)
+            slot = _Slot(kind)
+            slot.changed.connect(self._on_changed)
+            self.slots[kind] = slot
+            row.addWidget(slot, 3 if kind in ("signal", "context", "outcome") else 2)
         self.status = QLabel("")
-        self.status.setStyleSheet(
-            "color: #a6adc8; font-size: 11px; background: transparent;"
+        self.status.setFixedWidth(44)
+        self.status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self.status)
+        remove = QPushButton("×")
+        remove.setFixedSize(24, _ROW_H)
+        remove.setToolTip("Take this rule off the page")
+        remove.setProperty("primary_button_exempt", True)
+        remove.setStyleSheet(
+            "QPushButton { background: transparent; color: #a6adc8; border: none; "
+            "font-size: 14px; }"
+            "QPushButton:hover { color: #f38ba8; }"
         )
-        foot.addWidget(self.status)
-        remove = QPushButton("Remove")
-        remove.setFixedWidth(88)
-        remove.setToolTip("Take this row off the page")
         remove.clicked.connect(lambda: self.remove_requested.emit(self))
-        foot.addWidget(remove)
-        outer.addLayout(foot)
-        self._refresh_syntax()
+        row.addWidget(remove)
+        self._refresh()
 
     def values(self) -> dict[str, str]:
-        return {kind: well.text() for kind, well in self.wells.items()}
+        return {kind: slot.text() for kind, slot in self.slots.items()}
 
     def set_values(self, pieces: dict[str, str]) -> None:
-        for kind, well in self.wells.items():
-            well.set_piece(str((pieces or {}).get(kind) or ""))
-        self._refresh_syntax()
+        for kind, slot in self.slots.items():
+            slot.set_piece(str((pieces or {}).get(kind) or ""))
+        self._refresh()
 
     def _on_changed(self) -> None:
-        self._refresh_syntax()
+        self._refresh()
         self.changed.emit()
 
-    def _refresh_syntax(self) -> None:
+    def _refresh(self) -> None:
         pieces = self.values()
         sentence = alarm_rule_syntax(pieces)
         if not sentence:
-            missing = [k for k in ALARM_PIECE_REQUIRED if not pieces.get(k)]
-            self.syntax.setText(_needs_text(missing))
-            self.status.setText("")
+            self.status.setText("—")
+            self.status.setStyleSheet("color: #6c7086; font-size: 11px;")
+            self.setToolTip(_needs_text(
+                [k for k in ALARM_PIECE_REQUIRED if not pieces.get(k)]
+            ))
             return
-        self.syntax.setText(sentence)
+        self.setToolTip(sentence)
         if alarm_blocks_key(pieces):
-            self.status.setText("Live rule")
-            self.status.setStyleSheet(
-                "color: #a6e3a1; font-size: 11px; background: transparent;"
-            )
+            self.status.setText("Live")
+            self.status.setStyleSheet("color: #a6e3a1; font-size: 11px;")
         else:
-            self.status.setText("Draft — this does not fire")
-            self.status.setStyleSheet(
-                "color: #f9e2af; font-size: 11px; background: transparent;"
-            )
+            self.status.setText("Draft")
+            self.status.setStyleSheet("color: #f9e2af; font-size: 11px;")
+            self.setToolTip(sentence + "\nDraft — this does not fire.")
 
 
 class AlarmDefsTab(QWidget):
-    """Controls page: drag blocks to build an alarm sentence."""
+    """Controls page: drag blocks from short lists onto one line per rule."""
 
     def __init__(self, dash=None):
         super().__init__()
         self.dash = dash
-        self._cards: list[AlarmRuleCard] = []
+        self._cards: list[_RuleLine] = []
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
         head = QHBoxLayout()
         title = QLabel("Alarm defs")
         title.setStyleSheet("font-size: 15px; font-weight: bold; color: #cdd6f4;")
         head.addWidget(title)
-        head.addStretch(1)
+        hint = QLabel(
+            "Drag a block from a list into a slot of the same colour. "
+            "Right-click a slot to empty it. Live means it matches a built-in alarm."
+        )
+        hint.setStyleSheet("color: #6c7086; font-size: 11px;")
+        head.addWidget(hint, 1)
         live_btn = QPushButton("Alarms page")
-        live_btn.setFixedWidth(120)
+        live_btn.setFixedWidth(110)
         live_btn.setToolTip("Open the Alarms page in Dashboards to see what is sounding.")
         live_btn.clicked.connect(self._show_live)
         head.addWidget(live_btn)
         add_btn = QPushButton("Add rule")
-        add_btn.setFixedWidth(110)
-        add_btn.setToolTip("Add an empty row")
+        add_btn.setFixedWidth(90)
+        add_btn.setToolTip("Add an empty line")
         add_btn.clicked.connect(lambda: self._add_card({}))
         head.addWidget(add_btn)
         reset_btn = QPushButton("Reset")
-        reset_btn.setFixedWidth(110)
+        reset_btn.setFixedWidth(80)
         reset_btn.setToolTip("Put the built-in rules back")
         reset_btn.clicked.connect(self._reset)
         head.addWidget(reset_btn)
         layout.addLayout(head)
 
-        hint = QLabel(
-            "Every alarm is made of blocks: a signal, a comparison, the "
-            "threshold it is compared against, how long it has to hold, an "
-            "optional extra condition, and the outcome. Drag a block into the "
-            "matching box; right-click a box to empty it. A row that matches a "
-            "built-in alarm is marked live — any other mix is a draft and does "
-            "not fire."
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #6c7086; font-size: 11px;")
-        layout.addWidget(hint)
-
         pieces = QHBoxLayout()
-        pieces.setSpacing(8)
+        pieces.setSpacing(6)
         for kind in ALARM_PIECE_KINDS:
             pieces.addWidget(self._piece_column(kind), 1)
         layout.addLayout(pieces)
@@ -352,8 +373,8 @@ class AlarmDefsTab(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._rules_host = QWidget()
         self._rules = QVBoxLayout(self._rules_host)
-        self._rules.setContentsMargins(0, 0, 0, 0)
-        self._rules.setSpacing(8)
+        self._rules.setContentsMargins(0, 2, 0, 0)
+        self._rules.setSpacing(2)
         self._rules.addStretch(1)
         scroll.setWidget(self._rules_host)
         layout.addWidget(scroll, 1)
@@ -363,15 +384,13 @@ class AlarmDefsTab(QWidget):
         box = QWidget()
         col = QVBoxLayout(box)
         col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(4)
+        col.setSpacing(2)
         label = QLabel(_KIND_SHORT[kind])
         label.setStyleSheet(
-            f"color: {_KIND_COLOR[kind]}; font-size: 12px; font-weight: bold;"
+            f"color: {_KIND_COLOR[kind]}; font-size: 11px; font-weight: bold;"
         )
         col.addWidget(label)
-        for text in alarm_palette(kind):
-            col.addWidget(AlarmChip(kind, text))
-        col.addStretch(1)
+        col.addWidget(_palette_list(kind))
         return box
 
     def _show_live(self) -> None:
@@ -381,7 +400,7 @@ class AlarmDefsTab(QWidget):
             dash.show_main_page(page)
 
     def _add_card(self, pieces: dict[str, str], *, save: bool = True) -> None:
-        card = AlarmRuleCard()
+        card = _RuleLine()
         card.set_values(pieces)
         card.changed.connect(self._save)
         card.remove_requested.connect(self._remove_card)
@@ -390,7 +409,7 @@ class AlarmDefsTab(QWidget):
         if save:
             self._save()
 
-    def _remove_card(self, card: AlarmRuleCard) -> None:
+    def _remove_card(self, card: _RuleLine) -> None:
         if card not in self._cards:
             return
         self._cards.remove(card)

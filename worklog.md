@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 19:16
+
+- Alarm defs was taking a full screen for nine rules, because each rule was two rows of large boxes and the palette was a stack of wrapping chips. It is now the same idea as a compact rule builder: a short scrolling list for each kind of block, and one line per rule. All nine built-in alarms fit on the page with the palette still visible.
+- Hovering a line shows the full WHEN / FOR / WHILE / THEN sentence. The line itself only has room for the blocks, so a long outcome is shortened with an ellipsis and the full wording stays on the hover.
+
 ### 18:01
 
 - Alarm defs is now built from genuinely small pieces. The old chips were whole clauses — "stays below the low-battery line for the hold time" — which were too long to read and were hiding the fact that this is really three separate things: a comparison, a threshold, and a length of time. Each of those is its own draggable block now, with its own colour and its own palette column.
