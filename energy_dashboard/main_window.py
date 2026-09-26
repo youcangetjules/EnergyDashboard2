@@ -19,6 +19,7 @@ from energy_dashboard.tabs.agile_prices import AgileSpotPricesTab
 from energy_dashboard.tabs.agile_year import AgileYearTab
 from energy_dashboard.tabs.analytics import AnalyticsTab
 from energy_dashboard.tabs.battery_analysis import BatteryAnalysisTab
+from energy_dashboard.tabs.alarm_defs import AlarmDefsTab
 from energy_dashboard.tabs.bug_tracker import BugTrackerTab
 from energy_dashboard.tabs.combined import CombinedTab
 from energy_dashboard.tabs.connectivity import ConnectivityStatusTab
@@ -799,6 +800,8 @@ class EnergyDashboard(QMainWindow):
         self.dump_logs_tab = DumpLogsTab(self)
 
         self.bug_tracker_tab = BugTrackerTab(self)
+
+        self.alarm_defs_tab = AlarmDefsTab(self)
 
         self.parameters_tab = ParametersTab(self)
 

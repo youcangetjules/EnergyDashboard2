@@ -51,6 +51,7 @@ _MAIN_TAB_BAR_REGISTRY = (
     ("console", "console_tab", "  Console  ", "controls", False),
     ("dump_logs", "dump_logs_tab", "  Dump logs  ", "controls", False),
     ("bug_tracker", "bug_tracker_tab", "  Bug Tracker  ", "controls", False),
+    ("alarm_defs", "alarm_defs_tab", "  Alarm defs  ", "controls", False),
     (None, "parameters_tab", "  Setup & Info  ", "controls", False),
     ("license", "license_tab", "  License  ", "controls", False),
 )

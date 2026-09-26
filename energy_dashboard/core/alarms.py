@@ -52,7 +52,7 @@ def notify_backoff_interval_s(notifies_already_sent: int) -> float:
 
 @dataclass(frozen=True)
 class AlarmSpec:
-    """One alarm the monitor can raise. The Enumerated Alarms tab lists these."""
+    """One alarm the monitor can raise. The Alarm defs tab lists these."""
 
     key: str
     name: str

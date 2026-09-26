@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 15:34
+
+- Controls has an Alarm defs tab. It lists each alarm, how serious it is, how long the condition has to last, and what it means. The line at the top is the hold time and thresholds from Setup & Info.
+
 ### 15:25
 
 - The database lines on the tray menu are drawn in white on the dark background. The menu style had been painting them the same colour as the menu, so that block looked blank.

@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Alarm defs lists the catalogue, it does not add rules
+
+- **Context:** The Alarms button and the tray show what is firing. The rules themselves lived only in `core/alarms.py`.
+- **Decision:** Controls → Alarm defs displays `ALARM_CATALOGUE` and the hold time, spare-solar minimum, and low-battery line saved by Setup & Info. It does not create alarms.
+- **Consequence:** A new alarm is a new `AlarmSpec` in the catalogue. Do not hard-code a second list on the tab.
+
 ### 2026-09-26 — Close hides to the tray; Quit is the exit
 
 - **Context:** The tray icon only showed alarm balloons. Closing the window quit the app. The householder wants the icon to report live database traffic and broker control, and wants Close to leave the app running.
