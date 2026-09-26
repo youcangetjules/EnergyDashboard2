@@ -12,6 +12,7 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+- Connectivity Status was leaving the table-size column blank. One table was asked for a column it does not have, the database then refused the rest of the read, and the page threw the sizes away. Sizes show again (rows and the disk size right now). Each row has a Table history button that charts how the stored rows have grown, day by day.
 - Roof layout’s imagery menu has its own Google historic choice. Older Google photos are not on the tile address any more, so that choice opens Google Earth’s timeline in the map panel. Satellite map brings the roof outline back. The dated archive menu is still the separate Esri set, not old Google pictures.
 - String voltage can show one London day, or a rolling 24-hour window. The rolling window puts “now” where 22:00 sits on the day chart: 22 hours of history and two empty hours to the right, so the latest volts still fit beside the line. Today stays the default. The day menu was stuck on yesterday after midnight; opening it now allows today.
 

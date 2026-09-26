@@ -31,7 +31,7 @@ KNOWN_TABLES = (
     ("connectivity_events", "timestamp"),
     ("optimiser_shadow_plans", "built_at"),
     ("optimiser_shadow_scores", "scored_at"),
-    ("pv_string_charge", "timestamp"),
+    ("pv_string_charge", "time"),
     ("pv_string_voltage", "time"),
 )
 
@@ -46,7 +46,7 @@ GROWTH_TABLES = (
     ("connectivity_events", "timestamp"),
     ("optimiser_shadow_plans", "built_at"),
     ("optimiser_shadow_scores", "scored_at"),
-    ("pv_string_charge", "timestamp"),
+    ("pv_string_charge", "time"),
     ("pv_string_voltage", "time"),
 )
 
@@ -158,6 +158,17 @@ def _table_exists(cur, dialect: str, table: str) -> bool:
     return cur.fetchone() is not None
 
 
+def _rollback(cur) -> None:
+    """Clear a failed Postgres statement so the next query can run."""
+    conn = getattr(cur, "connection", None)
+    if conn is None or not hasattr(conn, "rollback"):
+        return
+    try:
+        conn.rollback()
+    except Exception:
+        pass
+
+
 def _fetch_scalar(cur, sql, params=()):
     cur.execute(sql, params)
     row = cur.fetchone()
@@ -190,6 +201,7 @@ def _relation_size_bytes(cur, dialect: str, table: str) -> int | None:
             )
             return int(n) if n is not None else None
         except Exception:
+            _rollback(cur)
             return None
     if dialect == "mysql":
         try:
@@ -331,7 +343,14 @@ def collect_health_stats(backend: str, cap: dict) -> dict:
                     "size_bytes": None,
                     "size_human": None,
                 }
-                if _table_exists(cur, dialect, table):
+                try:
+                    exists = _table_exists(cur, dialect, table)
+                except Exception as exc:
+                    info["error"] = str(exc)
+                    _rollback(cur)
+                    out["tables"][table] = info
+                    continue
+                if exists:
                     info["exists"] = True
                     try:
                         info["row_count"] = int(
@@ -350,6 +369,7 @@ def collect_health_stats(backend: str, cap: dict) -> dict:
                             info["size_human"] = _fmt_size(sz)
                     except Exception as exc:
                         info["error"] = str(exc)
+                        _rollback(cur)
                 out["tables"][table] = info
 
             if latest_ts:
@@ -366,6 +386,7 @@ def collect_health_stats(backend: str, cap: dict) -> dict:
                         cur, dialect, table, ts_col, 4
                     )
                 except Exception:
+                    _rollback(cur)
                     daily_by_table[table] = {}
                     weekly_by_table[table] = {}
 
@@ -389,4 +410,75 @@ def collect_health_stats(backend: str, cap: dict) -> dict:
     except Exception as e:
         out["error"] = str(e)
 
+    return out
+
+
+def fetch_table_growth(backend: str, cap: dict, table_names: list[str]) -> dict:
+    """Daily row counts and a running total for each named table.
+
+    Counts come from the time stored on each row. Disk size is the size now;
+    older disk sizes are not kept.
+    """
+    allowed = {name: col for name, col in KNOWN_TABLES}
+    names = [n for n in table_names if n in allowed]
+    out: dict = {"ok": False, "error": None, "tables": {}}
+    if not names:
+        out["error"] = "no table"
+        return out
+    try:
+        with _open_db(backend, cap) as (conn, dialect, _path):
+            cur = conn.cursor()
+            for table in names:
+                col = allowed[table]
+                info = {
+                    "row_count": 0,
+                    "size_bytes": None,
+                    "size_human": None,
+                    "daily": [],
+                }
+                try:
+                    if not _table_exists(cur, dialect, table):
+                        out["tables"][table] = info
+                        continue
+                    info["row_count"] = int(
+                        _fetch_scalar(cur, f"SELECT COUNT(*) FROM {table}") or 0
+                    )
+                    sz = _relation_size_bytes(cur, dialect, table)
+                    if sz is not None:
+                        info["size_bytes"] = int(sz)
+                        info["size_human"] = _fmt_size(sz)
+                    if dialect == "sqlite":
+                        cur.execute(
+                            f"SELECT SUBSTR({col}, 1, 10) AS d, COUNT(*) FROM {table} GROUP BY d"
+                        )
+                    else:
+                        cur.execute(
+                            f"SELECT LEFT({col}, 10) AS d, COUNT(*) FROM {table} GROUP BY d"
+                        )
+                    added: dict[str, int] = {}
+                    for raw_d, n in cur.fetchall():
+                        day = str(raw_d or "")[:10]
+                        if len(day) == 10 and day[4] == "-" and day[7] == "-":
+                            added[day] = added.get(day, 0) + int(n or 0)
+                    if added:
+                        start = datetime.strptime(min(added), "%Y-%m-%d").date()
+                        end = datetime.strptime(max(added), "%Y-%m-%d").date()
+                        running = 0
+                        day = start
+                        while day <= end:
+                            key = day.isoformat()
+                            running += added.get(key, 0)
+                            info["daily"].append({
+                                "date": key,
+                                "added": added.get(key, 0),
+                                "cumulative": running,
+                            })
+                            day += timedelta(days=1)
+                except Exception as exc:
+                    info["error"] = str(exc)
+                    _rollback(cur)
+                out["tables"][table] = info
+            out["ok"] = True
+    except Exception as exc:
+        out["error"] = str(exc)
     return out

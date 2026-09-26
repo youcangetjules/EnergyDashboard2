@@ -117,6 +117,22 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 ## <span style="color:green">Fixed</span>
 
+### <span style="color:green">BUG-064-20260926-02 — Connectivity table size column stays blank</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 11:09 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Connectivity Status table |
+| **Version found** | 2.9.438 |
+| **Version fixed** | 2.9.439 |
+
+**Symptom:** The Table size column on Connectivity Status had a heading and no figures, while the database itself held hundreds of megabytes of logged rows.
+
+**Cause:** String-charge history was asked for a column named timestamp. The real column is time. That error aborted the rest of the database read, and the page then discarded every size it had already counted.
+
+**Resolution:** The read uses the real column, a failed statement no longer cancels the others, and the table is redrawn when the sizes arrive. Each row also has Table history for the growth chart. Shipped in 2.9.439.
+
 ### <span style="color:green">BUG-063-20260926-01 — String voltage day menu cannot reach today after midnight</span>
 
 | Field | Value |

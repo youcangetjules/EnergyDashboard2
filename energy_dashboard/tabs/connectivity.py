@@ -14,6 +14,7 @@ from energy_dashboard.db.health_stats import (
 from energy_dashboard.db.retention import format_policy_block, targets_for_box
 from energy_dashboard.dialogs.component_login import build_component_login
 from energy_dashboard.dialogs.data_retention import ConnectivityRetentionDialog
+from energy_dashboard.dialogs.table_history import TableHistoryDialog
 from energy_dashboard.ui.buttons import _prepare_dialog_buttons
 from energy_dashboard.dialogs.pipeline_probe import PipelineProbeDialog
 from energy_dashboard.connectivity.pipeline_probe import run_growatt_pipeline_probe
@@ -25,6 +26,18 @@ from energy_dashboard.config import (
     read_growatt_telemetry_source,
     read_grott_fill_missing_api,
 )
+
+
+# Connectivity row → database tables whose growth that row can show.
+_ROW_HISTORY_TABLES = {
+    "Growatt server": ("growatt_readings", "growatt_mix_chart"),
+    "Octopus historic": ("octopus_readings",),
+    "Tasmota devices": ("tasmota_readings", "tasmota_devices"),
+    "Forecast.solar": (
+        "solar_forecast_snapshots", "agile_price_snapshots", "agile_year_daily",
+    ),
+    "Databases": tuple(name for name, _col in KNOWN_TABLES),
+}
 
 
 def _growatt_telemetry_info(gt, params):
@@ -2779,8 +2792,8 @@ class ConnectivityStatusTab(QWidget):
         self._timer.setInterval(15000)
         self._timer.timeout.connect(self._on_status_timer)
         self.build_ui()
-        self.refresh_status(test_db=False)
         self._schedule_size_cache_rebuild()
+        self.refresh_status(test_db=False)
         self._timer.start()
 
     def build_ui(self):
@@ -2820,9 +2833,10 @@ class ConnectivityStatusTab(QWidget):
         ctrl.addStretch()
         layout.addLayout(ctrl)
 
-        self.table = QTableWidget(0, 5)
+        self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
             "Service", "State", "Details", "Last / freshness", "Table size",
+            "History",
         ])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -2839,6 +2853,11 @@ class ConnectivityStatusTab(QWidget):
         qtable_prepare_interactive_columns(self.table)
         qtable_restore_column_widths(self.table, "connectivity_status", resize_if_no_saved=True)
         qtable_attach_column_width_persistence(self.table)
+        if self.table.columnWidth(4) < 180:
+            self.table.setColumnWidth(4, 240)
+        if self.table.columnWidth(5) < 120:
+            self.table.setColumnWidth(5, 140)
+        self.table.verticalHeader().setDefaultSectionSize(32)
 
         self._prev_row_states: dict[str, str] = {}
         self._flow_diagram = _ConnectivityFlowDiagram(self)
@@ -3034,7 +3053,13 @@ class ConnectivityStatusTab(QWidget):
                     item.setData(Qt.ItemDataRole.UserRole, service_key)
             elif col == 4:
                 item.setForeground(QBrush(QColor("#a6adc8")))
+                item.setToolTip(str(val))
             self.table.setItem(row, col, item)
+        btn = QPushButton("Table history")
+        btn.setToolTip(f"How the tables behind {service} have grown")
+        btn.clicked.connect(lambda _checked=False, svc=str(service): self._open_table_history(svc))
+        _apply_primary_button_style(btn)
+        self.table.setCellWidget(row, 5, btn)
 
     @staticmethod
     def _service_key_for_label(label: str) -> str:
@@ -3726,6 +3751,7 @@ class ConnectivityStatusTab(QWidget):
                     self._table_info = table_info
                 self._size_cache_at = _time.monotonic()
                 self._size_cache_building = False
+                self.refresh_status(test_db=False, allow_local_probes=False)
             self._inv.invoke(apply)
 
         threading.Thread(target=work, daemon=True).start()
@@ -3741,7 +3767,7 @@ class ConnectivityStatusTab(QWidget):
         cap = self._db_cap()
         for backend in enabled_backends:
             stats = collect_health_stats(backend, cap)
-            if not stats.get("ok"):
+            if not stats.get("ok") and not stats.get("tables"):
                 db_parts.append(f"{backend}: —")
                 continue
             db_parts.append(f"{backend}: {stats.get('db_size', '—')}")
@@ -3816,7 +3842,34 @@ class ConnectivityStatusTab(QWidget):
     def _size_for(self, service: str, *, override: str | None = None) -> str:
         if override is not None:
             return override
-        return (getattr(self, "_size_cache", None) or {}).get(service, "--")
+        cached = (getattr(self, "_size_cache", None) or {}).get(service)
+        if cached:
+            return cached
+        if self._size_cache_building and service in _ROW_HISTORY_TABLES:
+            return "reading…"
+        return "--"
+
+    def _open_table_history(self, service: str) -> None:
+        tables = list(_ROW_HISTORY_TABLES.get(service) or [])
+        dlg = TableHistoryDialog(
+            self,
+            service,
+            tables,
+            self._history_backends(),
+            self._db_cap(),
+        )
+        dlg.exec()
+
+    def _history_backends(self) -> list[str]:
+        dl = self.dash.data_logger
+        names = []
+        if getattr(dl, "pg_enabled", False):
+            names.append("PostgreSQL")
+        if getattr(dl, "mysql_enabled", False):
+            names.append("MySQL")
+        if getattr(dl, "sqlite_enabled", False):
+            names.append("SQLite")
+        return names
 
     def _inverter_write_row(self, gt, md_mode, mc, growatt_last):
         """
