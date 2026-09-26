@@ -288,7 +288,14 @@ ALARM_BLOCKS: tuple[AlarmBlocks, ...] = (
 # Blocks worth offering that no built-in alarm uses on its own. They let a
 # householder write a sentence of their own; it stays a draft either way.
 ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
-    "signal": ("string A voltage", "string B voltage"),
+    "signal": (
+        "string A voltage",
+        "string B voltage",
+        "PV forecast",
+        "PVOutput.org",
+        "Wonderwatt",
+        "Octopus",
+    ),
     "comparison": ("has a differential of", "stays above", "stops"),
     "threshold": ("Volts",),
     "duration": ("about 5 minutes", "an hour"),
@@ -449,6 +456,10 @@ _SIGNAL_UNIT = {
     "House load": "power",
     "string A voltage": "volts",
     "string B voltage": "volts",
+    "PV forecast": "power",
+    "PVOutput.org": "power",
+    "Wonderwatt": "power",
+    "Octopus": "energy",
     "Grott feed": "status",
     "Logging database": "status",
     "Database writing": "status",
@@ -467,6 +478,7 @@ _UNIT_WORDS = {
     "power": "power, in kW",
     "volts": "volts",
     "status": "a feed, not a number",
+    "energy": "energy, in kWh",
 }
 _MEASURED_COMPARISONS = frozenset({
     "stays below",

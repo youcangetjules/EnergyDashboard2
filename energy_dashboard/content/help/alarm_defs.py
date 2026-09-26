@@ -44,6 +44,7 @@ Hovering a rule shows the whole sentence.</p>
 Comparisons are grouped: below and above together, then other level checks,
 then phrases about a feed stopping, then ones about something you cannot reach.
 The lists also include <b>string A voltage</b>, <b>string B voltage</b>,
+<b>PV forecast</b>, <b>PVOutput.org</b>, <b>Wonderwatt</b>, <b>Octopus</b>,
 <b>has a differential of</b>, and <b>Volts</b>. Click <b>Volts</b> to set how
 many volts that block means. Click <b>Tasmota device</b> and enter that
 plug’s IP address. With an address set, that alarm watches only that device.</p>
@@ -58,8 +59,9 @@ The line itself is the syntax, in the form
 <b>WHILE</b> extra condition <b>THEN</b> outcome.
 When that sentence is complete, and the pieces share a unit, the rule gets
 a green fill and <b>Syntax Correct</b> on a green background under the
-right-hand end. Battery charge is a percentage, spare solar and house load
-are power in kW, and the string voltages are volts. Mixing those — or
+right-hand end. Battery charge is a percentage, spare solar, house load,
+PV forecast, Wonderwatt, and PVOutput.org are power in kW, the string
+voltages are volts, and Octopus is energy in kWh. Mixing those — or
 comparing one of them to a limit in a different unit — turns the line
 <b>Syntax incorrect</b>. Hover the rule to see which units clashed.
 The block lists fill the space above the rules. Drag the bar between the

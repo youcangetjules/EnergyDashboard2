@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 21:44
+
+- Alarm defs can now name four more things to watch: PV forecast, PVOutput.org, Wonderwatt, and Octopus. PV forecast, Wonderwatt, and PVOutput.org are power in kilowatts, so they can sit with spare solar. Octopus is energy in kilowatt-hours, so it will not share a comparison with a power or a percentage. A sentence built from these still does not raise an alarm on its own — only a built-in rule does that.
+
 ### 21:17
 
 - The SMS gateway has its own page under Controls, next to Alarm defs. The phone number, the choice of HTTP or Twilio, and Test SMS live there. Setup & Info still has the alarm on/off tick, desktop pop-ups, and the hold time. Anything already saved is still used — the page writes the same settings.

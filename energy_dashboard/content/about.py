@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.474", "2026-09-26", [
+        "Alarm defs: the signal list now includes PV forecast, PVOutput.org, Wonderwatt, and Octopus.",
+    ]),
     ("2.9.473", "2026-09-26", [
         "Controls has an SMS gateway tab: the phone number, HTTP or Twilio, and Test SMS. Setup & Info no longer holds those fields.",
     ]),
