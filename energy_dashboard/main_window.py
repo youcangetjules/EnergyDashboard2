@@ -4,6 +4,7 @@ Energy Dashboard — `main_window.py` (split from EnergyDashboard2.py).
 from __future__ import annotations
 
 from energy_dashboard.common import *
+from energy_dashboard.core.invoker import Invoker
 from energy_dashboard.core.alarms import (
     AlarmMonitor,
     DEFAULT_HOLD_MINUTES,
@@ -41,6 +42,9 @@ from energy_dashboard.tabs.panel_database import PanelDatabaseTab
 from energy_dashboard.tabs.roof_layout import RoofLayoutTab
 from energy_dashboard.tabs.parameters import ParametersTab
 from energy_dashboard.tabs.shadow_trial import ShadowTrialTab
+from PySide6.QtWidgets import QWidgetAction
+
+from energy_dashboard.ui.system_status_bar import tray_database_lines
 from energy_dashboard.ui.work_area import client_cap, fit_window_to_work_area
 from energy_dashboard.tabs.smart_advisor import SmartAdvisorTab
 from energy_dashboard.tabs.tasmota import TasmotaTab
@@ -90,6 +94,12 @@ class EnergyDashboard(QMainWindow):
         self.data_logger = DataLogger(status_callback=lambda m: _log.debug("DataLogger", m))
         self.alarm_monitor = AlarmMonitor()
         self._alarm_tray = None
+        self._tray_quit = False
+        self._tray_hide_hinted = False
+        self._tray_broker_status = None
+        self._tray_broker_busy = False
+        self._tray_probe_busy = False
+        self._tray_inv = Invoker(self)
         self._load_saved_auto_refresh()
         self._load_alarm_settings()
         self.build_ui()
@@ -1269,13 +1279,212 @@ class EnergyDashboard(QMainWindow):
             tray = QSystemTrayIcon(self)
             icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
             tray.setIcon(icon if not icon.isNull() else self.windowIcon())
-            tray.setToolTip("Energy Dashboard alarms")
+            tray.setToolTip("PowerMon — right-click for broker, health, and alarms")
+            menu = QMenu(self)
+            self._tray_stat_labels = []
+            for _ in range(4):
+                lab = QLabel("—")
+                lab.setStyleSheet("background: transparent; padding: 2px 16px;")
+                act = QWidgetAction(menu)
+                act.setDefaultWidget(lab)
+                menu.addAction(act)
+                self._tray_stat_labels.append(lab)
+            menu.addSeparator()
+            self._tray_act_broker = menu.addAction("Start Broker")
+            self._tray_act_broker.triggered.connect(self._tray_toggle_broker)
+            menu.addAction("Show system health").triggered.connect(self._tray_show_health)
+            menu.addAction("Settings").triggered.connect(self._tray_show_settings)
+            menu.addAction("Alarms").triggered.connect(self._tray_show_alarms)
+            menu.addSeparator()
+            menu.addAction("Quit PowerMon").triggered.connect(self._tray_quit_app)
+            menu.aboutToShow.connect(self._tray_refresh_menu)
+            tray.setContextMenu(menu)
+            tray.activated.connect(self._tray_activated)
             tray.setVisible(True)
             tray.messageClicked.connect(self._show_alarm_dialog)
             self._alarm_tray = tray
+            self._tray_menu = menu
+            QTimer.singleShot(800, self._tray_probe_broker)
         except Exception as e:
             _log.warn("Alarms", f"System tray unavailable: {e}")
             self._alarm_tray = None
+
+    def closeEvent(self, event):
+        """Closing the window leaves PowerMon in the tray. Quit is on the menu."""
+        if self._tray_quit or self._alarm_tray is None:
+            event.accept()
+            return
+        event.ignore()
+        self.hide()
+        if not self._tray_hide_hinted:
+            self._tray_hide_hinted = True
+            try:
+                self._alarm_tray.showMessage(
+                    "PowerMon",
+                    "Still running in the tray. Right-click the icon to open "
+                    "it again, or choose Quit PowerMon.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    8000,
+                )
+            except Exception:
+                pass
+
+    def _tray_activated(self, reason):
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+
+    def _tray_refresh_menu(self):
+        status = getattr(getattr(self, "system_status", None), "last_status", None)
+        lines = tray_database_lines(status)
+        for lab, text in zip(self._tray_stat_labels, lines):
+            lab.setText(text)
+        self._tray_apply_broker_label()
+        self._tray_probe_broker()
+
+    def _tray_apply_broker_label(self):
+        act = getattr(self, "_tray_act_broker", None)
+        if act is None:
+            return
+        running = self._tray_broker_is_running()
+        if running is True:
+            act.setText("Stop Broker")
+        elif running is False:
+            act.setText("Start Broker")
+        else:
+            act.setText("Start/Stop Broker")
+
+    def _tray_broker_is_running(self):
+        status = self._tray_broker_status
+        if not isinstance(status, dict):
+            return None
+        for key in ("primary", "system_unit", "user_unit"):
+            unit = status.get(key) or {}
+            if unit.get("active_state") == "active":
+                return True
+        installed = any(
+            (status.get(key) or {}).get("installed")
+            for key in ("primary", "system_unit", "user_unit")
+        )
+        if installed:
+            return False
+        return None
+
+    def _tray_probe_broker(self):
+        if self._tray_probe_busy:
+            return
+        self._tray_probe_busy = True
+
+        def work():
+            from energy_dashboard.services.systemd_status import (
+                collect_collector_service_status,
+            )
+            url = ""
+            try:
+                url = self.parameters_tab.ed_broker_url.text().strip()
+            except Exception:
+                url = ""
+            try:
+                status = collect_collector_service_status(url or None)
+            except Exception as exc:
+                status = {"error": str(exc)}
+            self._tray_inv.invoke(lambda s=status: self._tray_probe_done(s))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _tray_probe_done(self, status):
+        self._tray_probe_busy = False
+        if isinstance(status, dict):
+            self._tray_broker_status = status
+        self._tray_apply_broker_label()
+
+    def _tray_toggle_broker(self):
+        if self._tray_broker_busy:
+            return
+        running = self._tray_broker_is_running()
+        status = self._tray_broker_status
+        if running is None or not isinstance(status, dict) or "system_unit" not in status:
+            self._tray_probe_broker()
+            self._tray_ensure_visible()
+            QMessageBox.information(
+                self,
+                "Broker",
+                "Still checking whether the broker service is installed. "
+                "Open the menu again in a moment.",
+            )
+            return
+        action = "stop" if running else "start"
+        self._tray_broker_busy = True
+
+        def work():
+            from energy_dashboard.services.systemd_status import (
+                control_collector_service,
+            )
+            try:
+                ok, msg = control_collector_service(action, status)
+            except Exception as exc:
+                ok, msg = False, str(exc)
+            self._tray_inv.invoke(lambda o=ok, m=msg: self._tray_broker_done(o, m))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _tray_broker_done(self, ok: bool, msg: str):
+        self._tray_broker_busy = False
+        self._tray_probe_busy = False
+        self._tray_probe_broker()
+        if not ok:
+            self._tray_ensure_visible()
+            QMessageBox.warning(self, "Broker", msg or "Could not change the broker.")
+        elif self.isVisible():
+            self.set_status(msg or "Broker updated.")
+        elif self._alarm_tray is not None:
+            self._alarm_tray.showMessage(
+                "Broker", msg or "Broker updated.",
+                QSystemTrayIcon.MessageIcon.Information, 5000,
+            )
+
+    def _tray_ensure_visible(self):
+        if not self.isVisible():
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+
+    def _tray_show_health(self):
+        self._tray_ensure_visible()
+        ss = getattr(self, "system_status", None)
+        lines = list(tray_database_lines(
+            getattr(ss, "last_status", None) if ss is not None else None
+        ))
+        if ss is not None:
+            for lab in (
+                getattr(ss, "cpu_label", None),
+                getattr(ss, "memory_label", None),
+            ):
+                text = lab.text().strip() if lab is not None else ""
+                if text:
+                    lines.append(text)
+        QMessageBox.information(self, "System health", "\n".join(lines))
+
+    def _tray_show_settings(self):
+        self._tray_ensure_visible()
+        QMessageBox.information(
+            self,
+            "Settings",
+            "Settings from the tray icon are not available yet. "
+            "Use Setup & Info in the dashboard.",
+        )
+
+    def _tray_show_alarms(self):
+        self._tray_ensure_visible()
+        self._show_alarm_dialog()
+
+    def _tray_quit_app(self):
+        self._tray_quit = True
+        QApplication.quit()
 
     def _reapply_grott_after_setup(self):
         """Second Grott connect after Setup has loaded/healed broker settings."""

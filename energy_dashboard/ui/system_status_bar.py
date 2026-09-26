@@ -49,6 +49,55 @@ def human_bytes(value: int | float | None) -> str:
     return f"{value:.2f}{units[unit]}"
 
 
+def tray_database_lines(status: DatabaseStatus | None) -> tuple[str, str, str, str]:
+    """Four lines for the tray menu: host, 15 minutes, 1 hour, live streams.
+
+    Streams are the logger tables that actually received rows in the last
+    15 minutes (Growatt and Tasmota). A table with no new rows is not counted.
+    """
+    if status is None:
+        return (
+            "Database  —",
+            "Last 15 minutes  —",
+            "Last hour  —",
+            "Streams loading  —",
+        )
+    host = (status.host or "").strip()
+    if (status.engine or "").lower() == "sqlite" or host == "file":
+        where = status.database or "SQLite file"
+    else:
+        where = host or "—"
+    if not status.connected:
+        return (
+            f"Database  {where}  (not connected)",
+            "Last 15 minutes  —",
+            "Last hour  —",
+            "Streams loading  —",
+        )
+
+    def amount(nbytes, nrows) -> str:
+        rows = compact_count(int(nrows or 0))
+        if nbytes is None:
+            return f"{rows} rows"
+        return f"{human_bytes(nbytes)}  ({rows} rows)"
+
+    streams = []
+    if int(status.rows_15m_growatt or 0) > 0:
+        streams.append("Growatt")
+    if int(status.rows_15m_tasmota or 0) > 0:
+        streams.append("Tasmota")
+    if streams:
+        stream_line = f"{len(streams)}  ({', '.join(streams)})"
+    else:
+        stream_line = "0  (none in the last 15 minutes)"
+    return (
+        f"Database  {where}",
+        f"Last 15 minutes  {amount(status.bytes_15m, status.rows_15m)}",
+        f"Last hour  {amount(status.bytes_1h, status.rows_1h)}",
+        f"Streams loading  {stream_line}",
+    )
+
+
 def compact_count(value: int | None) -> str:
     if value is None:
         return "—"
@@ -677,4 +726,4 @@ class SystemStatusBar(QFrame):
         )
 
 
-__all__ = ["SystemStatusBar", "human_bytes", "compact_count"]
+__all__ = ["SystemStatusBar", "human_bytes", "compact_count", "tray_database_lines"]

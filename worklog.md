@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 14:25
+
+- Right-click the tray icon for how much data landed in the last 15 minutes and the last hour, how many streams are writing, and the database address, plus Start/Stop Broker, system health, a Settings placeholder, alarms, and Quit PowerMon. Closing the window now leaves the app in the tray. Quit PowerMon is the way out.
+
 ### 14:18
 
 - String 1 and String 2 charge lots are now written by the energy-collector boot service, not only while the dashboard is open. Restart that service to start filling the chart. Earlier hours today are not filled in.

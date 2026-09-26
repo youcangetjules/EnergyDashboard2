@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.449", "2026-09-26", [
+        "Right-click the tray icon for database traffic, Start/Stop Broker, "
+        "system health, a Settings placeholder, alarms, and Quit PowerMon. "
+        "Closing the window leaves PowerMon in the tray.",
+    ]),
     ("2.9.448", "2026-09-26", [
         "The energy-collector service stores String 1 and String 2 "
         "charge lots, so PV String Charge keeps filling while the "

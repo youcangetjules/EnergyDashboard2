@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Close hides to the tray; Quit is the exit
+
+- **Context:** The tray icon only showed alarm balloons. Closing the window quit the app. The householder wants the icon to report live database traffic and broker control, and wants Close to leave the app running.
+- **Decision:** Right-click shows the footer’s last ingest poll (15 minutes, 1 hour, how many of Growatt and Tasmota wrote rows, database address), then Start/Stop Broker, system health, a Settings placeholder, alarms, and Quit PowerMon. Close and the window X hide the window when a tray icon exists. Quit PowerMon is the only full exit. Broker start/stop uses the same service control as Setup & Info, off the GUI thread. If the desktop has no tray, Close still quits.
+- **Consequence:** Do not query the database again when the menu opens. Do not invent a stream count beyond the two logger tables the footer already counts. Do not build a settings screen on the placeholder. Do not treat hiding the window as an exit.
+
 ### 2026-09-26 — Collector stores PV string charge lots
 
 - **Context:** String 1 and String 2 on PV String Charge only appeared from the moment the dashboard was opened. The chart reads `pv_string_charge`, and only the open dashboard was writing those 2-minute lots (BUG-071).
