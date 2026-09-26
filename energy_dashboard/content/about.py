@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.442", "2026-09-26", [
+        "A Connectivity popup stays open. It was appearing for a second "
+        "and then vanishing, which left the dashboard waiting and unable "
+        "to take another click.",
+    ]),
     ("2.9.441", "2026-09-26", [
         "Show Alarms on a Connectivity row no longer crashes. The live "
         "alarm list was being read as if it were already a plain list.",

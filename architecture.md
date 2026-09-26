@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Do not change a visible dialog’s window flags
+
+- **Context:** Connectivity clicks open a blocking popup. The stay-on-top timer then added “keep above” by changing the window flags. Qt hides a window when its flags change. The popup was on screen for about a second, then gone, while the app was still waiting for an answer. On Wayland it did not come back, so the dashboard would not take another click (BUG-066).
+- **Decision:** `ui/modal_ontop.py` sets stay-on-top only before the dialog is shown. Once it is visible, the timer may raise it. It must not call `setWindowFlags` on it.
+- **Consequence:** Do not “fix” a dialog that slips behind by changing its flags while `exec()` is running. That hides the only window that can unblock the app.
+
 ### 2026-09-26 — Google historic is Earth, not a tile version
 
 - **Context:** Roof layout used to offer older Google satellite versions. The public tile address now returns the current photo for every old version number. Dated Google photos are still in Google Earth, on its historical-imagery timeline. They are not the Esri Wayback archive.
@@ -199,8 +205,8 @@ Newest first. Keep each entry short: context → decision → consequence.
 ### 2026-09-22 — Main window stays inside the usable screen; blocking dialogs stay on top
 
 - **Context:** On KDE Wayland, Qt’s available geometry is the full monitor because a floating panel reserves no strut. Startup maximised the dashboard into that full rectangle, so the bottom of the window sat under the taskbar. Separately, a modal OK/Cancel box blocks the main window but could be stacked behind it, which freezes the app until the hidden box is found.
-- **Decision:** `ui/work_area.py` fits the main window to the usable screen (Qt’s available geometry, further inset by Plasma panel thickness). Do not call `showMaximized()` for that fit. `ui/modal_ontop.py` pins every modal dialog to stay above the app for as long as it blocks input.
-- **Consequence:** Do not size or maximise the main window to `screen.geometry()` or raw `availableGeometry()` on Wayland. New blocking dialogs are pinned by the timer in `ui/modal_ontop.py`, not by an application event filter. Non-modal windows (device web UI, toasts) may still go behind.
+- **Decision:** `ui/work_area.py` fits the main window to the usable screen (Qt’s available geometry, further inset by Plasma panel thickness). Do not call `showMaximized()` for that fit. `ui/modal_ontop.py` pins every modal dialog to stay above the app for as long as it blocks input. The pin is applied before the dialog is shown (see 2026-09-26).
+- **Consequence:** Do not size or maximise the main window to `screen.geometry()` or raw `availableGeometry()` on Wayland. New blocking dialogs are pinned by `ui/modal_ontop.py`, not by an application event filter, and not by changing window flags after the dialog is already visible. Non-modal windows (device web UI, toasts) may still go behind.
 
 ### 2026-09-22 — Agile Year daily stats are a logger table, not a one-shot API view
 

@@ -12,6 +12,8 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+- Fixed BUG-066. The Connectivity popup was on screen for about a second, then Qt hid it because the stay-on-top code changed the window’s flags while the app was still waiting for an answer. Stay-on-top is now set before the popup is shown, and a status refresh no longer deletes the Table history button under the click.
+- Diagnosed BUG-066. A Connectivity click opens a blocking window, then the stay-on-top watcher hides that window by changing its flags while the app is still waiting for an answer. On Wayland the window does not reliably come back, so the dashboard looks frozen. The port 8899 timeout is the Modbus gateway not answering; when that check finishes it rebuilds the Table history buttons on the window thread, which can delete the button under the click.
 - Show Alarms on Connectivity crashed. The code wrapped the alarm dictionary in a list and then asked that list for `.values()`. It now reads the alarms correctly. The “connection to port 8899 timed out” line is the local Modbus gateway not answering; that probe already runs in the background and is not this crash.
 - Logged BUG-066. Connectivity Status freezes when a diagram box or a button is clicked. Still open.
 - Clicking the DEGRADED banner on Connectivity now opens the exact problem. If Grott is missing registers, that window names each one (what it measures, and the Growatt field) instead of only saying how many are missing.

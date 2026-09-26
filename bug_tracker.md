@@ -41,22 +41,6 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 ## <span style="color:red">Open</span>
 
-### <span style="color:red">BUG-066-20260926-04 — Connectivity Status freezes when a box or button is clicked</span>
-
-| Field | Value |
-|-------|--------|
-| **Opened** | 2026-09-26 11:21 (Europe/London) |
-| **Status** | open |
-| **Area** | Connectivity Status |
-| **Version found** | 2.9.440 |
-| **Version fixed** | — |
-
-**Symptom:** The Connectivity Status page is unstable. Clicking a box on the diagram, or a button on the page, freezes the app. The window stops responding.
-
-**Cause:** Investigating.
-
-**Resolution:** Empty while open.
-
 ### <span style="color:red">BUG-054-20260923-09 — Dashboard segmentation fault during Qt property update</span>
 
 | Field | Value |
@@ -132,6 +116,22 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-066-20260926-04 — Connectivity Status freezes when a box or button is clicked</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 11:21 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Connectivity Status |
+| **Version found** | 2.9.440 |
+| **Version fixed** | 2.9.442 |
+
+**Symptom:** The Connectivity Status page is unstable. Clicking a box on the diagram, or a button on the page, freezes the app. The window stops responding. A popup appears for about a second and then vanishes. The same session printed `Connection to (222.20.20.122, 8899) failed: timed out`. The stuck process (pid 2031595) did not die on a normal close and had to be force-stopped.
+
+**Cause:** Those clicks open a blocking window. About 50 ms later the stay-on-top watcher changed that window’s flags. Qt hides a window when its flags change, so the popup flashed and disappeared while the app was still waiting for an answer. On Wayland it did not come back. A status refresh also rebuilt every Table history button; the Modbus timeout on port 8899 posts that refresh, and it could delete the button under the click. The 8899 line itself is the gateway not answering, on a background check.
+
+**Resolution:** Stay-on-top is set before the popup is shown. Once it is visible, the watcher only raises it and does not change its flags. Diagram clicks open the popup after the mouse press has finished. A refresh keeps the existing Table history button. Shipped in 2.9.442.
 
 ### <span style="color:green">BUG-067-20260926-05 — Show Alarms on Connectivity crashes</span>
 

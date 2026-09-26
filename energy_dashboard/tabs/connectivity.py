@@ -2222,8 +2222,11 @@ class _ConnectivityFlowDiagram(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             key = self._hit_key_at(event.pos())
             if key:
-                self._show_box_details(key)
                 event.accept()
+                # Open after this click finishes. Opening inside the press
+                # put the popup under the mouse, then the stay-on-top watcher
+                # hid it while the app was still waiting (BUG-066).
+                QTimer.singleShot(0, lambda k=key: self._show_box_details(k))
                 return
         super().mousePressEvent(event)
 
@@ -3154,9 +3157,17 @@ class ConnectivityStatusTab(QWidget):
                 item.setForeground(QBrush(QColor("#a6adc8")))
                 item.setToolTip(str(val))
             self.table.setItem(row, col, item)
+        svc = str(service)
+        existing = self.table.cellWidget(row, 5)
+        if (
+            isinstance(existing, QPushButton)
+            and existing.property("history_service") == svc
+        ):
+            return
         btn = QPushButton("Table history")
+        btn.setProperty("history_service", svc)
         btn.setToolTip(f"How the tables behind {service} have grown")
-        btn.clicked.connect(lambda _checked=False, svc=str(service): self._open_table_history(svc))
+        btn.clicked.connect(lambda _checked=False, svc=svc: self._open_table_history(svc))
         _apply_primary_button_style(btn)
         self.table.setCellWidget(row, 5, btn)
 
