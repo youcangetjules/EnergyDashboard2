@@ -54,6 +54,29 @@ _REFRESH_ALL_BTN_QSS = (
     "}"
 )
 
+# Bottom-bar Alarms only. Same footprint as the green action buttons, red fill.
+_BTN_ALARM_BG = "#8b3a44"
+_BTN_ALARM_BG_HOVER = "#a34852"
+_BTN_ALARM_BG_PRESS = "#6e2e36"
+_ALARMS_BTN_QSS = (
+    "QPushButton {"
+    f"  background-color: {_BTN_ALARM_BG};"
+    "  color: #ffe8ea;"
+    "  border: 1px solid rgba(243, 139, 168, 180);"
+    "  border-radius: 3px;"
+    "  padding: 4px 14px;"
+    "  font-weight: normal;"
+    "}"
+    "QPushButton:hover {"
+    f"  background-color: {_BTN_ALARM_BG_HOVER};"
+    "  color: #fff5f6;"
+    "}"
+    "QPushButton:pressed {"
+    f"  background-color: {_BTN_ALARM_BG_PRESS};"
+    "  padding-top: 5px; padding-bottom: 3px; padding-left: 13px; padding-right: 13px;"
+    "}"
+)
+
 # Live-banner auto-refresh cycle pill (two-line status, same green motif).
 _BANNER_REFRESH_CYCLE_QSS = (
     "QFrame#bannerRefreshCyclePill {"

@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 15:18
+
+- An Alarms button with a red background sits 30px to the right of Refresh Page on the bottom bar. It opens the same alarm list as the tray menu.
+
 ### 15:11
 
 - The tray icon is a sun and a battery instead of a warning triangle. The database lines on that menu now use light text on the same dark background as the rest of the dashboard, so they can be read.

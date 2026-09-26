@@ -604,7 +604,8 @@ class EnergyDashboard(QMainWindow):
 
         # ── Bottom-right action cluster ────────────────────────────────
         # addPermanentWidget appends to the right-hand group in
-        # left-to-right order: [ Refresh Page ] [ Refresh All ] [ Help ] [ Close ]
+        # left-to-right order:
+        # [ Refresh Page ] 30px [ Alarms ] [ Refresh All ] [ Help ] [ Close ]
         # Machine CPU / RAM / DB ingest live in the two-line strip above this bar.
         _ACTION_BTN_WIDTH = 110
 
@@ -615,7 +616,22 @@ class EnergyDashboard(QMainWindow):
         )
         refresh_page_btn.setFixedWidth(_ACTION_BTN_WIDTH)
         refresh_page_btn.clicked.connect(self._refresh_current_tab)
-        self.status_bar.addPermanentWidget(refresh_page_btn)
+
+        alarms_btn = QPushButton("Alarms")
+        alarms_btn.setToolTip("Show active alarms and alarms from this session.")
+        alarms_btn.setFixedWidth(_ACTION_BTN_WIDTH)
+        alarms_btn.setProperty(PRIMARY_BUTTON_EXEMPT, True)
+        alarms_btn.setStyleSheet(_ALARMS_BTN_QSS)
+        alarms_btn.clicked.connect(self._show_alarm_dialog)
+
+        refresh_pair = QWidget()
+        refresh_pair_row = QHBoxLayout(refresh_pair)
+        refresh_pair_row.setContentsMargins(0, 0, 0, 0)
+        refresh_pair_row.setSpacing(0)
+        refresh_pair_row.addWidget(refresh_page_btn)
+        refresh_pair_row.addSpacing(30)
+        refresh_pair_row.addWidget(alarms_btn)
+        self.status_bar.addPermanentWidget(refresh_pair)
 
         refresh_all_btn = QPushButton("Refresh All")
         refresh_all_btn.setToolTip(
