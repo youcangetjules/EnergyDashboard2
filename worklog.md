@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 15:23
+
+- Alarms and Refresh Page have swapped on the bottom bar. Alarms is on the left, then a 30px gap, then Refresh Page.
+
 ### 15:18
 
 - An Alarms button with a red background sits 30px to the right of Refresh Page on the bottom bar. It opens the same alarm list as the tray menu.

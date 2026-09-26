@@ -66,7 +66,7 @@ Helper: `_apply_action_outcome_style(btn, ok)` in `ui/buttons.py`. It marks the 
 |---------|--------|--------|
 | Main tab **group** strip (`objectName == "mainTabGroupBtn"`) | Amber Catppuccin peach | `_MAIN_TAB_GROUP_BTN_QSS` — must stay amber |
 | Tasmota **Toggle** | Property `primary_button_exempt` + dedicated ON/OFF QSS | Never force green |
-| Bottom bar **Alarms** | Red fill `#8b3a44`, light text `#ffe8ea` (`_ALARMS_BTN_QSS`) | Sits 30px to the right of Refresh Page. Exempt from the green walk. |
+| Bottom bar **Alarms** | Red fill `#8b3a44`, light text `#ffe8ea` (`_ALARMS_BTN_QSS`) | Sits 30px to the left of Refresh Page. Exempt from the green walk. |
 | Retention **Activate** | Electric-blue when active, muted grey when off | `_retention_activate_btn_qss` |
 | Chart **QToolButton** | Transparent + blue hover wash | Part of `_APP_GLOBAL_WIDGET_QSS` |
 

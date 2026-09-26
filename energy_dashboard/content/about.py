@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.452", "2026-09-26", [
+        "Alarms and Refresh Page have swapped places on the bottom bar. Alarms is on the left, with 30px before Refresh Page.",
+    ]),
     ("2.9.451", "2026-09-26", [
         "An Alarms button with a red background sits 30px to the right of Refresh Page.",
     ]),
