@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.448", "2026-09-26", [
+        "The energy-collector service stores String 1 and String 2 "
+        "charge lots, so PV String Charge keeps filling while the "
+        "dashboard is closed.",
+    ]),
     ("2.9.447", "2026-09-26", [
         "The bottom bar (Refresh Page, Refresh All, Help, Close) stays on screen, above the taskbar.",
     ]),

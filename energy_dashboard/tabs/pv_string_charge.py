@@ -24,15 +24,17 @@ from PySide6.QtWidgets import (
 from energy_dashboard.common import *
 from energy_dashboard.ui.styles import apply_date_picker_motif
 from energy_dashboard.db.pv_string_charge import (
+    estimate_string_charge,
     log_pv_string_charge,
     lot_start,
     query_pv_string_charge,
+    strings_to_kw as _strings_to_kw,
+    watts_or_kw_to_kw as _watts_or_kw_to_kw,
 )
 from energy_dashboard.db.pv_string_voltage import log_pv_string_voltage
 
 _COL_NOW = "#94e2d5"
 _LOT = timedelta(minutes=2)
-_AC_CHARGE_GRID_KW = 0.15  # grid import above this while charging → warn
 
 _COL_S1 = "#89b4fa"
 _COL_S2 = "#a6e3a1"
@@ -42,10 +44,6 @@ _COL_FC_FILL = "#6B4423"
 _COL_FC_LINE = "#3F2A14"
 _FILL_ALPHA = 0.5
 _FC_FILL_ALPHA = 0.30
-
-# SPH/MIX houses here are a few kWp per string. Values above this in a "kW"
-# field are leftover watts (the old abs(n)>50 heuristic left 10–50 W as kW).
-_MAX_PLAUSIBLE_KW = 8.0
 
 
 class _LondonDayPicker(QToolButton):
@@ -143,51 +141,6 @@ class _ClickableMetricCard(QFrame):
         super().mousePressEvent(event)
 
 
-def _as_float(val):
-    if val is None or val in ("", "--", "—"):
-        return None
-    try:
-        f = float(val)
-    except (TypeError, ValueError):
-        return None
-    if f != f:  # NaN
-        return None
-    return f
-
-
-def _watts_or_kw_to_kw(val):
-    """Return kW. Watts leftover from Grott/cloud (or bad stored lots) / 1000.
-
-    Do not use ``abs(n) > 50``: dawn 10–50 W then stays as 10–50 kW and the
-    chart Y axis autoscale follows that spike (see BUG-015-20260917-01).
-    """
-    v = _as_float(val)
-    if v is None:
-        return None
-    if abs(v) > _MAX_PLAUSIBLE_KW:
-        return v / 1000.0
-    return v
-
-
-def _strings_to_kw(p1, p2, ppv_kw=None):
-    """Normalise per-string PV to kW, using total PV when units disagree.
-
-    Grott ``ppv`` is already kW; ``pPv1`` / ``pPv2`` were often still watts.
-    """
-    a = _as_float(p1)
-    b = _as_float(p2)
-    tot = (0.0 if a is None else a) + (0.0 if b is None else b)
-    p = _watts_or_kw_to_kw(ppv_kw)
-    if p is not None and tot > max(1.0, abs(p) * 50.0):
-        if a is not None:
-            a = a / 1000.0
-        if b is not None:
-            b = b / 1000.0
-    a = _watts_or_kw_to_kw(a)
-    b = _watts_or_kw_to_kw(b)
-    return a, b, p
-
-
 def _sanitize_lot(row: dict) -> dict:
     """Fix stored lots that kept dawn watts as kW (display + today kWh)."""
     if not isinstance(row, dict):
@@ -282,100 +235,6 @@ def _integrate_kwh(rows, key: str, *, until=None) -> float:
 
 
 _LOT_HOURS = 2.0 / 60.0  # one 2-minute lot if we only have a single sample
-
-
-def estimate_string_charge(
-    pv1_kw, pv2_kw, charge_kw, *, grid_import_kw=None, ppv_kw=None,
-) -> dict:
-    """Return estimated charge contributions from each PV string.
-
-    Keys: pv1_kw, pv2_kw, ppv_kw, charge_kw, grid_import_kw,
-    est_charge_s1_kw, est_charge_s2_kw, share_s1, share_s2,
-    mode (charging_pv | charging_ac | discharging | idle | unknown), notes.
-    """
-    p1 = max(0.0, _as_float(pv1_kw) or 0.0)
-    p2 = max(0.0, _as_float(pv2_kw) or 0.0)
-    chg = _as_float(charge_kw)
-    g_imp = _as_float(grid_import_kw)
-    tot_pv = _as_float(ppv_kw)
-    if tot_pv is None:
-        tot_pv = p1 + p2
-    else:
-        tot_pv = max(0.0, float(tot_pv))
-
-    out = {
-        "pv1_kw": p1,
-        "pv2_kw": p2,
-        "ppv_kw": tot_pv,
-        "charge_kw": chg,
-        "grid_import_kw": g_imp,
-        "est_charge_s1_kw": None,
-        "est_charge_s2_kw": None,
-        "share_s1": None,
-        "share_s2": None,
-        "mode": "unknown",
-        "notes": "",
-    }
-    if chg is None:
-        out["notes"] = "No chargePower reading from Growatt yet."
-        return out
-
-    if chg < 0.02:
-        # Treat near-zero as idle / discharge handled separately by caller
-        # when discharge power is known.
-        out["mode"] = "idle"
-        out["est_charge_s1_kw"] = 0.0
-        out["est_charge_s2_kw"] = 0.0
-        out["share_s1"] = 0.0
-        out["share_s2"] = 0.0
-        out["notes"] = "Battery not charging (chargePower ≈ 0)."
-        return out
-
-    if g_imp is not None and g_imp >= _AC_CHARGE_GRID_KW and tot_pv < chg * 0.5:
-        out["mode"] = "charging_ac"
-        out["est_charge_s1_kw"] = 0.0
-        out["est_charge_s2_kw"] = 0.0
-        out["share_s1"] = 0.0
-        out["share_s2"] = 0.0
-        out["notes"] = (
-            f"Likely AC/grid charging (grid import {g_imp:.2f} kW, "
-            f"PV {tot_pv:.2f} kW) — string split does not apply."
-        )
-        return out
-
-    if tot_pv < 0.02:
-        out["mode"] = "charging_ac"
-        out["est_charge_s1_kw"] = 0.0
-        out["est_charge_s2_kw"] = 0.0
-        out["share_s1"] = 0.0
-        out["share_s2"] = 0.0
-        out["notes"] = (
-            "Charging with near-zero PV — attributed to grid/AC, not strings."
-        )
-        return out
-
-    share1 = p1 / tot_pv
-    share2 = p2 / tot_pv
-    # Cap attributed charge at available PV (load/export can eat the rest).
-    attributable = min(chg, tot_pv)
-    out["mode"] = "charging_pv"
-    out["share_s1"] = share1
-    out["share_s2"] = share2
-    out["est_charge_s1_kw"] = attributable * share1
-    out["est_charge_s2_kw"] = attributable * share2
-    bits = [
-        f"Estimate: charge {chg:.2f} kW split by PV share "
-        f"(S1 {share1 * 100:.0f}% / S2 {share2 * 100:.0f}%)."
-    ]
-    if attributable + 0.05 < chg:
-        bits.append(
-            f"Only {attributable:.2f} kW of charge can come from PV "
-            f"(rest likely grid/AC)."
-        )
-    if g_imp is not None and g_imp >= _AC_CHARGE_GRID_KW:
-        bits.append(f"Grid also importing {g_imp:.2f} kW — hybrid charge.")
-    out["notes"] = " ".join(bits)
-    return out
 
 
 class PvStringChargeTab(QWidget):

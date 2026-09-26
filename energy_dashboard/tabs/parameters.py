@@ -496,6 +496,9 @@ class ParametersTab(QWidget):
         svc_hint = QLabel(
             "The <b>energy-collector</b> boot service polls Tasmota and Growatt, writes to PostgreSQL, "
             "and serves <code>GET /snapshot</code> for the Tasmota tab. "
+            "Each Growatt poll also stores the PV String Charge lot "
+            "(String 1, String 2, and measured battery charge) so that chart "
+            "keeps filling while this dashboard is closed. "
             "Install once with <code>sudo ./services/install-energy-collector.sh</code> "
             "(runs at boot; no need to keep this dashboard open). "
             "If the broker runs in a <b>container</b> or on another host, set <b>Broker URL</b> below "

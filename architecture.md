@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Collector stores PV string charge lots
+
+- **Context:** String 1 and String 2 on PV String Charge only appeared from the moment the dashboard was opened. The chart reads `pv_string_charge`, and only the open dashboard was writing those 2-minute lots (BUG-071).
+- **Decision:** `services/energy_collector.py` (the energy-collector boot service, also started as the broker) upserts the same lot on every Growatt poll: measured string kW, estimated charge from each string, and measured charge. It uses the table that already exists. It does not create it.
+- **Consequence:** Do not log string contributions only from the GUI. Do not backfill hours the service did not see. Do not `CREATE TABLE` on the collector’s PostgreSQL login.
+
 ### 2026-09-26 — Popups stay ordinary windows
 
 - **Context:** Every blocking popup was marked “keep above”, and a timer pulled focus back whenever the popup was not the active window. Copy and Paste menus closed at once, and a screenshot of the popup could not be taken (BUG-069).

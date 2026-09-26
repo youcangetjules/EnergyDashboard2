@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-26 | 9 | 8 | 5 |
+| 2026-09-26 | 9 | 9 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
 | 2026-09-23 | 11 | 8 | 4 |
@@ -57,22 +57,6 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 | 2026-09-15 | 12 | 12 | 0 |
 
 ## <span style="color:red">Open</span>
-
-### <span style="color:red">BUG-071-20260926-09 — PV String Charge does not show string 1 and 2 contributions</span>
-
-| Field | Value |
-|-------|--------|
-| **Opened** | 2026-09-26 14:00 (Europe/London) |
-| **Status** | open |
-| **Area** | PV String Charge |
-| **Version found** | 2.9.447 |
-| **Version fixed** | — |
-
-**Symptom:** On PV String Charge for today, String 1 and String 2 contributions are not shown. The cards still show power right now (about 1.86 kW and 2.99 kW at 13:58), but the day’s contribution since samples started is only a few hundredths of a kWh, and the charts do not draw those two strings. The legend names String 1 and String 2, and the plot that is visible is the measured-charge area. The line under the cards says “No readings”.
-
-**Cause:** Investigating.
-
-**Resolution:** Empty while open.
 
 ### <span style="color:red">BUG-054-20260923-09 — Dashboard segmentation fault during Qt property update</span>
 
@@ -149,6 +133,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-071-20260926-09 — PV String Charge does not show string 1 and 2 contributions</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 14:00 (Europe/London) |
+| **Status** | fixed |
+| **Area** | PV String Charge / energy-collector |
+| **Version found** | 2.9.447 |
+| **Version fixed** | 2.9.448 |
+
+**Symptom:** On PV String Charge for today, String 1 and String 2 contributions are not shown across the day. The cards still show power right now, but the charts only draw those strings from when samples started (about 13:58). Before that the plot is the solar forecast. A later look showed a thin spike of both strings from that start time only.
+
+**Cause:** The 2-minute lots in `pv_string_charge` were written only while the dashboard was open. The energy-collector boot service (the broker on Setup & Info) stored whole-inverter Growatt readings and did not store String 1, String 2, or the charge split.
+
+**Resolution:** Each Growatt poll in the collector now stores the same string lot. Restart the energy-collector service so it starts writing. Hours before that restart are not filled in. Shipped in 2.9.448.
 
 ### <span style="color:green">BUG-070-20260926-08 — Bottom button bar not on screen</span>
 

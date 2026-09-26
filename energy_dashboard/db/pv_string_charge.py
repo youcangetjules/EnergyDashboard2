@@ -15,6 +15,173 @@ from typing import Any
 
 _WINDOW = timedelta(hours=6)
 _LOT_S = 120
+# Same limits as the PV String Charge tab. Above 8 kW in a "kW" field is
+# leftover watts. Grid import above this while PV is small is AC charging.
+_MAX_PLAUSIBLE_KW = 8.0
+_AC_CHARGE_GRID_KW = 0.15
+
+
+def _as_float(val):
+    if val is None or val in ("", "--", "—"):
+        return None
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        return None
+    if f != f:  # NaN
+        return None
+    return f
+
+
+def watts_or_kw_to_kw(val):
+    """Return kW. Watts leftover from Grott/cloud (or bad stored lots) / 1000.
+
+    Do not use ``abs(n) > 50``: dawn 10–50 W then stays as 10–50 kW.
+    """
+    v = _as_float(val)
+    if v is None:
+        return None
+    if abs(v) > _MAX_PLAUSIBLE_KW:
+        return v / 1000.0
+    return v
+
+
+def strings_to_kw(p1, p2, ppv_kw=None):
+    """Normalise per-string PV to kW, using total PV when units disagree."""
+    a = _as_float(p1)
+    b = _as_float(p2)
+    tot = (0.0 if a is None else a) + (0.0 if b is None else b)
+    p = watts_or_kw_to_kw(ppv_kw)
+    if p is not None and tot > max(1.0, abs(p) * 50.0):
+        if a is not None:
+            a = a / 1000.0
+        if b is not None:
+            b = b / 1000.0
+    a = watts_or_kw_to_kw(a)
+    b = watts_or_kw_to_kw(b)
+    return a, b, p
+
+
+def estimate_string_charge(
+    pv1_kw, pv2_kw, charge_kw, *, grid_import_kw=None, ppv_kw=None,
+) -> dict:
+    """Return estimated charge contributions from each PV string.
+
+    Keys: pv1_kw, pv2_kw, ppv_kw, charge_kw, grid_import_kw,
+    est_charge_s1_kw, est_charge_s2_kw, share_s1, share_s2,
+    mode (charging_pv | charging_ac | discharging | idle | unknown), notes.
+    """
+    p1 = max(0.0, _as_float(pv1_kw) or 0.0)
+    p2 = max(0.0, _as_float(pv2_kw) or 0.0)
+    chg = _as_float(charge_kw)
+    g_imp = _as_float(grid_import_kw)
+    tot_pv = _as_float(ppv_kw)
+    if tot_pv is None:
+        tot_pv = p1 + p2
+    else:
+        tot_pv = max(0.0, float(tot_pv))
+
+    out = {
+        "pv1_kw": p1,
+        "pv2_kw": p2,
+        "ppv_kw": tot_pv,
+        "charge_kw": chg,
+        "grid_import_kw": g_imp,
+        "est_charge_s1_kw": None,
+        "est_charge_s2_kw": None,
+        "share_s1": None,
+        "share_s2": None,
+        "mode": "unknown",
+        "notes": "",
+    }
+    if chg is None:
+        out["notes"] = "No chargePower reading from Growatt yet."
+        return out
+
+    if chg < 0.02:
+        out["mode"] = "idle"
+        out["est_charge_s1_kw"] = 0.0
+        out["est_charge_s2_kw"] = 0.0
+        out["share_s1"] = 0.0
+        out["share_s2"] = 0.0
+        out["notes"] = "Battery not charging (chargePower ≈ 0)."
+        return out
+
+    if g_imp is not None and g_imp >= _AC_CHARGE_GRID_KW and tot_pv < chg * 0.5:
+        out["mode"] = "charging_ac"
+        out["est_charge_s1_kw"] = 0.0
+        out["est_charge_s2_kw"] = 0.0
+        out["share_s1"] = 0.0
+        out["share_s2"] = 0.0
+        out["notes"] = (
+            f"Likely AC/grid charging (grid import {g_imp:.2f} kW, "
+            f"PV {tot_pv:.2f} kW) — string split does not apply."
+        )
+        return out
+
+    if tot_pv < 0.02:
+        out["mode"] = "charging_ac"
+        out["est_charge_s1_kw"] = 0.0
+        out["est_charge_s2_kw"] = 0.0
+        out["share_s1"] = 0.0
+        out["share_s2"] = 0.0
+        out["notes"] = (
+            "Charging with near-zero PV — attributed to grid/AC, not strings."
+        )
+        return out
+
+    share1 = p1 / tot_pv
+    share2 = p2 / tot_pv
+    attributable = min(chg, tot_pv)
+    out["mode"] = "charging_pv"
+    out["share_s1"] = share1
+    out["share_s2"] = share2
+    out["est_charge_s1_kw"] = attributable * share1
+    out["est_charge_s2_kw"] = attributable * share2
+    bits = [
+        f"Estimate: charge {chg:.2f} kW split by PV share "
+        f"(S1 {share1 * 100:.0f}% / S2 {share2 * 100:.0f}%)."
+    ]
+    if attributable + 0.05 < chg:
+        bits.append(
+            f"Only {attributable:.2f} kW of charge can come from PV "
+            f"(rest likely grid/AC)."
+        )
+    if g_imp is not None and g_imp >= _AC_CHARGE_GRID_KW:
+        bits.append(f"Grid also importing {g_imp:.2f} kW — hybrid charge.")
+    out["notes"] = " ".join(bits)
+    return out
+
+
+def mix_status_to_charge_row(status: dict, when: datetime | None = None):
+    """One ``pv_string_charge`` upsert row from a live MIX status dict.
+
+    Same split the PV String Charge tab stores. Returns None when there is
+    no status. Does not create a table.
+    """
+    if not isinstance(status, dict) or not status:
+        return None
+    pv1, pv2, ppv = strings_to_kw(
+        status.get("pPv1"), status.get("pPv2"), status.get("ppv"),
+    )
+    charge = watts_or_kw_to_kw(status.get("chargePower"))
+    discharge = watts_or_kw_to_kw(status.get("pdisCharge1")) or 0.0
+    grid_imp = watts_or_kw_to_kw(status.get("pactouser"))
+    est = estimate_string_charge(
+        pv1, pv2, charge, grid_import_kw=grid_imp, ppv_kw=ppv,
+    )
+    if discharge >= 0.05 and (charge or 0) < 0.02:
+        est["est_charge_s1_kw"] = 0.0
+        est["est_charge_s2_kw"] = 0.0
+    when = when if isinstance(when, datetime) else datetime.now(timezone.utc)
+    return (
+        _sql_ts(when),
+        float(est.get("pv1_kw") or 0.0),
+        float(est.get("pv2_kw") or 0.0),
+        float(est.get("est_charge_s1_kw") or 0.0),
+        float(est.get("est_charge_s2_kw") or 0.0),
+        float(est.get("charge_kw") or 0.0),
+    )
 
 _PV_STRING_CHARGE_DDL = """
 CREATE TABLE IF NOT EXISTS pv_string_charge (
@@ -300,7 +467,11 @@ def query_pv_string_charge(
 
 __all__ = [
     "ensure_pv_string_charge",
+    "estimate_string_charge",
     "log_pv_string_charge",
+    "mix_status_to_charge_row",
+    "strings_to_kw",
+    "watts_or_kw_to_kw",
     "write_pv_string_charge",
     "query_pv_string_charge",
     "lot_start",

@@ -2,7 +2,8 @@
 """
 Background energy collector: polls Tasmota device(s) and Growatt cloud,
 writes readings to PostgreSQL (same schema as EnergyDashboard DataLogger),
-and exposes GET /snapshot for the GUI.
+including the PV String Charge 2-minute lots, and exposes GET /snapshot
+for the GUI.
 
 Run via systemd — see energy-collector.service and install-energy-collector.sh.
 """
@@ -219,6 +220,36 @@ def _write_growatt_pg(cur, data: dict) -> None:
         _to_float(data.get("pv_today")),
     )
     cur.execute(_GROWATT_INSERT_PG, row)
+
+
+_string_charge_warned = False
+
+
+def _write_pv_string_charge_pg(cur, status: dict) -> None:
+    """Upsert the same 2-minute string lot the PV String Charge tab stores.
+
+    Does not create the table. A missing table is reported once and skipped
+    so the rest of the collector keeps writing.
+    """
+    global _string_charge_warned
+    from energy_dashboard.db.pv_string_charge import (
+        _UPSERT_PG,
+        mix_status_to_charge_row,
+    )
+
+    row = mix_status_to_charge_row(status)
+    if row is None:
+        return
+    try:
+        cur.execute(_UPSERT_PG, row)
+    except Exception as exc:
+        if not _string_charge_warned:
+            _string_charge_warned = True
+            print(
+                "energy_collector: String 1 / String 2 lot not stored "
+                f"({exc}). The pv_string_charge table must already exist.",
+                flush=True,
+            )
 
 
 class GrowattSession:
@@ -447,6 +478,7 @@ def run_poll_loop(
                     growatt_out = {k: v for k, v in g.items() if k != "status"}
                     with conn.cursor() as cur:
                         _write_growatt_pg(cur, g)
+                        _write_pv_string_charge_pg(cur, g.get("status") or {})
             elif prev.get("growatt") is not None:
                 growatt_out = prev.get("growatt")
                 growatt_err = prev.get("growatt_error")

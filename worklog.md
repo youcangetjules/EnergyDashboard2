@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 14:18
+
+- String 1 and String 2 charge lots are now written by the energy-collector boot service, not only while the dashboard is open. Restart that service to start filling the chart. Earlier hours today are not filled in.
+
 ### 14:00
 
 - Logged BUG-071. On PV String Charge, String 1 and String 2 contributions are not showing on the charts. Still open.
