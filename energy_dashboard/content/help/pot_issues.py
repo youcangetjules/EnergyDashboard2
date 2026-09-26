@@ -8,7 +8,7 @@ TAB_CLASS = "PotIssuesTab"
 HELP_TEXT = """\
 <h2>Potential Issues</h2>
 <p>
-This page is in the <b>Physical Plant Tools</b> group. It compares <b>Growatt actual PV</b> (and load usage when available) against this
+This page is in the <b>Physical Plant</b> group. It compares <b>Growatt actual PV</b> (and load usage when available) against this
 dashboard’s <b>solar forecast</b> and an optional <b>Wonderwatt</b> forecast for
 the same local calendar days (from your Setup / banner locale). Values are
 measured or labelled estimates — nothing is rescaled to “look right.”</p>

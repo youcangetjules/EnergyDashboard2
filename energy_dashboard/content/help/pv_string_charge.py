@@ -7,7 +7,7 @@ TAB_CLASS = "PvStringChargeTab"
 
 HELP_TEXT = """\
 <h2>PV String Charge</h2><p>
-This page is in the <b>Physical Plant Tools</b> group. It shows an <b>estimate</b> of how much of the current battery charge is coming from each PV string. Growatt does not expose a measured “charge from string N” register — both strings feed a shared DC bus — so this tab apportions <code>chargePower</code> by each string’s share of total PV:</p>
+This page is in the <b>Physical Plant</b> group. It shows an <b>estimate</b> of how much of the current battery charge is coming from each PV string. Growatt does not expose a measured “charge from string N” register — both strings feed a shared DC bus — so this tab apportions <code>chargePower</code> by each string’s share of total PV:</p>
 <p style="font-family:monospace;color:#a6adc8;">
 share_N ≈ chargePower × pPvN / (pPv1 + pPv2)
 </p>

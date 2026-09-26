@@ -47,7 +47,7 @@ def _volts(val):
 
 
 class PvStringVoltageTab(QWidget):
-    """Physical Plant Tools — measured volts on each MPPT string."""
+    """Physical Plant — measured volts on each MPPT string."""
 
     def __init__(self, growatt_tab, status_callback, data_logger=None):
         super().__init__()

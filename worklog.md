@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 15:39
+
+- The group strip now says Physical Plant and Import/Export. Help pages that point at those groups use the same short names.
+
 ### 15:37
 
 - Alarm defs is on Dashboards, after Combined Dashboard. Each row is What, Condition, and Outcome. Drag those pieces in to build the sentence. A matching sentence is a live rule. Any other mix is a draft and does not fire.

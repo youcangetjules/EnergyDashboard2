@@ -7,7 +7,7 @@ TAB_CLASS = "PanelDatabaseTab"
 
 HELP_TEXT = """\
 <h2>Panel database</h2><p>
-This page is in <b>Physical Plant Tools</b>, next to Roof layout.
+This page is in <b>Physical Plant</b>, next to Roof layout.
 It is the list of PV modules on this house. Each row is one module type:
 who made it, the model, the rated watts, and the size.</p>
 <p>

@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Group strip names are Physical Plant and Import/Export
+
+- **Context:** The group strip said Physical Plant Tools and Energy Import/Export. The householder wants the shorter names.
+- **Decision:** The strip labels are **Physical Plant** and **Import/Export**. The group ids stay `physical_plant` and `import_export`. Help text uses the short names. Older changelog lines keep the name that was on screen that day.
+- **Consequence:** Do not put “Tools” or “Energy” back on those two strip labels.
+
 ### 2026-09-26 — Alarm defs is a drag-and-drop sentence in Dashboards
 
 - **Context:** Alarm defs was a table under Controls. The householder wants it on Dashboards, written as What, Condition, and Outcome, assembled by dragging.

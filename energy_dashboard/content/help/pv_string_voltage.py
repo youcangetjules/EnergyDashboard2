@@ -7,7 +7,7 @@ TAB_CLASS = "PvStringVoltageTab"
 
 HELP_TEXT = """\
 <h2>String voltage</h2><p>
-This page is in <b>Physical Plant Tools</b>, next to PV String Charge.
+This page is in <b>Physical Plant</b>, next to PV String Charge.
 It shows the measured DC volts on each string — Growatt’s MPPT inputs
 <b>vPv1</b> and <b>vPv2</b>. These are the volts the inverter reports.
 They are not a panel datasheet, and they are not estimated from power.</p>

@@ -7,7 +7,7 @@ TAB_CLASS = "BatteryAnalysisTab"
 
 HELP_TEXT = """\
 <h2>Battery Analysis</h2><p>
-This page is in the <b>Physical Plant Tools</b> group. It reads SOC and battery power over the last N days from the Growatt cloud and visualises charge/discharge patterns alongside PV.</p>
+This page is in the <b>Physical Plant</b> group. It reads SOC and battery power over the last N days from the Growatt cloud and visualises charge/discharge patterns alongside PV.</p>
 <p>
 <b>Refresh every:</b> next to Fetch Battery History, set how many minutes between automatic re-fetches (Off at 0). The choice is remembered. A fetch already in progress is not interrupted.</p>
 <p>

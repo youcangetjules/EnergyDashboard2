@@ -1,5 +1,5 @@
 """
-Physical Plant Tools — the modules installed on this roof.
+Physical Plant — the modules installed on this roof.
 
 The householder types maker, model, rated watts, and datasheet volts.
 Blank voltage cells stay blank. Roof layout’s panel list reads this table.

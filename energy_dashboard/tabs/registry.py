@@ -10,8 +10,8 @@ _MAIN_TAB_GROUPS = (
     # Dashboards is the landing group: first in the strip, and the
     # window always opens here (see main_window startup).
     ("usage", "Dashboards"),
-    ("physical_plant", "Physical Plant Tools"),
-    ("import_export", "Energy Import/Export"),
+    ("physical_plant", "Physical Plant"),
+    ("import_export", "Import/Export"),
     ("forecasts", "Energy Forecasts"),
     ("calculators", "Calculators"),
     ("controls", "Controls"),
