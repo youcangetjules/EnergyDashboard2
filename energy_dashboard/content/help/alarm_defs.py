@@ -37,8 +37,9 @@ the whole sentence.</p>
 The line itself is the syntax, in the form
 <b>WHEN</b> signal comparison threshold <b>FOR</b> how long
 <b>WHILE</b> extra condition <b>THEN</b> outcome.
-When that sentence is complete the rule gets a green halo and
-<b>Syntax Correct</b> under the right-hand end. A complete sentence that is
+When that sentence is complete the rule gets a green fill and
+<b>Syntax Correct</b> on a green background under the right-hand end.
+The rules sit at the bottom of the page. A complete sentence that is
 not one of the built-in alarms still does not fire — the hover says so.
 The thing that actually raises alarms is still the built-in rule in the code.</p>
 <p>

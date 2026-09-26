@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.463", "2026-09-26", [
+        "Alarm defs: a complete rule is filled green, and Syntax Correct sits on a green background. The rules sit at the bottom of the page.",
+    ]),
     ("2.9.462", "2026-09-26", [
         "Growatt live source can be <b>Modbus RS485</b> as well as cloud, Grott, or Hybrid. It reads the inverter in whatever mode Setup → Local Modbus check is set to.",
         "Connectivity diagram: Modbus is inverter ↔ that Local Modbus check mode ↔ dashboard. The line into EMQX is gone.",

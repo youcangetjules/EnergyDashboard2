@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-26 | 13 | 13 | 4 |
+| 2026-09-26 | 14 | 14 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
 | 2026-09-23 | 11 | 8 | 4 |
@@ -133,6 +133,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-076-20260926-14 — Syntax Correct is an empty green box</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 19:54 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Alarm defs |
+| **Version found** | 2.9.462 |
+| **Version fixed** | 2.9.463 |
+
+**Symptom:** A finished rule was only a green outline. Syntax Correct had no background. The rules also started at the top of the spare space instead of the bottom of the window.
+
+**Cause:** The rule fill was a 6% green that Qt did not paint, and the label was told to stay transparent. The spare space in the rule list was underneath the lines, so they sat at the top.
+
+**Resolution:** The finished rule is filled dark green, and Syntax Correct is dark text on a solid green background. New lines are added under a stretch, so the rules rest at the bottom of the page.
 
 ### <span style="color:green">BUG-075-20260926-13 — Connectivity diagram sent Modbus through EMQX</span>
 

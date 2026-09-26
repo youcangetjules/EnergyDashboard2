@@ -298,6 +298,7 @@ class _RuleLine(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setFixedHeight(_ROW_H + 22)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(6, 3, 4, 2)
@@ -336,14 +337,24 @@ class _RuleLine(QFrame):
         remove.clicked.connect(lambda: self.remove_requested.emit(self))
         row.addWidget(remove)
         outer.addLayout(row)
+        note_row = QHBoxLayout()
+        note_row.setContentsMargins(0, 0, 28, 0)
+        note_row.addStretch(1)
         self._syntax_note = QLabel("Syntax Correct")
-        self._syntax_note.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        self._syntax_note.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._syntax_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._syntax_note.setStyleSheet(
-            "color: #a6e3a1; font-size: 10px; background: transparent; padding-right: 28px;"
+            "QLabel {"
+            "  color: #1e1e2e;"
+            "  background-color: #a6e3a1;"
+            "  font-size: 10px;"
+            "  font-weight: bold;"
+            "  padding: 1px 8px;"
+            "  border-radius: 3px;"
+            "}"
         )
-        outer.addWidget(self._syntax_note)
+        note_row.addWidget(self._syntax_note)
+        outer.addLayout(note_row)
         self._refresh()
 
     def set_number(self, number: int) -> None:
@@ -386,7 +397,7 @@ class _RuleLine(QFrame):
                 "_RuleLine {"
                 "  border: 1px solid #a6e3a1;"
                 "  border-radius: 5px;"
-                "  background-color: rgba(166, 227, 161, 16);"
+                "  background-color: #1c3324;"
                 "}"
             )
             glow = QGraphicsDropShadowEffect(self)
@@ -453,6 +464,8 @@ class AlarmDefsTab(QWidget):
         # Room around each line so the green halo is not clipped.
         self._rules.setContentsMargins(8, 6, 8, 6)
         self._rules.setSpacing(10)
+        # Stretch stays above the rules so spare space is at the top and
+        # the lines sit on the bottom of the window.
         self._rules.addStretch(1)
         scroll.setWidget(self._rules_host)
         layout.addWidget(scroll, 1)
@@ -483,7 +496,7 @@ class AlarmDefsTab(QWidget):
         card.changed.connect(self._save)
         card.remove_requested.connect(self._remove_card)
         self._cards.append(card)
-        self._rules.insertWidget(self._rules.count() - 1, card)
+        self._rules.addWidget(card)
         self._renumber()
         if save:
             self._save()

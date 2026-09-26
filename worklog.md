@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 19:54
+
+- On Alarm defs, a finished rule was only a green outline, and Syntax Correct was green writing with nothing behind it. The rule is now filled in, and those words sit on a solid green background.
+- The rules themselves sit at the bottom of the page. The block lists stay at the top.
+
 ### 19:36
 
 - The connectivity diagram was drawing Modbus as if it fed EMQX and then the dashboard. Modbus is the inverter’s RS485 registers. The only middle step is the mode already chosen under Setup & Info → Local Modbus check (Modbus TCP, RTU over TCP, or a USB adapter). That card now names that mode, and the EMQX arrow is gone.
