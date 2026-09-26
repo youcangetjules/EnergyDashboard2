@@ -564,6 +564,7 @@ class EnergyDashboard(QMainWindow):
         main_layout.addWidget(meta_bar)
 
         self.tabs = QTabWidget()
+        self.tabs.setObjectName("mainPageTabs")
         self._fresh_tab_bar = FreshnessTabBar(self.tabs)
         self.tabs.setTabBar(self._fresh_tab_bar)
         main_layout.addWidget(self.tabs, 1)

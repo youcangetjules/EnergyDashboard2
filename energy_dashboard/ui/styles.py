@@ -768,6 +768,12 @@ QTabWidget::pane {{
     border-radius: 4px;
     top: -1px;
 }}
+QTabWidget#mainPageTabs::pane {{
+    border-top: 2px solid {_TAB_BAR_RULE};
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    top: 0px;
+}}
 QTabWidget::tab-bar {{
     background: {_DARK_BG};
 }}

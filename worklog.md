@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 11:43
+
+- A 2px line in 70% grey now runs under the whole tab bar, so the tabs sit on a clearer edge.
+
 ### 11:39
 
 - Each worklog session now has a clock time under the day. A later session on the same day is written above the earlier time. Times already in git are filled in. Days that were only saved later, with no clock, stay under the date.

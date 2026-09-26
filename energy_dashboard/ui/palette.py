@@ -33,6 +33,9 @@ _TAB_FRESH_TINT = _TAB_PAGE_UPDATEABLE
 _TAB_TEXT_ON_LIGHT_BG = '#000000'
 _TAB_TEXT_ON_DARK_BG = _DARK_TEXT
 
+# Full-width rule under the main tab bar: 70% grey (70% of white).
+_TAB_BAR_RULE = '#b3b3b3'
+
 # Amber group strip (left of page tabs) — Catppuccin peach / amber accent.
 _TAB_GROUP_AMBER = '#f5a524'
 _TAB_GROUP_AMBER_DIM = '#c4841a'

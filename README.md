@@ -1,6 +1,6 @@
 # PowerModel — Energy Dashboard
 
-Version 2.9.443
+Version 2.9.444
 
 Somewhat experimental version that works specifically with **Growatt** and **Octopus Energy**. To integrate into any telemetry and/or control system requires API access — figuring out how to make it work with Growatt took a lot of trial and error, but we got there. I believe Octopus Energy's API is more complete / thorough than others.
 
