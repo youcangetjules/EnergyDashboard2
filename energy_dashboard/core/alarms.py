@@ -61,31 +61,61 @@ class AlarmSpec:
     meaning: str
 
 
-@dataclass(frozen=True)
-class AlarmPhrase:
-    """The What / Condition / Outcome sentence for one built-in alarm.
+# The smallest pieces an alarm is made of. One palette column each.
+ALARM_PIECE_KINDS: tuple[str, ...] = (
+    "signal",
+    "comparison",
+    "threshold",
+    "duration",
+    "context",
+    "outcome",
+)
+# A sentence needs these four. Threshold and context are optional: "the
+# inverter is reported offline" has no limit to compare against.
+ALARM_PIECE_REQUIRED: tuple[str, ...] = ("signal", "comparison", "duration", "outcome")
 
-    Dragging these pieces on Alarm defs builds the same words. A sentence
-    that does not match one of these is a draft: it does not fire.
+
+@dataclass(frozen=True)
+class AlarmBlocks:
+    """One built-in alarm broken into its constituent blocks.
+
+    Dragging those blocks on Alarm defs rebuilds the same sentence. A
+    sentence that does not match one of these is a draft: it does not fire.
     """
 
     key: str
-    what: str
-    condition: str
+    signal: str
+    comparison: str
+    threshold: str
+    duration: str
+    context: str
     outcome: str
 
+    def pieces(self) -> dict[str, str]:
+        return {kind: getattr(self, kind) for kind in ALARM_PIECE_KINDS}
 
-def alarm_rule_syntax(what: str, condition: str, outcome: str) -> str:
-    """Plain-English syntax of one alarm: WHEN what IF condition THEN outcome."""
-    parts = ((what or "").strip(), (condition or "").strip(), (outcome or "").strip())
-    if not all(parts):
+
+def alarm_rule_syntax(pieces: dict[str, str]) -> str:
+    """Plain-English syntax built from the blocks in one row.
+
+    ``WHEN signal comparison [threshold] FOR duration [WHILE context]
+    THEN outcome``. Empty until every required block is in place.
+    """
+    p = {k: str((pieces or {}).get(k) or "").strip() for k in ALARM_PIECE_KINDS}
+    if not all(p[k] for k in ALARM_PIECE_REQUIRED):
         return ""
-    return f"WHEN {parts[0]} IF {parts[1]} THEN {parts[2]}"
+    head = f"WHEN {p['signal']} {p['comparison']}"
+    if p["threshold"]:
+        head += f" {p['threshold']}"
+    head += f" FOR {p['duration']}"
+    if p["context"]:
+        head += f" WHILE {p['context']}"
+    return f"{head} THEN {p['outcome']}"
 
 
 def alarm_piece_accepted(well_kind: str, piece_kind: str) -> bool:
     """A drop lands only in the well of the same kind."""
-    return well_kind in ("what", "condition", "outcome") and well_kind == piece_kind
+    return well_kind in ALARM_PIECE_KINDS and well_kind == piece_kind
 
 
 # Standing catalogue. Live titles and details still come from AlarmMonitor.
@@ -168,73 +198,123 @@ ALARM_CATALOGUE: tuple[AlarmSpec, ...] = (
 )
 
 
-# Same order as ALARM_CATALOGUE. The words are the drag-and-drop pieces.
-ALARM_PHRASES: tuple[AlarmPhrase, ...] = (
-    AlarmPhrase(
+# Same order as ALARM_CATALOGUE, one row per built-in alarm, each split into
+# its smallest pieces. The palette on Alarm defs is built from these columns,
+# so a block used by two alarms appears once.
+ALARM_BLOCKS: tuple[AlarmBlocks, ...] = (
+    AlarmBlocks(
         "low_soc",
-        "Battery state of charge",
-        "stays below the low-battery line for the hold time",
-        "Warning, or critical if the pack is very low",
+        signal="Battery state of charge",
+        comparison="stays below",
+        threshold="the low-battery line",
+        duration="the hold time",
+        context="",
+        outcome="Warning, or critical if the pack is very low",
     ),
-    AlarmPhrase(
+    AlarmBlocks(
         "sun_wasted",
-        "Spare solar",
-        "is at least the spare-solar minimum while the battery is low and barely charging, for the hold time",
-        "Critical",
+        signal="Spare solar",
+        comparison="is at least",
+        threshold="the spare-solar minimum",
+        duration="the hold time",
+        context="the battery is low and barely charging",
+        outcome="Critical",
     ),
-    AlarmPhrase(
+    AlarmBlocks(
         "load_eats_pv",
-        "House load",
-        "uses almost all the solar for the hold time, so nothing is left to charge",
-        "Warning",
+        signal="House load",
+        comparison="uses almost all of",
+        threshold="the solar coming in",
+        duration="the hold time",
+        context="the battery is barely charging",
+        outcome="Warning",
     ),
-    AlarmPhrase(
+    AlarmBlocks(
         "grott_lost",
-        "Grott feed",
-        "MQTT drops, or live inverter frames stop",
-        "Critical",
+        signal="Grott feed",
+        comparison="stops arriving",
+        threshold="",
+        duration="about 20 seconds",
+        context="",
+        outcome="Critical",
     ),
-    AlarmPhrase(
+    AlarmBlocks(
         "db_disconnected",
-        "Logging database",
-        "logging is on but the database cannot be reached for about 60 seconds",
-        "Critical",
+        signal="Logging database",
+        comparison="cannot be reached",
+        threshold="",
+        duration="about 60 seconds",
+        context="logging is switched on",
+        outcome="Critical",
     ),
-    AlarmPhrase(
+    AlarmBlocks(
         "db_ingest_stale",
-        "Database rows",
-        "Growatt or Tasmota looks live but no new rows land for 15 minutes",
-        "Critical",
+        signal="Database writing",
+        comparison="stops",
+        threshold="",
+        duration="15 minutes",
+        context="Growatt or Tasmota looks live",
+        outcome="Critical",
     ),
-    AlarmPhrase(
+    AlarmBlocks(
         "inverter_comms_lost",
-        "Inverter",
-        "Growatt’s cloud says it is offline for about 2 minutes",
-        "Critical",
+        signal="Inverter",
+        comparison="is reported offline",
+        threshold="",
+        duration="about 2 minutes",
+        context="",
+        outcome="Critical",
     ),
-    AlarmPhrase(
+    AlarmBlocks(
         "tasmota_mqtt_lost",
-        "Tasmota MQTT",
-        "the broker connection drops for about 30 seconds",
-        "Critical",
+        signal="Tasmota MQTT",
+        comparison="drops",
+        threshold="",
+        duration="about 30 seconds",
+        context="",
+        outcome="Critical",
     ),
-    AlarmPhrase(
+    AlarmBlocks(
         "tasmota_offline",
-        "Tasmota device",
-        "a named plug or CT stays silent for about 8 minutes while MQTT is up",
-        "Warning, or critical if three or more are silent",
+        signal="Tasmota device",
+        comparison="goes silent",
+        threshold="",
+        duration="about 8 minutes",
+        context="MQTT is still up",
+        outcome="Warning, or critical if three or more",
     ),
 )
 
+# Blocks worth offering that no built-in alarm uses on its own. They let a
+# householder write a sentence of their own; it stays a draft either way.
+ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
+    "comparison": ("stays above", "stops"),
+    "duration": ("about 5 minutes", "an hour"),
+    "outcome": ("Warning", "Critical"),
+}
 
-def alarm_phrase_key(what: str, condition: str, outcome: str) -> str | None:
-    """Key of the built-in alarm this sentence matches, or None for a draft."""
-    w = (what or "").strip()
-    c = (condition or "").strip()
-    o = (outcome or "").strip()
-    for phrase in ALARM_PHRASES:
-        if phrase.what == w and phrase.condition == c and phrase.outcome == o:
-            return phrase.key
+
+def alarm_palette(kind: str) -> tuple[str, ...]:
+    """Every block of one kind, in first-used order, without repeats."""
+    if kind not in ALARM_PIECE_KINDS:
+        return ()
+    out: list[str] = []
+    for row in ALARM_BLOCKS:
+        text = getattr(row, kind)
+        if text and text not in out:
+            out.append(text)
+    for text in ALARM_EXTRA_PIECES.get(kind, ()):
+        if text not in out:
+            out.append(text)
+    return tuple(out)
+
+
+def alarm_blocks_key(pieces: dict[str, str]) -> str | None:
+    """Key of the built-in alarm these blocks match, or None for a draft."""
+    p = {k: str((pieces or {}).get(k) or "").strip() for k in ALARM_PIECE_KINDS}
+    for row in ALARM_BLOCKS:
+        if row.pieces() == p:
+            return row.key
     return None
 
 
@@ -975,12 +1055,16 @@ __all__ = [
     "AlarmHit",
     "AlarmMonitor",
     "AlarmSpec",
-    "AlarmPhrase",
+    "AlarmBlocks",
     "ALARM_CATALOGUE",
-    "ALARM_PHRASES",
+    "ALARM_BLOCKS",
+    "ALARM_EXTRA_PIECES",
+    "ALARM_PIECE_KINDS",
+    "ALARM_PIECE_REQUIRED",
+    "alarm_palette",
     "alarm_rule_syntax",
     "alarm_piece_accepted",
-    "alarm_phrase_key",
+    "alarm_blocks_key",
     "notify_backoff_interval_s",
     "NOTIFY_BACKOFF_STAGES",
     "NOTIFY_BACKOFF_FINAL_S",

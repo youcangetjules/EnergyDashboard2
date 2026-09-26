@@ -14,6 +14,13 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 18:01
+
+- Alarm defs is now built from genuinely small pieces. The old chips were whole clauses — "stays below the low-battery line for the hold time" — which were too long to read and were hiding the fact that this is really three separate things: a comparison, a threshold, and a length of time. Each of those is its own draggable block now, with its own colour and its own palette column.
+- A row is six boxes: the **signal** being watched (battery state of charge, spare solar, the Grott feed…), the **comparison** (stays below, is at least, drops, goes silent), the **threshold** it is measured against, **how long** it has to hold, an optional **while** for an extra condition that must also be true, and the **outcome**. A block only drops into a box of its own colour, and right-clicking a box empties it.
+- Two boxes are allowed to stay empty, because some alarms genuinely have no limit to compare against: "the inverter is reported offline" has nothing to be below or above.
+- Blocks shared by more than one alarm appear once in the palette, so "the hold time" is a single chip used by three rules. A row is only marked live when every block matches a built-in alarm, so changing one block turns it into a draft. As before, a sentence on this page cannot make a new alarm fire — the code behind it still has to know how to measure the thing.
+
 ### 15:59
 
 - The two alarm pages swapped homes. **Alarms** is a new page in Dashboards: it lists whatever is sounding right now, worst first, with how long the condition has been true, and underneath it every alarm raised since the app was started. The Alarms button on the bottom bar, the red banner, and the tray menu all open that page now instead of throwing up a pop-up box you had to dismiss.

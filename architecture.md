@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Alarm defs blocks are atomic, not whole phrases
+
+- **Context:** The drag pieces were whole clauses (“stays below the low-battery line for the hold time”). They were too long to read, overlapped in the palette, and hid the fact that one clause is really three separate parameters.
+- **Decision:** `ALARM_BLOCKS` in `core/alarms.py` splits every built-in alarm into six kinds of block: `signal`, `comparison`, `threshold`, `duration`, `context`, `outcome` (`ALARM_PIECE_KINDS`). Signal, comparison, duration and outcome are required (`ALARM_PIECE_REQUIRED`); threshold and context may be empty, because “the inverter is reported offline” has no limit to compare against. The syntax is `WHEN signal comparison [threshold] FOR duration [WHILE context] THEN outcome`. `alarm_palette(kind)` builds each palette column from those blocks plus a short `ALARM_EXTRA_PIECES` list, deduplicated, so a block shared by two alarms appears once. Saved rows live under `alarms/defs_blocks`; the old `alarms/defs_syntax` key is deleted on load.
+- **Consequence:** A row is live only when all six blocks match one `ALARM_BLOCKS` entry, so swapping any single block makes it a draft. Adding a genuinely new alarm still means new blocks **and** monitor code — never a sentence alone. Do not go back to whole-clause pieces, and do not let the palette re-word a block so it no longer matches what the monitor does.
+
 ### 2026-09-26 — Alarms is a page in Dashboards; Alarm defs moves to Controls
 
 - **Context:** Alarm defs (what an alarm *is*) sat in Dashboards, while what is actually sounding was only a `QMessageBox` behind the Alarms button. That is backwards: the live view belongs where you look every day, the definitions belong with the other setup pages.
@@ -121,7 +127,7 @@ Newest first. Keep each entry short: context → decision → consequence.
 ### 2026-09-26 — Alarm defs is a drag-and-drop sentence in Dashboards
 
 - **Context:** Alarm defs was a table under Controls. The householder wants it on Dashboards, written as What, Condition, and Outcome, assembled by dragging.
-- **Decision:** Partly superseded the same day — the tab now lives in **Controls** (see “Alarms is a page in Dashboards; Alarm defs moves to Controls”). Each row is three drop wells. The syntax is `WHEN what IF condition THEN outcome`. A sentence that matches `ALARM_PHRASES` is a live built-in rule. Any other mix is a draft and does not fire. `AlarmMonitor` is unchanged.
+- **Decision:** Superseded the same day, twice: the tab now lives in **Controls**, and the pieces are atomic blocks rather than three clauses. See the two entries above. What survives: a row that does not match a built-in rule is a draft and does not fire, and `AlarmMonitor` is unchanged by anything on the page.
 - **Consequence:** Do not let a draft sentence raise an alarm. A new live rule is still a new phrase plus the monitor, not a sentence alone.
 
 ### 2026-09-26 — Alarm defs lists the catalogue, it does not add rules

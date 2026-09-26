@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.459", "2026-09-26", [
+        "Alarm defs now drags one small block at a time — signal, comparison, threshold, how long, an optional extra condition, and the outcome — instead of long sentences.",
+        "Each kind of block has its own colour and its own palette column, and a block only drops into a box of the same colour. Right-click a box to empty it.",
+        "A row reads WHEN signal comparison threshold FOR how long WHILE extra condition THEN outcome, and is only live when every block matches a built-in alarm.",
+    ]),
     ("2.9.458", "2026-09-26", [
         "New Alarms page in Dashboards: what is sounding now, and every alarm raised since the app started, with the reason in plain English.",
         "The Alarms button, the red banner, and the tray now open that page instead of a pop-up box.",
