@@ -202,10 +202,33 @@ def _client_cap(window: QWidget) -> tuple[int, int, QRect, int, int]:
         # Do not guess a title bar — that left a gap under the window.
         left, top, right, bottom = (_BORDER_CUSHION_PX, 0, _BORDER_CUSHION_PX, 0)
     # Width stays inside this monitor. Height is the usable screen
-    # above the taskbar, so the panel buttons stay visible.
+    # above the taskbar, so the bottom button bar stays on screen.
     cap_w = max(1, area.width() - left - right)
-    cap_h = max(1, area.height() - top - bottom)
+    cap_h = max(1, area.height() - top - bottom - _decoration_hang(window, area))
     return cap_w, cap_h, area, left, top
+
+
+def _decoration_hang(window: QWidget, area: QRect) -> int:
+    """Pixels of frame sitting below the usable screen, kept once seen.
+
+    Wayland often reports no title-bar margin, then the compositor still
+    draws one and the bottom button bar slides under the taskbar. Remember
+    that overlap so the next layout does not grow the window back down.
+    """
+    if window is None or not window.isVisible() or area.isNull():
+        return 0
+    hang = int(window.property("_pm_panel_hang") or 0)
+    geo = window.geometry()
+    # Ignore a window that is still simply too tall. That overlap is the
+    # page, and it is fixed by shortening to the usable screen. Only the
+    # leftover after that shorten is the title bar the compositor added.
+    if geo.height() > area.height() + 2:
+        return hang
+    extra = int(window.frameGeometry().bottom() - area.bottom())
+    if 0 < extra <= 80:
+        hang = max(hang, extra)
+        window.setProperty("_pm_panel_hang", hang)
+    return hang
 
 
 def _pull_minimum_inside_cap(window: QWidget, cap_w: int, cap_h: int) -> None:

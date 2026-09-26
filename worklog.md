@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 12:06
+
+- The bottom button bar is back on screen. A tall page was stretching the window under the taskbar, which hid Refresh Page, Refresh All, Help, and Close. The page now stops above that bar.
+
 ### 12:00
 
 - Popup windows can be copied, pasted, and screenshotted again. They are no longer forced above every other window, which had been closing the Copy and Paste menu and hiding the popup from the screenshot tool.

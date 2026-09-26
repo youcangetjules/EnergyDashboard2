@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.447", "2026-09-26", [
+        "The bottom bar (Refresh Page, Refresh All, Help, Close) stays on screen, above the taskbar.",
+    ]),
     ("2.9.446", "2026-09-26", [
         "Popup windows accept copy and paste again, and a screenshot of a popup can be taken.",
     ]),

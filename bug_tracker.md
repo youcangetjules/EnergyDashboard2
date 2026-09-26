@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-26 | 7 | 7 | 4 |
+| 2026-09-26 | 8 | 8 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
 | 2026-09-23 | 11 | 8 | 4 |
@@ -133,6 +133,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-070-20260926-08 — Bottom button bar not on screen</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 12:02 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Main window |
+| **Version found** | 2.9.446 |
+| **Version fixed** | 2.9.447 |
+
+**Symptom:** The bottom bar with Refresh Page, Refresh All, Help, and Close is not on screen.
+
+**Cause:** A tall page stretched the window past the bottom of the monitor. That bar is laid out at the bottom of the window, so it sat under the taskbar.
+
+**Resolution:** The page area can no longer grow the window past the space above the taskbar, so the button bar stays inside the window. Shipped in 2.9.447.
 
 ### <span style="color:green">BUG-069-20260926-07 — Popup windows block copy, paste, and screenshots</span>
 

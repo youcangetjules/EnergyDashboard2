@@ -130,6 +130,7 @@ class EnergyDashboard(QMainWindow):
                     )
                 if self.maximumWidth() != cap_w or self.maximumHeight() != cap_h:
                     self.setMaximumSize(cap_w, cap_h)
+                self._keep_button_bar_visible(cap_h)
             finally:
                 self._work_area_guard = False
         return result
@@ -183,12 +184,40 @@ class EnergyDashboard(QMainWindow):
         self._work_area_clamp_pending = False
         self._apply_work_area(fill=False)
 
+    def _keep_button_bar_visible(self, cap_h: int) -> None:
+        """Keep Refresh / Help / Close inside the window, above the taskbar.
+
+        A tall page would otherwise stretch the window past the screen and
+        lay that button bar out below the visible area.
+        """
+        bar = getattr(self, "status_bar", None)
+        if bar is None or cap_h < 1:
+            return
+        bar.setVisible(True)
+        bar_h = max(int(bar.sizeHint().height()), 28)
+        room = max(160, int(cap_h) - bar_h)
+        central = self.centralWidget()
+        if central is None:
+            return
+        if central.minimumHeight() > room:
+            central.setMinimumHeight(0)
+        if central.maximumHeight() != room:
+            central.setMaximumHeight(room)
+
     def _apply_work_area(self, *, fill: bool):
         if self._work_area_guard:
             return
         self._work_area_guard = True
         try:
+            _cap_w, cap_h = client_cap(self)
+            self._keep_button_bar_visible(cap_h)
             fit_window_to_work_area(self, fill=fill)
+            # The frame may now include a title bar. Cap again so the
+            # button bar is still inside the shorter client.
+            _cap_w, cap_h = client_cap(self)
+            self._keep_button_bar_visible(cap_h)
+            if self.height() > cap_h:
+                self.resize(min(self.width(), _cap_w), cap_h)
         except Exception as exc:
             _log.warn("App", f"Could not keep the window above the taskbar: {exc}")
         finally:

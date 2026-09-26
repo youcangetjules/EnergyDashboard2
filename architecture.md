@@ -115,8 +115,8 @@ Newest first. Keep each entry short: context → decision → consequence.
 ### 2026-09-26 — Maximise stops above the taskbar
 
 - **Context:** On KDE Wayland a floating panel reserves no strut, so the compositor’s maximise is the full monitor. The earlier rule kept that maximised state and refused to shorten the height (a guessed title bar had left a gap). The window then covered the taskbar buttons (BUG-068).
-- **Decision:** A maximise click snaps the window to the usable screen: Plasma panel thickness, plus a small pad when the panel floats. The compositor maximised state is cleared so that size sticks. Height is shortened to stay above the panel. Do not subtract a guessed title bar; only a frame Qt has actually measured.
-- **Consequence:** Do not leave the window in the compositor’s maximised state to “honour maximise”. Do not bring back a fixed title-bar cushion. The 2026-09-22 “do not shorten maximised height” line is superseded by this.
+- **Decision:** A maximise click snaps the window to the usable screen: Plasma panel thickness, plus a small pad when the panel floats. The compositor maximised state is cleared so that size sticks. The page area is not allowed to grow the window past that height, so the Refresh / Help / Close bar stays inside the window, above the taskbar. Do not subtract a guessed title bar; only a frame Qt has actually measured, or the overlap once the frame is seen hanging below the usable screen.
+- **Consequence:** Do not leave the window in the compositor’s maximised state to “honour maximise”. Do not bring back a fixed title-bar cushion. Do not let a tall page push the bottom button bar off the screen. The 2026-09-22 “do not shorten maximised height” line is superseded by this.
 
 ### 2026-09-26 — Do not change a visible dialog’s window flags
 
