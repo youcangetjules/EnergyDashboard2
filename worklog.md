@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 15:37
+
+- Alarm defs is on Dashboards, after Combined Dashboard. Each row is What, Condition, and Outcome. Drag those pieces in to build the sentence. A matching sentence is a live rule. Any other mix is a draft and does not fire.
+
 ### 15:34
 
 - Controls has an Alarm defs tab. It lists each alarm, how serious it is, how long the condition has to last, and what it means. The line at the top is the hold time and thresholds from Setup & Info.

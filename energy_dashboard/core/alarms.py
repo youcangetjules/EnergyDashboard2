@@ -61,6 +61,33 @@ class AlarmSpec:
     meaning: str
 
 
+@dataclass(frozen=True)
+class AlarmPhrase:
+    """The What / Condition / Outcome sentence for one built-in alarm.
+
+    Dragging these pieces on Alarm defs builds the same words. A sentence
+    that does not match one of these is a draft: it does not fire.
+    """
+
+    key: str
+    what: str
+    condition: str
+    outcome: str
+
+
+def alarm_rule_syntax(what: str, condition: str, outcome: str) -> str:
+    """Plain-English syntax of one alarm: WHEN what IF condition THEN outcome."""
+    parts = ((what or "").strip(), (condition or "").strip(), (outcome or "").strip())
+    if not all(parts):
+        return ""
+    return f"WHEN {parts[0]} IF {parts[1]} THEN {parts[2]}"
+
+
+def alarm_piece_accepted(well_kind: str, piece_kind: str) -> bool:
+    """A drop lands only in the well of the same kind."""
+    return well_kind in ("what", "condition", "outcome") and well_kind == piece_kind
+
+
 # Standing catalogue. Live titles and details still come from AlarmMonitor.
 ALARM_CATALOGUE: tuple[AlarmSpec, ...] = (
     AlarmSpec(
@@ -139,6 +166,76 @@ ALARM_CATALOGUE: tuple[AlarmSpec, ...] = (
         "Usual causes are Wi-Fi, a plug that is off, or stuck firmware.",
     ),
 )
+
+
+# Same order as ALARM_CATALOGUE. The words are the drag-and-drop pieces.
+ALARM_PHRASES: tuple[AlarmPhrase, ...] = (
+    AlarmPhrase(
+        "low_soc",
+        "Battery state of charge",
+        "stays below the low-battery line for the hold time",
+        "Warning, or critical if the pack is very low",
+    ),
+    AlarmPhrase(
+        "sun_wasted",
+        "Spare solar",
+        "is at least the spare-solar minimum while the battery is low and barely charging, for the hold time",
+        "Critical",
+    ),
+    AlarmPhrase(
+        "load_eats_pv",
+        "House load",
+        "uses almost all the solar for the hold time, so nothing is left to charge",
+        "Warning",
+    ),
+    AlarmPhrase(
+        "grott_lost",
+        "Grott feed",
+        "MQTT drops, or live inverter frames stop",
+        "Critical",
+    ),
+    AlarmPhrase(
+        "db_disconnected",
+        "Logging database",
+        "logging is on but the database cannot be reached for about 60 seconds",
+        "Critical",
+    ),
+    AlarmPhrase(
+        "db_ingest_stale",
+        "Database rows",
+        "Growatt or Tasmota looks live but no new rows land for 15 minutes",
+        "Critical",
+    ),
+    AlarmPhrase(
+        "inverter_comms_lost",
+        "Inverter",
+        "Growatt’s cloud says it is offline for about 2 minutes",
+        "Critical",
+    ),
+    AlarmPhrase(
+        "tasmota_mqtt_lost",
+        "Tasmota MQTT",
+        "the broker connection drops for about 30 seconds",
+        "Critical",
+    ),
+    AlarmPhrase(
+        "tasmota_offline",
+        "Tasmota device",
+        "a named plug or CT stays silent for about 8 minutes while MQTT is up",
+        "Warning, or critical if three or more are silent",
+    ),
+)
+
+
+def alarm_phrase_key(what: str, condition: str, outcome: str) -> str | None:
+    """Key of the built-in alarm this sentence matches, or None for a draft."""
+    w = (what or "").strip()
+    c = (condition or "").strip()
+    o = (outcome or "").strip()
+    for phrase in ALARM_PHRASES:
+        if phrase.what == w and phrase.condition == c and phrase.outcome == o:
+            return phrase.key
+    return None
 
 
 @dataclass
@@ -878,7 +975,12 @@ __all__ = [
     "AlarmHit",
     "AlarmMonitor",
     "AlarmSpec",
+    "AlarmPhrase",
     "ALARM_CATALOGUE",
+    "ALARM_PHRASES",
+    "alarm_rule_syntax",
+    "alarm_piece_accepted",
+    "alarm_phrase_key",
     "notify_backoff_interval_s",
     "NOTIFY_BACKOFF_STAGES",
     "NOTIFY_BACKOFF_FINAL_S",

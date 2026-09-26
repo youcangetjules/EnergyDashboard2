@@ -8,15 +8,17 @@ TAB_CLASS = "AlarmDefsTab"
 HELP_TEXT = """\
 <h2>Alarm defs</h2>
 <p>
-This page is in <b>Controls</b>. It lists every alarm the dashboard can raise:
-the name, how serious it is, how long the condition has to last, and what it
-means in the house.</p>
+This page is in <b>Dashboards</b>. Each row is an alarm written as three pieces:
+<b>What</b> (blue), <b>Condition</b> (amber), and <b>Outcome</b> (red).
+Drag a piece from the top into the matching box. A what will not drop into
+a condition box.</p>
 <p>
-The line at the top is the thresholds saved in <b>Setup &amp; Info → Live alarms</b>
-(on or off, hold time, spare-solar minimum, and the low-battery percentage).
-Reload reads those again. The list itself is the built-in rule set — it is not
-a place to add a new alarm.</p>
+The line under the row is the syntax, in the form
+<b>WHEN</b> what <b>IF</b> condition <b>THEN</b> outcome.
+If that sentence is one of the built-in rules, it is marked <b>Live rule</b>.
+Any other mix is a <b>draft</b> and does not fire. The alarms that actually
+raise are still the built-in rules.</p>
 <p>
-The <b>Alarms</b> button and the tray menu show what is firing right now.
-This page is the definition of those rules.</p>
+<b>Add rule</b> gives you an empty row. <b>Reset</b> puts the built-in
+sentences back. <b>Remove</b> takes one row off the page.</p>
 """

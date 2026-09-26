@@ -106,11 +106,17 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Alarm defs is a drag-and-drop sentence in Dashboards
+
+- **Context:** Alarm defs was a table under Controls. The householder wants it on Dashboards, written as What, Condition, and Outcome, assembled by dragging.
+- **Decision:** The tab lives in the Dashboards group. Each row is three drop wells. The syntax is `WHEN what IF condition THEN outcome`. A sentence that matches `ALARM_PHRASES` is a live built-in rule. Any other mix is a draft and does not fire. `AlarmMonitor` is unchanged.
+- **Consequence:** Do not put Alarm defs back under Controls. Do not let a draft sentence raise an alarm. A new live rule is still a new phrase plus the monitor, not a sentence alone.
+
 ### 2026-09-26 — Alarm defs lists the catalogue, it does not add rules
 
 - **Context:** The Alarms button and the tray show what is firing. The rules themselves lived only in `core/alarms.py`.
-- **Decision:** Controls → Alarm defs displays `ALARM_CATALOGUE` and the hold time, spare-solar minimum, and low-battery line saved by Setup & Info. It does not create alarms.
-- **Consequence:** A new alarm is a new `AlarmSpec` in the catalogue. Do not hard-code a second list on the tab.
+- **Decision:** Superseded the same day. The tab is no longer a table under Controls. See “Alarm defs is a drag-and-drop sentence in Dashboards”.
+- **Consequence:** Do not rebuild the old table.
 
 ### 2026-09-26 — Close hides to the tray; Quit is the exit
 

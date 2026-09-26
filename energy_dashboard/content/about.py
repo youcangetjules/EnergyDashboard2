@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.455", "2026-09-26", [
+        "Alarm defs is on Dashboards. Drag a What, a Condition, and an Outcome to build the sentence.",
+    ]),
     ("2.9.454", "2026-09-26", [
         "Controls has an Alarm defs tab listing each alarm, how serious it is, and when it fires.",
     ]),
