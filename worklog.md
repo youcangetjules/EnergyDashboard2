@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 20:55
+
+- On Alarm defs, Tasmota device is a signal you can click. A box asks for that plug’s IP address. Once an address is saved, the “device gone quiet” alarm watches that plug and not the others.
+
 ### 20:19
 
 - Live alarms can now text a phone. In Setup, tick SMS, put the number in, and choose an HTTP gateway address or Twilio. Test SMS sends one message so you can see the gateway answer. The password can stay in the secrets file rather than on the form. A real alarm texts on the same schedule as the desktop pop-up.

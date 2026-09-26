@@ -1585,7 +1585,7 @@ class TasmotaTab(QWidget):
     def use_mqtt_mode(self) -> bool:
         return self._tasmota_settings().value("tasmota/use_mqtt", False, type=bool)
 
-    def alarm_snapshot(self, stale_s: float = 480.0) -> dict:
+    def alarm_snapshot(self, stale_s: float = 480.0, watch_ip: str = "") -> dict:
         """Known Tasmota plugs/CTs that have gone quiet (not the whole IP range)."""
         mqtt_mode = self.use_mqtt_mode()
         mqtt_connected = False
@@ -1603,6 +1603,9 @@ class TasmotaTab(QWidget):
                 known.add(str(ip))
         for ip in (self.history or {}):
             known.add(str(ip))
+        watched = str(watch_ip or "").strip()
+        if watched:
+            known.add(watched)
         now = datetime.now(timezone.utc)
         offline = []
         for ip in sorted(known):
@@ -1624,6 +1627,8 @@ class TasmotaTab(QWidget):
                     age_s = None
             silent = (not live) or (age_s is not None and age_s > float(stale_s))
             if silent:
+                if watched and ip != watched:
+                    continue
                 label = (self.device_names or {}).get(ip) or ip
                 if label != ip:
                     offline.append(f"{label} ({ip})")

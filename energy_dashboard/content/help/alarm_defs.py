@@ -38,7 +38,8 @@ Hovering a rule shows the whole sentence.</p>
 <p>
 The lists also include <b>string A voltage</b>, <b>string B voltage</b>,
 <b>has a differential of</b>, and <b>Volts</b>. Click <b>Volts</b> to set how
-many volts that block means.</p>
+many volts that block means. Click <b>Tasmota device</b> and enter that
+plug’s IP address. With an address set, that alarm watches only that device.</p>
 <p>
 Click a block that has a number — a length of time, the hold time, the
 low-battery line, the spare-solar minimum, or Volts — and a box opens so you

@@ -328,6 +328,84 @@ def _write_param(spec: _Param, spin_value: float, dash) -> None:
         params.sp_alarm_pv_min.blockSignals(False)
 
 
+_TASMOTA_SIGNAL = "Tasmota device"
+_QS_TASMOTA_IP = "alarms/tasmota_device_ip"
+
+
+def _valid_ipv4(raw: str) -> str:
+    parts = str(raw or "").strip().split(".")
+    if len(parts) != 4:
+        return ""
+    nums = []
+    for part in parts:
+        if not part.isdigit():
+            return ""
+        number = int(part)
+        if number > 255 or (len(part) > 1 and part.startswith("0")):
+            return ""
+        nums.append(str(number))
+    return ".".join(nums)
+
+
+def _tasmota_device_ip() -> str:
+    return _valid_ipv4(str(_alarm_settings().value(_QS_TASMOTA_IP, "") or ""))
+
+
+def _tasmota_caption(text: str) -> str:
+    if text != _TASMOTA_SIGNAL:
+        return text
+    ip = _tasmota_device_ip()
+    if not ip:
+        return text
+    return f"{text} ({ip})"
+
+
+def _edit_tasmota_ip(parent) -> bool:
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Tasmota device")
+    dlg.setMinimumWidth(420)
+    lay = QVBoxLayout(dlg)
+    hint = QLabel(
+        "IP address of the plug or current clamp. "
+        "Once this is set, the Tasmota-device alarm watches this address only."
+    )
+    hint.setWordWrap(True)
+    hint.setStyleSheet("color: #cdd6f4; font-size: 12px;")
+    lay.addWidget(hint)
+    edit = QLineEdit(_tasmota_device_ip())
+    edit.setPlaceholderText("192.168.1.50")
+    apply_setup_info_line_field_motif(edit, width=160)
+    row = QHBoxLayout()
+    row.addWidget(edit)
+    row.addStretch(1)
+    lay.addLayout(row)
+    error = QLabel("")
+    error.setStyleSheet("color: #f38ba8; font-size: 11px;")
+    lay.addWidget(error)
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+    )
+    ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    if ok is not None:
+        ok.setText("Save")
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    lay.addWidget(buttons)
+    _prepare_dialog_buttons(dlg)
+    while True:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return False
+        typed = edit.text().strip()
+        ip = _valid_ipv4(typed)
+        if typed and not ip:
+            error.setText("Enter an IP address such as 192.168.1.50, or leave it blank.")
+            continue
+        settings = _alarm_settings()
+        settings.setValue(_QS_TASMOTA_IP, ip)
+        settings.sync()
+        return True
+
+
 def _edit_param(parent, spec: _Param, dash) -> bool:
     dlg = QDialog(parent)
     dlg.setWindowTitle(spec.title)
@@ -506,6 +584,8 @@ class _Slot(QFrame):
     def caption(self) -> str:
         if not self._text:
             return ""
+        if self._text == _TASMOTA_SIGNAL:
+            return _tasmota_caption(self._text)
         spec = _PARAM_FOR.get(self._text)
         if spec is None:
             return self._text
@@ -524,7 +604,7 @@ class _Slot(QFrame):
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             self._paint_caption()
             lines = [self.caption()]
-            if self._text in _PARAM_FOR:
+            if self._text in _PARAM_FOR or self._text == _TASMOTA_SIGNAL:
                 lines.append("Click to change this.")
             lines.append("Drag onto the bin to remove it.")
             lines.append("Right-click to empty this slot.")
@@ -599,7 +679,12 @@ class _Slot(QFrame):
             self._armed = False
             spec = _PARAM_FOR.get(self._text)
             tab = self._tab()
-            if spec is not None and tab is not None and _edit_param(tab, spec, tab.dash):
+            edited = False
+            if self._text == _TASMOTA_SIGNAL and tab is not None:
+                edited = _edit_tasmota_ip(tab)
+            elif spec is not None and tab is not None:
+                edited = _edit_param(tab, spec, tab.dash)
+            if edited and tab is not None:
                 tab.refresh_param_chips()
             return
         self._armed = False

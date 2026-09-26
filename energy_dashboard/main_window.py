@@ -1612,8 +1612,14 @@ class EnergyDashboard(QMainWindow):
         try:
             tt = getattr(self, "tasmota_tab", None)
             if tt is not None and hasattr(tt, "alarm_snapshot"):
+                watch_ip = str(
+                    QSettings("PowerModel", "EnergyDashboard2").value(
+                        "alarms/tasmota_device_ip", ""
+                    ) or ""
+                ).strip()
                 tas = tt.alarm_snapshot(
                     stale_s=float(self.alarm_monitor.tasmota_stale_s),
+                    watch_ip=watch_ip,
                 ) or {}
         except Exception:
             tas = {}

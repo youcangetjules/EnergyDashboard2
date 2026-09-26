@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.468", "2026-09-26", [
+        "Alarm defs: click Tasmota device and enter its IP address. The silent-device alarm then watches that plug only.",
+    ]),
     ("2.9.467", "2026-09-26", [
         "Live alarms can send an SMS. Setup takes a mobile number and either an HTTP gateway or Twilio. Test SMS sends one message. The token can stay in secrets.env.",
     ]),
