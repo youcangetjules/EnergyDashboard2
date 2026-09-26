@@ -13,7 +13,7 @@ These root files are not optional extras. They are the standing instructions for
 | File | What it is | Your duty |
 |------|------------|-----------|
 | [`architecture.md`](architecture.md) | Main application architecture **and** the decisions that shaped it | Read before structural work. **Update it** when a decision affects architecture. |
-| [`worklog.md`](worklog.md) | Plain-English diary of what was done to the application in development **that day** | Read for recent context. **Append** after meaningful session work (what changed and why, in everyday language). Complements — does not replace — the in-app About changelog. |
+| [`worklog.md`](worklog.md) | Plain-English diary of what was done to the application in development **that day** | Read for recent context. **Append** after meaningful session work (what changed and why, in everyday language), under a new `### HH:MM` heading above any earlier time that day. Complements — does not replace — the in-app About changelog. |
 | [`skills.md`](skills.md) | Expertise you must bring: expert engineer, expert UI/UX designer, AI/ML expert, and Growatt PV / battery expert | Read every session. Work to that standard. |
 | [`MOTIFS.md`](MOTIFS.md) | UI design motifs: primary buttons, electric-blue spin fields, alignment rules | Read before UI/layout work. **Update it** when a motif or alignment rule changes in code. |
 | [`bug_tracker.md`](bug_tracker.md) | Timestamped log of **every** bug, with resolution when fixed | **Open an entry when a bug is found/reported; update it when fixed.** Never delete entries. **Open** section first, then **Fixed**. Newest first inside each section. A fixed bug does not stay under Open. |

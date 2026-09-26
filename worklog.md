@@ -2,9 +2,11 @@
 
 Part of the **basic instructions for the development environment** (see `AGENTS.md`).
 
-Plain-English **development diary**. Newest day first.
+Plain-English **development diary**. Newest day first. Under a day, newest clock time first.
 
-Agents: after meaningful development work in a session, **append what you did that day** here in language a non-expert can follow — what changed for the user or the system, and why it mattered. Skip trivia (typo-only) unless it fixed a user-facing bug.
+Agents: after meaningful development work in a session, **append what you did** here in language a non-expert can follow — what changed for the user or the system, and why it mattered. Skip trivia (typo-only) unless it fixed a user-facing bug.
+
+Put the notes under a `### HH:MM` heading (24-hour, Europe/London). If that day already has notes, add the new time **above** the previous time. Do not invent a clock. Days from before this rule that have no commit time stay under the date only.
 
 Do not replace the in-app About changelog; that stays the versioned product history. This file is the human/agent work narrative.
 
@@ -12,69 +14,215 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 11:39
+
+- Each worklog session now has a clock time under the day. A later session on the same day is written above the earlier time. Times already in git are filled in. Days that were only saved later, with no clock, stay under the date.
+
+### 11:37
+
 - Bug Tracker now starts with progress per day, just above the open bugs: how many were opened, how many were fixed, and how many were still open at the end of that day.
+
+### 11:35
+
 - Fixed BUG-066. The Connectivity popup was on screen for about a second, then Qt hid it because the stay-on-top code changed the window’s flags while the app was still waiting for an answer. Stay-on-top is now set before the popup is shown, and a status refresh no longer deletes the Table history button under the click.
 - Diagnosed BUG-066. A Connectivity click opens a blocking window, then the stay-on-top watcher hides that window by changing its flags while the app is still waiting for an answer. On Wayland the window does not reliably come back, so the dashboard looks frozen. The port 8899 timeout is the Modbus gateway not answering; when that check finishes it rebuilds the Table history buttons on the window thread, which can delete the button under the click.
+
+### 11:23
+
 - Show Alarms on Connectivity crashed. The code wrapped the alarm dictionary in a list and then asked that list for `.values()`. It now reads the alarms correctly. The “connection to port 8899 timed out” line is the local Modbus gateway not answering; that probe already runs in the background and is not this crash.
 - Logged BUG-066. Connectivity Status freezes when a diagram box or a button is clicked. Still open.
+
+### 11:17
+
 - Clicking the DEGRADED banner on Connectivity now opens the exact problem. If Grott is missing registers, that window names each one (what it measures, and the Growatt field) instead of only saying how many are missing.
+
+### 11:15
+
 - Connectivity Status was leaving the table-size column blank. One table was asked for a column it does not have, the database then refused the rest of the read, and the page threw the sizes away. Sizes show again (rows and the disk size right now). Each row has a Table history button that charts how the stored rows have grown, day by day.
+
+### 10:06
+
 - Roof layout’s imagery menu has its own Google historic choice. Older Google photos are not on the tile address any more, so that choice opens Google Earth’s timeline in the map panel. Satellite map brings the roof outline back. The dated archive menu is still the separate Esri set, not old Google pictures.
+
+### 09:37
+
 - String voltage can show one London day, or a rolling 24-hour window. The rolling window puts “now” where 22:00 sits on the day chart: 22 hours of history and two empty hours to the right, so the latest volts still fit beside the line. Today stays the default. The day menu was stuck on yesterday after midnight; opening it now allows today.
 
 ## 2026-09-25
 
+### 13:37
+
 - Octopus Live was about half a day behind when 15-minute was selected. Octopus rejected that grouping, so the page used the ordinary meter instead of the Home Mini. 15-minute now uses the live 5-minute readings, added up into quarter-hour slots, so the chart reaches the latest half hour.
+
+### 13:32
+
 - Roof layout can no longer show older Google satellite photos. The public tile address now returns the same current picture for every old version number. Dated aerial photos are still on the imagery menu as Historic satellite (the Esri archive), with Year and Release. Those frames are not old Google pictures.
+
+### 12:53
+
 - The Roof layout crash is fixed. Opening that page was killing the dashboard before the satellite map could appear: a watcher on every Qt event wrapped the same object twice while a property was being set. Dialogs that need an answer still stay above the main window, but that watcher is a short timer now, not a filter on the whole application. Restart to pick up 2.9.434.
+
+### 12:50
+
 - Panel database is a new page under Physical Plant Tools, after Roof layout. You type the modules on the roof there (maker, model, watts, size, and datasheet volts if you have them). Roof layout’s panel menu uses that list. Volts you leave blank stay blank — they are not filled from the live string reading. The 12:45 crash (pid 1622947) happened on Roof layout and the satellite map still did not appear; that is the same open BUG-060.
+
+### 12:07
+
 - String voltage now writes the last reading for each string beside the teal “now” line, in that string’s colour, so you can see the volts without leaving the chart.
+
+### 10:54
+
 - Dump logs is a new page under Controls, after Console. It shows the crash log, including core-dump stacks, so a segmentation fault can be read without opening the file by hand. The 10:47 crash (pid 1579891) is the same still-open main-thread fault as BUG-060.
+
+### 10:49
+
 - String voltage is now a tab under Physical Plant Tools, next to PV String Charge. It charts each string’s measured volts for a London day. Today shows the live reading. Earlier days are the stored lots only, and days before logging started are empty.
+
+### 10:26
+
 - Stale tab headers no longer look bigger than the rest. The light outline is drawn inside the tab, on the same shape as the green and blue ones.
+
+### 10:12
+
 - String voltage now has its own database table, `pv_string_voltage`. While the dashboard is open it stores each string’s measured DC volts in 2-minute lots, so a later history view has real numbers. Days before this build stay empty. On PostgreSQL the new table is created by running the Setup script as the database owner.
+
+### 10:08
+
 - Page tabs that are not selected and have not been refreshed now have a stronger outline and a slight white tint (10%), so they don’t disappear into the black bar.
+
+### 10:07
+
 - On a previous day, PV String Charge now shows each string’s percentage of that day’s solar generation, beside the kilowatt-hours. Measured battery charge is also shown as a percentage of that day’s PV.
+
+### 09:58
+
 - The bug log now keeps two separate lists. Open bugs come first. Fixed bugs are only under Fixed. A line sits between the two lists. A resolved bug is moved out of Open.
+
+### 09:52
+
 - Logged BUG-060-20260925-03. A 2.9.423 session segfaulted on the main thread while PySide was setting a Qt property (not the overnight background-collector crash). Still open.
+
+### 09:50
+
 - Roof layout moved from Energy Forecasts into Physical Plant Tools. Applying it still updates the forecast.
+
+### 09:42
+
 - On a previous day, PV String Charge cards were still showing live kilowatts (often 0). They now lead with that day’s kWh for each string. Day is a calendar dropdown instead of a stepper.
+
+### 09:36
+
 - PV String Charge charts were locked to today. A Day field (and Today) now opens an earlier London day from the stored 2-minute lots. The live kilowatt cards stay as “right now”. A past day is not stretched forward to the current time.
+
+### 08:20
+
 - On a Connectivity login (Growatt cloud and the other boxes), the test result now sits on the same row as Test, at the right, instead of a line underneath.
+
+### 08:14
+
 - Fixed BUG-058 and BUG-059. The 08:10 crash was a background thread inside Python’s cycle collector while the tab bar was painting and tearing down a Qt object. Automatic collection stays on. Qt objects are taken off that collector so a background pass cannot destroy one mid-repaint. Restart to pick up 2.9.421.
+
+### 08:04
+
 - Bug tracker titles are coloured: red while a bug is open, green once it is fixed.
+
+### 08:02
+
 - Logged BUG-059-20260925-02: turning off Python’s cycle collector in 2.9.419 is not the fix for the overnight segfault. Collection stays on; the crash itself is still open (BUG-058-20260925-01).
+
+### 07:58
+
 - The dashboard segfaulted again after being open overnight (2.9.418, and the same pattern on 2.9.417). The crash log shows a background thread garbage-collecting while it loaded Tasmota plug history from the database, at the same moment the main thread was painting the tab bar. Python’s cycle collector now runs only on the main thread, between updates, so it does not walk Qt objects from a worker. Restart to pick up 2.9.419.
 
 ## 2026-09-24
+
+### 01:16
 
 - A 2.9.417 session segfaulted overnight. Crash log pointed at PySide while updating a Qt property — likely the new QLabel widgets inside Agile Year’s prior-year table cells. Those cells now paint the smaller bracketed delta without cell widgets (2.9.418). Restart the dashboard to pick it up.
 
 ## 2026-09-23
 
+### 21:18
+
 - On Agile Year, Avg −1y / −2y / −3y now show the past average plus a smaller bracketed difference versus this day’s average (negative = cheaper than this year).
+
+### 21:12
+
 - Agile Year Fetch year was only asking Octopus for about a year of rates, so the table stopped around 18 Sep 2025. It now asks for about three years when that tariff has the history, so Avg −1y / −2y can fill.
+
+### 21:09
+
 - On Agile Year, the table now has Avg −1y / −2y / −3y: the daily average price on the same calendar date one, two, and three years earlier, taken only from days already stored. A dash means that prior date is not in the table yet. The chart is unchanged.
+
+### 16:42
+
 - The Octopus Live Monitor title chip is now opaque frosted glass (a soft highlight over a solid dark fill) with the same neat 1px grey border.
 - On Cost view the charts change with the toggle: only Imported is priced (£/h on top, cumulative £ on a right-hand axis). Generated, Total Used, and Exported stay as kWh with no cost, including the bottom-right labels.
+
+### 16:35
+
 - The Octopus Live Monitor panel title now sits in a light glass chip with a neat 1px grey border, so it reads as a label rather than plain text on the frame.
+
+### 15:58
+
 - On Octopus Live Cost view the bottom chart had switched to pounds (import cost / export credit / net). That hid the energy story. The bottom chart now always shows Generated Energy (PV), Imported Energy, Total Used Energy, and Exported Energy. Cost still puts money on the top chart and the cards only.
+
+### 10:23
+
 - A segmentation fault was only a one-line “core dumped” in the terminal. The dashboard now writes those to `~/.energy_dashboard_crash.log` (the Python stacks, and the system core-dump stack for the thread that died) and adds a Crash line on the Console. Closing the window in the normal way is not recorded as a crash. The core file itself still stays with the system.
+
+### 10:14
+
 - On PV String Charge, clicking String 1 or String 2 opens a history table of measured generation from the stored 2-minute lots. You can open Month → Day → Hour and see each string’s kWh, the total, and how the two strings share that total.
+
+### 09:59
+
 - Octopus Live Cost cards were easy to misread: the large Import cost / Export credit figures are the Hours window (e.g. 24 h can mix yesterday and today), which looked “wrong” next to the cumulative chart’s today line. Those cards now keep the window as the large number and add a smaller `(Today: £…)` for London midnight to now.
+
+### 09:42
+
 - The dashboard would not start: Command Sim needed a motif size name that never arrived because of how that module loads through `common`. Launch works again.
+
+### 09:31
+
 - Setup & Info → Database Export now has **Show missing** on each engine row. It checks which logger tables are not on that database yet, lists them, and shows CREATE SQL for only those tables (PostgreSQL includes the GRANT lines for the User field).
+
+### 09:21
+
 - Command Sim’s Bind address (and the other fields) now use the same grey fill and blue border as Setup spins. The server and Modbus client controls sit on the left and stop around the middle of the window, instead of stretching full width or parking on the far right.
+
+### 09:19
+
 - Grott Setup’s Live feed line was painting “connected · fresh” in the same white as the rest of the box, because a stylesheet colour overrode the green HTML. That state is bold green again (stale / not connected stay bold amber / red). Text boxes and spins across the app now share the same slight grey fill the spin motif already used, so fields no longer disappear into the dark panel.
+
+### 00:59
+
 - Octopus Energy Data was asking Octopus with the default API key from the secrets file. Octopus answered “Invalid API key”, and the tab turned that into an empty white chart. It now uses the key you saved on Octopus Live (the one that account accepts) and writes the reason on the chart if a fetch still fails.
+
+### 00:34
+
 - Database Viewer’s table menu was a short fixed list, so solar forecast, the MIX chart, the two shadow-trial tables, and connectivity history were missing even when those tables exist. The menu now lists every logger table, the same set as the Setup CREATE script, and the popup is tall enough to show them all.
+
+### 00:28
+
 - The Broker URL test was showing a raw “no route to host” for the logging database without saying where that address comes from. It now says the host is the PostgreSQL Host box on Setup & Info (saved as db/pg_host), copied into POWERMON_PG_HOST for the collector, and it prints the value in the box and the value the collector is actually using. That address is not written into the program.
 
 ## 2026-09-22
 
+### 23:55
+
 - The GitHub front page now opens with the same introduction as the About popup in the app (Growatt and Octopus, and how to get in touch).
+
+### 23:54
+
 - On Octopus Live, Save has moved off the account row and now sits to the right of the Hours radios and the Power/Cost view, with a vertical line between those two controls so they do not read as one group. Test is immediately to the right of Save. It asks Octopus whether the API key and account are accepted, and it leaves the charts as they are.
+
+### 23:32
+
 - Commit messages on GitHub now include a short line for each change in that patch, in everyday language, so the history says what changed without opening the code.
+
+### 23:18
+
 - Octopus Live can now show money as well as power. A Power / Cost switch sits in the live monitor panel. Cost is the energy in each slot times the Agile spot price (import and export tariffs, VAT included). For earlier days that Octopus has already metered, the chart uses that half-hour meter — what Octopus will actually bill from — instead of the live stream. The gap between those settled days and the live stream is used as a scale on today’s running estimate, and the summary shows the factor and the days it came from. Today stays labelled as an estimate. The standing charge is not in the figure.
 - From the next change onward, each version patch is its own git commit and is pushed to GitHub (`youcangetjules/EnergyDashboard2`, branch `main`). GitHub was still on 2.9.245 while this machine was on 2.9.399, and those in-between versions were never saved one at a time, so they go up together as one catch-up. After that, a patch is committed and pushed before the next one starts.
 - Run Advisor now turns pale green when the run finishes cleanly, the same green a tab uses just after it refreshes. If the run fails, that button turns black so you can see the last attempt did not work.
