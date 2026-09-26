@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 21:48
+
+- The Growatt live bar is now Telemetry Source. You rank cloud, Grott, and Modbus as first, second, and third instead of picking one radio. If the first has nothing fresh, the next is used, and a fresh higher-ranked source takes the screen back. Hybrid and the “fill missing Grott data with API” checkbox are gone, so blank Grott registers stay blank.
+
 ### 21:44
 
 - Alarm defs can now name four more things to watch: PV forecast, PVOutput.org, Wonderwatt, and Octopus. PV forecast, Wonderwatt, and PVOutput.org are power in kilowatts, so they can sit with spare solar. Octopus is energy in kilowatt-hours, so it will not share a comparison with a power or a percentage. A sentence built from these still does not raise an alarm on its own — only a built-in rule does that.

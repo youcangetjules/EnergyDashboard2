@@ -5,14 +5,12 @@ from __future__ import annotations
 
 from energy_dashboard.common import *
 from energy_dashboard.config import (
-    GROWATT_TELEMETRY_API,
+    GROWATT_SOURCE_LABELS,
     GROWATT_TELEMETRY_GROTT,
-    GROWATT_TELEMETRY_HYBRID,
-    GROWATT_TELEMETRY_MODBUS,
-    growatt_uses_grott,
-    read_grott_fill_missing_api,
-    read_growatt_telemetry_source,
-    write_growatt_telemetry_settings,
+    GROWATT_TELEMETRY_RANKED,
+    normalize_growatt_priority,
+    read_growatt_telemetry_priority,
+    write_growatt_telemetry_priority,
 )
 from energy_dashboard.fetch.grott_mqtt import test_grott_mqtt_connection
 
@@ -20,7 +18,7 @@ _QS_ORG, _QS_APP = "PowerModel", "EnergyDashboard2"
 
 
 class GrottSetupTab(QWidget):
-    """Configure Grott MQTT / Hybrid telemetry and show live feed health."""
+    """Configure Grott MQTT and the telemetry priority, and show live feed health."""
 
     def __init__(self, dash):
         super().__init__()
@@ -41,8 +39,8 @@ class GrottSetupTab(QWidget):
 
         intro = QLabel(
             "Configure how the dashboard receives live Growatt data from "
-            "<b>Grott</b> over MQTT. The same settings are stored in "
-            "<b>Setup &amp; Info → Growatt telemetry source</b>."
+            "<b>Grott</b> over MQTT. The try-order is the same as "
+            "<b>Setup &amp; Info → Telemetry source</b> and the live status bar."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet("color: #cdd6f4; font-size: 12px;")
@@ -65,43 +63,33 @@ class GrottSetupTab(QWidget):
         cfg_box = QGroupBox("Telemetry source")
         cfg_lay = QVBoxLayout(cfg_box)
         src_hint = QLabel(
-            "<b>GROTT MQTT</b> is local only. <b>Hybrid</b> prefers Grott, then "
-            "falls back to the Growatt cloud API when Grott is stale. "
-            "<b>Modbus RS485</b> reads the inverter in the mode set under "
-            "Setup → Local Modbus check (not via EMQX). "
-            "<b>Fill missing</b> patches individual Grott registers from the cloud "
-            "without switching the whole source."
+            "Rank the sources. <b>1st</b> is tried first. If it has nothing fresh, "
+            "the dashboard uses <b>2nd</b>, then <b>3rd</b>. Each source appears once. "
+            "<b>Modbus RS485</b> uses Setup → Local Modbus check, not EMQX."
         )
         src_hint.setWordWrap(True)
         src_hint.setStyleSheet("color: #6c7086; font-size: 11px;")
         cfg_lay.addWidget(src_hint)
 
-        self.rb_api = QRadioButton("Growatt Cloud API")
-        self.rb_grott = QRadioButton("GROTT MQTT")
-        self.rb_hybrid = QRadioButton("Hybrid (Grott → API fallback)")
-        self.rb_modbus = QRadioButton("Modbus RS485")
-        self.rb_modbus.setToolTip(
-            "Live registers over the RS485 path. Transport is Setup → "
-            "Local Modbus check (Modbus TCP, RTU over TCP, or USB–RS485)."
-        )
-        self._src_group = QButtonGroup(self)
-        for rb in (self.rb_api, self.rb_grott, self.rb_hybrid, self.rb_modbus):
-            self._src_group.addButton(rb)
-            rb.toggled.connect(self._on_source_toggled)
+        self._pri_sync = False
+        self._pri_combos = []
+        self._pri_snapshot = []
         src_row = QHBoxLayout()
-        src_row.addWidget(self.rb_api)
-        src_row.addWidget(self.rb_grott)
-        src_row.addWidget(self.rb_hybrid)
-        src_row.addWidget(self.rb_modbus)
+        for rank, title in enumerate(("1st", "2nd", "3rd")):
+            lab = QLabel(title)
+            lab.setStyleSheet("color: #a6adc8; background: transparent;")
+            src_row.addWidget(lab)
+            combo = QComboBox()
+            for key in GROWATT_TELEMETRY_RANKED:
+                combo.addItem(GROWATT_SOURCE_LABELS[key], key)
+            apply_combo_field_motif(combo, width=200)
+            combo.currentIndexChanged.connect(
+                lambda _i, r=rank: self._on_priority_changed(r)
+            )
+            self._pri_combos.append(combo)
+            src_row.addWidget(combo)
         src_row.addStretch(1)
         cfg_lay.addLayout(src_row)
-
-        self.chk_fill_missing = QCheckBox("Fill missing Grott data with API")
-        self.chk_fill_missing.setToolTip(
-            "While GROTT or Hybrid is selected, fetch Growatt cloud data in the "
-            "background and patch only registers Grott did not publish."
-        )
-        cfg_lay.addWidget(self.chk_fill_missing)
         root.addWidget(cfg_box)
 
         mqtt_box = QGroupBox("MQTT broker")
@@ -170,56 +158,51 @@ class GrottSetupTab(QWidget):
         self._grott_fields = (
             self.ed_host, self.sp_port, self.ed_topic,
             self.ed_user, self.ed_pass, self.sp_fresh,
-            self.chk_fill_missing,
         )
 
-    def _on_source_toggled(self):
-        uses = growatt_uses_grott(self._form_source())
-        self.chk_fill_missing.setEnabled(uses)
-        for w in self._grott_fields:
-            if w is self.chk_fill_missing:
-                continue
-            w.setEnabled(uses)
+    def _form_priority(self) -> tuple[str, str, str]:
+        keys = [str(c.currentData() or "") for c in self._pri_combos]
+        return normalize_growatt_priority(keys)
 
-    def _form_source(self) -> str:
-        if self.rb_hybrid.isChecked():
-            return GROWATT_TELEMETRY_HYBRID
-        if self.rb_grott.isChecked():
-            return GROWATT_TELEMETRY_GROTT
-        if self.rb_modbus.isChecked():
-            return GROWATT_TELEMETRY_MODBUS
-        return GROWATT_TELEMETRY_API
+    def _apply_priority_combos(self, priority) -> None:
+        pri = normalize_growatt_priority(priority)
+        self._pri_sync = True
+        try:
+            for combo, key in zip(self._pri_combos, pri):
+                idx = combo.findData(key)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+            self._pri_snapshot = list(pri)
+        finally:
+            self._pri_sync = False
+
+    def _on_priority_changed(self, rank: int):
+        if self._pri_sync:
+            return
+        chosen = str(self._pri_combos[rank].currentData() or "")
+        previous = self._pri_snapshot[rank] if rank < len(self._pri_snapshot) else ""
+        order = [str(c.currentData() or "") for c in self._pri_combos]
+        if chosen and previous and chosen != previous:
+            for i, item in enumerate(order):
+                if i != rank and item == chosen:
+                    order[i] = previous
+                    break
+        self._apply_priority_combos(order)
+
+    def apply_telemetry_priority(self, priority) -> None:
+        """Mirror an order chosen on Live Status or Setup."""
+        self._apply_priority_combos(priority)
 
     def apply_telemetry_source(self, source: str, fill_missing: bool | None = None) -> None:
-        """Mirror a source change made on Live Status or Setup."""
-        for rb in (self.rb_api, self.rb_grott, self.rb_hybrid, self.rb_modbus):
-            rb.blockSignals(True)
-        try:
-            self.rb_api.setChecked(source == GROWATT_TELEMETRY_API)
-            self.rb_grott.setChecked(source == GROWATT_TELEMETRY_GROTT)
-            self.rb_hybrid.setChecked(source == GROWATT_TELEMETRY_HYBRID)
-            self.rb_modbus.setChecked(source == GROWATT_TELEMETRY_MODBUS)
-            if fill_missing is not None:
-                self.chk_fill_missing.blockSignals(True)
-                try:
-                    self.chk_fill_missing.setChecked(bool(fill_missing))
-                finally:
-                    self.chk_fill_missing.blockSignals(False)
-        finally:
-            for rb in (self.rb_api, self.rb_grott, self.rb_hybrid, self.rb_modbus):
-                rb.blockSignals(False)
-        self._on_source_toggled()
+        """Older callers pass one source. Put that source first."""
+        del fill_missing
+        from energy_dashboard.config import priority_from_legacy_source
+        self.apply_telemetry_priority(priority_from_legacy_source(source))
 
     def load_from_settings(self):
         p = self.dash.app_params
         s = QSettings(_QS_ORG, _QS_APP)
-        src = read_growatt_telemetry_source(s, p)
-        fill = read_grott_fill_missing_api(s, p)
-        self.rb_api.setChecked(src == GROWATT_TELEMETRY_API)
-        self.rb_grott.setChecked(src == GROWATT_TELEMETRY_GROTT)
-        self.rb_hybrid.setChecked(src == GROWATT_TELEMETRY_HYBRID)
-        self.rb_modbus.setChecked(src == GROWATT_TELEMETRY_MODBUS)
-        self.chk_fill_missing.setChecked(bool(fill))
+        self._apply_priority_combos(read_growatt_telemetry_priority(s, p))
         self.ed_host.setText(str(s.value("params/grott_mqtt_host", p.grott_mqtt_host) or ""))
         self.sp_port.setValue(int(s.value("params/grott_mqtt_port", p.grott_mqtt_port) or 1883))
         self.ed_topic.setText(
@@ -228,17 +211,15 @@ class GrottSetupTab(QWidget):
         self.ed_user.setText(str(s.value("params/grott_mqtt_user", p.grott_mqtt_user) or ""))
         self.ed_pass.setText(str(s.value("params/grott_mqtt_password", p.grott_mqtt_password) or ""))
         self.sp_fresh.setValue(int(s.value("params/grott_mqtt_fresh_s", p.grott_mqtt_fresh_s) or 120))
-        self._on_source_toggled()
         self.refresh_status()
 
     def _read_into_params(self):
         p = self.dash.app_params
-        source = self._form_source()
-        p.growatt_telemetry_source = source
-        p.grott_mqtt_enabled = growatt_uses_grott(source)
-        p.grott_fill_missing_api = (
-            bool(self.chk_fill_missing.isChecked()) if growatt_uses_grott(source) else False
-        )
+        pri = self._form_priority()
+        p.growatt_telemetry_priority = ",".join(pri)
+        p.growatt_telemetry_source = pri[0]
+        p.grott_mqtt_enabled = GROWATT_TELEMETRY_GROTT in pri
+        p.grott_fill_missing_api = False
         p.grott_mqtt_host = self.ed_host.text().strip()
         p.grott_mqtt_port = int(self.sp_port.value())
         p.grott_mqtt_user = self.ed_user.text().strip()
@@ -249,9 +230,7 @@ class GrottSetupTab(QWidget):
     def _write_settings(self):
         p = self.dash.app_params
         s = QSettings(_QS_ORG, _QS_APP)
-        write_growatt_telemetry_settings(
-            s, p.growatt_telemetry_source, fill_missing_api=p.grott_fill_missing_api,
-        )
+        write_growatt_telemetry_priority(s, p.growatt_telemetry_priority)
         s.setValue("params/grott_mqtt_host", p.grott_mqtt_host)
         s.setValue("params/grott_mqtt_port", int(p.grott_mqtt_port))
         s.setValue("params/grott_mqtt_user", p.grott_mqtt_user)
@@ -266,10 +245,7 @@ class GrottSetupTab(QWidget):
         if pt is None:
             return
         try:
-            pt.set_growatt_telemetry_source(
-                p.growatt_telemetry_source,
-                fill_missing=p.grott_fill_missing_api,
-            )
+            pt.set_growatt_telemetry_priority(self._form_priority())
         except Exception:
             pass
         for attr, widget in (
@@ -390,7 +366,7 @@ class GrottSetupTab(QWidget):
                 "<br><span style='color:#fab387;'>Shine often goes quiet for "
                 "~11 minutes after it reconnects (commonly around the hour) "
                 "while it handshakes with Growatt's servers. MQTT stays up; "
-                "Hybrid uses the cloud until the next live Grott frame.</span>"
+                "A higher-ranked source is used until the next live Grott frame.</span>"
             )
         self.lbl_live.setText(
             f"<span style='color:#cdd6f4;'>"

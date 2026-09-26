@@ -65,7 +65,7 @@ class AppParameters:
         self.growatt_wifi_user = ""
         self.growatt_wifi_password = ""
         self.grott_mqtt_enabled = False
-        self.growatt_telemetry_source = "api"  # api | grott | hybrid | modbus
+        self.growatt_telemetry_source = "api"  # first entry of the priority list
         self.grott_fill_missing_api = False
         self.grott_mqtt_host = ""
         self.grott_mqtt_port = 1883
@@ -153,7 +153,7 @@ def growatt_http_host(params) -> str:
 
 GROWATT_TELEMETRY_API = "api"
 GROWATT_TELEMETRY_GROTT = "grott"
-GROWATT_TELEMETRY_HYBRID = "hybrid"
+GROWATT_TELEMETRY_HYBRID = "hybrid"  # old setting only; no longer offered
 GROWATT_TELEMETRY_MODBUS = "modbus"
 GROWATT_TELEMETRY_SOURCES = (
     GROWATT_TELEMETRY_API,
@@ -161,6 +161,17 @@ GROWATT_TELEMETRY_SOURCES = (
     GROWATT_TELEMETRY_HYBRID,
     GROWATT_TELEMETRY_MODBUS,
 )
+# Sources the householder can rank. Hybrid is not one of them.
+GROWATT_TELEMETRY_RANKED = (
+    GROWATT_TELEMETRY_API,
+    GROWATT_TELEMETRY_GROTT,
+    GROWATT_TELEMETRY_MODBUS,
+)
+GROWATT_SOURCE_LABELS = {
+    GROWATT_TELEMETRY_API: "Growatt Cloud API",
+    GROWATT_TELEMETRY_GROTT: "GROTT MQTT",
+    GROWATT_TELEMETRY_MODBUS: "Modbus RS485",
+}
 
 
 def growatt_uses_grott(source: str) -> bool:
@@ -169,6 +180,129 @@ def growatt_uses_grott(source: str) -> bool:
 
 def growatt_uses_modbus(source: str) -> bool:
     return source == GROWATT_TELEMETRY_MODBUS
+
+
+def normalize_growatt_priority(parts) -> tuple[str, str, str]:
+    """Three unique sources, Grott then cloud then Modbus filling any gap.
+
+    An old "hybrid" choice means Grott first and the cloud API second.
+    """
+    out: list[str] = []
+    for raw in parts or ():
+        text = str(raw or "").strip().lower()
+        if text == GROWATT_TELEMETRY_HYBRID:
+            for item in (GROWATT_TELEMETRY_GROTT, GROWATT_TELEMETRY_API):
+                if item not in out:
+                    out.append(item)
+            continue
+        if text in GROWATT_TELEMETRY_RANKED and text not in out:
+            out.append(text)
+    for item in (
+        GROWATT_TELEMETRY_GROTT,
+        GROWATT_TELEMETRY_API,
+        GROWATT_TELEMETRY_MODBUS,
+    ):
+        if item not in out:
+            out.append(item)
+    return (out[0], out[1], out[2])
+
+
+def priority_from_legacy_source(source: str) -> tuple[str, str, str]:
+    """Turn a single old choice into an order. Hybrid is Grott, then cloud."""
+    src = str(source or "").strip().lower()
+    if src in (GROWATT_TELEMETRY_HYBRID, GROWATT_TELEMETRY_GROTT):
+        return (
+            GROWATT_TELEMETRY_GROTT,
+            GROWATT_TELEMETRY_API,
+            GROWATT_TELEMETRY_MODBUS,
+        )
+    if src == GROWATT_TELEMETRY_MODBUS:
+        return (
+            GROWATT_TELEMETRY_MODBUS,
+            GROWATT_TELEMETRY_GROTT,
+            GROWATT_TELEMETRY_API,
+        )
+    return (
+        GROWATT_TELEMETRY_API,
+        GROWATT_TELEMETRY_GROTT,
+        GROWATT_TELEMETRY_MODBUS,
+    )
+
+
+def read_growatt_telemetry_priority(settings, params=None) -> tuple[str, str, str]:
+    """Order the live page tries sources in. First is tried first."""
+    key = "params/growatt_telemetry_priority"
+    if settings is not None and settings.contains(key):
+        raw = str(settings.value(key, "") or "")
+        return normalize_growatt_priority(raw.split(","))
+    if params is not None:
+        stored = getattr(params, "growatt_telemetry_priority", None)
+        if stored:
+            return normalize_growatt_priority(
+                stored.split(",") if isinstance(stored, str) else stored
+            )
+    legacy = ""
+    if settings is not None and settings.contains("params/growatt_telemetry_source"):
+        legacy = str(settings.value("params/growatt_telemetry_source", "") or "")
+    elif params is not None:
+        legacy = str(getattr(params, "growatt_telemetry_source", "") or "")
+    if not legacy:
+        legacy = read_growatt_telemetry_source(settings, params)
+    return priority_from_legacy_source(legacy)
+
+
+def read_growatt_telemetry_source(settings, params=None) -> str:
+    """First source in the priority list, or the old single choice.
+
+    Hybrid is no longer a mode. A saved hybrid value is read as Grott first;
+    the full order (Grott, then cloud) comes from
+    ``read_growatt_telemetry_priority``.
+    """
+    key = "params/growatt_telemetry_priority"
+    if settings is not None and settings.contains(key):
+        return read_growatt_telemetry_priority(settings, params)[0]
+    src_key = "params/growatt_telemetry_source"
+    if settings is not None and settings.contains(src_key):
+        raw = str(settings.value(src_key, GROWATT_TELEMETRY_API) or "").strip().lower()
+        if raw == GROWATT_TELEMETRY_HYBRID:
+            return GROWATT_TELEMETRY_GROTT
+        if raw in GROWATT_TELEMETRY_RANKED:
+            return raw
+    if params is not None:
+        src = getattr(params, "growatt_telemetry_source", None)
+        if src == GROWATT_TELEMETRY_HYBRID:
+            return GROWATT_TELEMETRY_GROTT
+        if src in GROWATT_TELEMETRY_RANKED:
+            return src
+    grott = False
+    if settings is not None and settings.contains("params/grott_mqtt_enabled"):
+        grott = bool(settings.value("params/grott_mqtt_enabled", False, type=bool))
+    elif params is not None:
+        grott = bool(getattr(params, "grott_mqtt_enabled", False))
+    return GROWATT_TELEMETRY_GROTT if grott else GROWATT_TELEMETRY_API
+
+
+def read_grott_fill_missing_api(settings, params=None) -> bool:
+    """Register-by-register cloud fill-in has been removed. Always off."""
+    return False
+
+
+def write_growatt_telemetry_priority(settings, priority) -> None:
+    """Save the try-order. The first entry is also the legacy single source."""
+    pri = normalize_growatt_priority(priority)
+    settings.setValue("params/growatt_telemetry_priority", ",".join(pri))
+    settings.setValue("params/growatt_telemetry_source", pri[0])
+    settings.setValue(
+        "params/grott_mqtt_enabled",
+        GROWATT_TELEMETRY_GROTT in pri,
+    )
+    settings.setValue("params/grott_fill_missing_api", False)
+
+
+def write_growatt_telemetry_settings(settings, source: str, *, fill_missing_api: bool = False) -> None:
+    """Persist a single source as the first priority. Fill-in is always off."""
+    del fill_missing_api
+    write_growatt_telemetry_priority(settings, priority_from_legacy_source(source))
 
 
 def growatt_modbus_mode_label(mode: str) -> str:
@@ -180,43 +314,6 @@ def growatt_modbus_mode_label(mode: str) -> str:
         "tcp_rtu": "RTU over TCP",
         "serial": "USB–RS485",
     }.get(key, key or "Local Modbus off")
-
-
-def read_growatt_telemetry_source(settings, params=None) -> str:
-    """Read persisted Growatt live source, migrating legacy grott_mqtt_enabled."""
-    key = "params/growatt_telemetry_source"
-    if settings is not None and settings.contains(key):
-        raw = str(settings.value(key, GROWATT_TELEMETRY_API) or "").strip().lower()
-        if raw in GROWATT_TELEMETRY_SOURCES:
-            return raw
-    if params is not None:
-        src = getattr(params, "growatt_telemetry_source", None)
-        if src in GROWATT_TELEMETRY_SOURCES:
-            return src
-    grott = False
-    if settings is not None and settings.contains("params/grott_mqtt_enabled"):
-        grott = bool(settings.value("params/grott_mqtt_enabled", False, type=bool))
-    elif params is not None:
-        grott = bool(getattr(params, "grott_mqtt_enabled", False))
-    return GROWATT_TELEMETRY_GROTT if grott else GROWATT_TELEMETRY_API
-
-
-def read_grott_fill_missing_api(settings, params=None) -> bool:
-    key = "params/grott_fill_missing_api"
-    if settings is not None and settings.contains(key):
-        return bool(settings.value(key, False, type=bool))
-    if params is not None:
-        return bool(getattr(params, "grott_fill_missing_api", False))
-    return False
-
-
-def write_growatt_telemetry_settings(settings, source: str, *, fill_missing_api: bool) -> None:
-    """Persist telemetry source and keep legacy grott_mqtt_enabled in sync."""
-    if source not in GROWATT_TELEMETRY_SOURCES:
-        source = GROWATT_TELEMETRY_API
-    settings.setValue("params/growatt_telemetry_source", source)
-    settings.setValue("params/grott_mqtt_enabled", growatt_uses_grott(source))
-    settings.setValue("params/grott_fill_missing_api", bool(fill_missing_api))
 
 
 def _settings_str(settings, key: str, default: str = "") -> str:

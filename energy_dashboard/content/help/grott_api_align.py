@@ -41,6 +41,6 @@ today totals, ~2&nbsp;V / 0.08&nbsp;Hz). Grott-estimated house load or grid
 power is noted in the Notes column — it is not treated as a decode failure.
 History keeps the last 48 runs in this session.</p>
 <p>
-Enable Grott MQTT (or Hybrid) on Growatt Live Status and Connect the cloud
+Put GROTT MQTT in the telemetry priority on Growatt Live Status and Connect the cloud
 session so both sides have data.</p>
 """

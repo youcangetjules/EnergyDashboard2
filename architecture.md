@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Telemetry source is a priority, not a single choice
+
+- **Context:** Live Status, Setup, and Grott Setup offered exclusive radios (cloud, Grott, Hybrid, Modbus) plus “Fill missing Grott data with API”, which patched individual Grott registers from the cloud.
+- **Decision:** The householder ranks the three real sources — Growatt cloud API, GROTT MQTT, Modbus RS485 — as 1st, 2nd, 3rd. Saved as `params/growatt_telemetry_priority`. The first entry is also written to `params/growatt_telemetry_source`. A saved Hybrid becomes Grott, then cloud, then Modbus. Fill-missing stays off. The Grott subscriber stays up whenever Grott is anywhere in the list. Connect walks the order; a fresh Grott frame takes the screen back when Grott ranks above the source currently shown.
+- **Consequence:** Do not put Hybrid or the fill-missing checkbox back. Do not patch missing Grott registers from the cloud. Setup and Grott Setup must save the full order, or a later save will flatten it.
+
 ### 2026-09-26 — SMS gateway is its own Controls tab
 
 - **Context:** The phone number, HTTP or Twilio gateway, and Test SMS sat inside Setup & Info → Live alarms, mixed in with the hold time and the desktop tick.
@@ -116,7 +122,7 @@ Newest first. Keep each entry short: context → decision → consequence.
 ### 2026-09-26 — Modbus is inverter ↔ Local Modbus check ↔ dashboard
 
 - **Context:** The connectivity diagram drew Modbus into EMQX as well as into the dashboard. Modbus is the inverter’s RS485 registers. The only hop is the mode chosen under Setup → Local Modbus check (Modbus TCP, RTU over TCP, or USB–RS485).
-- **Decision:** Drop the Modbus → EMQX line. The Modbus card subtitle is that Local Modbus check mode. Live Status can select **Modbus RS485** as a source (Hybrid stays). That source polls the same mode; it does not subscribe to EMQX.
+- **Decision:** Drop the Modbus → EMQX line. The Modbus card subtitle is that Local Modbus check mode. Live Status can rank **Modbus RS485** among the telemetry sources. That source polls the same mode; it does not subscribe to EMQX.
 - **Consequence:** Do not draw or describe Modbus as an MQTT feed. EMQX health is Grott and Tasmota only.
 
 ### 2026-09-26 — A complete alarm sentence wears a green halo

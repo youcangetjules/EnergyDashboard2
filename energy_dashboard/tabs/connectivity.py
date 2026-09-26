@@ -4762,7 +4762,7 @@ class ConnectivityStatusTab(QWidget):
                 "Growatt local (Grott MQTT)",
                 "Disabled",
                 "off",
-                "Select GROTT MQTT or Hybrid as the Growatt telemetry source under Setup & Info.",
+                "Put GROTT MQTT in the telemetry priority under Setup & Info.",
                 "--",
                 "--",
             ))

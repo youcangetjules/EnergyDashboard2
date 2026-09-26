@@ -9,15 +9,14 @@ HELP_TEXT = """\
 <h2>Grott Setup</h2>
 <p>
 Configure the local <b>Grott</b> MQTT path used by Growatt Live Status and the
-database logger. Settings here are the same as
-<b>Setup &amp; Info → Growatt → telemetry source</b>.</p>
+database logger. The try-order here is the same as
+<b>Setup &amp; Info → Telemetry source</b> and the live status bar.</p>
 <p>
-<b>Telemetry source:</b> choose <b>GROTT MQTT</b> for local-only data, or
-<b>Hybrid</b> to fall back to the Growatt cloud API when Grott is stale, or
-<b>Modbus RS485</b> to read the inverter in the mode set under
-Setup → Local Modbus check (that path does not use EMQX).
-<b>Fill missing Grott data with API</b> patches individual registers (shown in
-amber on Growatt Live) without switching the whole source.</p>
+<b>Telemetry source:</b> rank <b>GROTT MQTT</b>, the Growatt cloud API, and
+<b>Modbus RS485</b> as 1st, 2nd, and 3rd. The dashboard tries 1st first. If that
+source has nothing fresh it uses the next. Modbus uses the mode under
+Setup → Local Modbus check (that path does not use EMQX). Missing Grott
+registers are left blank — they are not filled in from the cloud.</p>
 <p>
 <b>MQTT broker:</b> host, port, topic filter (usually <code>energy/growatt</code>),
 credentials, and <b>Fresh max</b> — how old a payload may be before it counts
