@@ -9,7 +9,7 @@ Two kinds of gateway:
   and the auth token.
 
 The token is ``SMS_GATEWAY_TOKEN`` in the environment or secrets file when
-the Setup field is blank. The Twilio account SID falls back to
+the SMS gateway page leaves the token box blank. The Twilio account SID falls back to
 ``SMS_TWILIO_SID`` the same way. Nothing here is written into git.
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ class SmsConfig:
 
 
 def load_sms_config(settings=None) -> SmsConfig:
-    """Read the gateway from Setup, then fill a blank token or SID from secrets."""
+    """Read the gateway from the SMS gateway page, then fill a blank token or SID from secrets."""
     if settings is None:
         from PySide6.QtCore import QSettings
         settings = QSettings("PowerModel", "EnergyDashboard2")
@@ -63,7 +63,7 @@ def load_sms_config(settings=None) -> SmsConfig:
 
 
 def send_sms(config: SmsConfig, message: str, *, force: bool = False, timeout: float = 12.0) -> tuple[bool, str]:
-    """Send one text. ``force`` is for the Setup test, which ignores the tick box."""
+    """Send one text. ``force`` is for Test SMS, which ignores the tick box."""
     if not force and not config.enabled:
         return False, "SMS is switched off"
     to = _clean_number(config.to_number)

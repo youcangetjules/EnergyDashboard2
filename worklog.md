@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 21:17
+
+- The SMS gateway has its own page under Controls, next to Alarm defs. The phone number, the choice of HTTP or Twilio, and Test SMS live there. Setup & Info still has the alarm on/off tick, desktop pop-ups, and the hold time. Anything already saved is still used — the page writes the same settings.
+
 ### 21:12
 
 - The little word between two signals on a rule is now a button. Click it and AND becomes OR: AND means both signals have to be true at once, OR means either one will do. The choice is saved with the rule.

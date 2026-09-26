@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — SMS gateway is its own Controls tab
+
+- **Context:** The phone number, HTTP or Twilio gateway, and Test SMS sat inside Setup & Info → Live alarms, mixed in with the hold time and the desktop tick.
+- **Decision:** Controls gains an **SMS gateway** tab (`tabs/sms_gateway.py`). It writes the same `alarms/sms_*` settings. Setup keeps enable-alarms, desktop notifications, hold time, and the sun-waste minimum.
+- **Consequence:** Do not put the gateway fields back on Setup. Alarm texts still read those settings through `load_sms_config`.
+
 ### 2026-09-26 — Modbus is inverter ↔ Local Modbus check ↔ dashboard
 
 - **Context:** The connectivity diagram drew Modbus into EMQX as well as into the dashboard. Modbus is the inverter’s RS485 registers. The only hop is the mode chosen under Setup → Local Modbus check (Modbus TCP, RTU over TCP, or USB–RS485).

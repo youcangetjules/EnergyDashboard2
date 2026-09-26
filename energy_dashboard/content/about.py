@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.473", "2026-09-26", [
+        "Controls has an SMS gateway tab: the phone number, HTTP or Twilio, and Test SMS. Setup & Info no longer holds those fields.",
+    ]),
     ("2.9.472", "2026-09-26", [
         "Alarm defs: the word between two signals is a button — click it to swap AND for OR. AND needs both signals, OR needs either one.",
         "Alarm defs: outcome can also say “send SMS” or “create a desktop alert”, beside the warning or critical wording. On a live rule that chooses how it tells you.",

@@ -50,6 +50,7 @@ from energy_dashboard.tabs.panel_database import PanelDatabaseTab
 from energy_dashboard.tabs.roof_layout import RoofLayoutTab
 from energy_dashboard.tabs.parameters import ParametersTab
 from energy_dashboard.tabs.shadow_trial import ShadowTrialTab
+from energy_dashboard.tabs.sms_gateway import SmsGatewayTab
 from energy_dashboard.ui.system_status_bar import tray_database_lines
 from energy_dashboard.ui.tray_icon import powermon_tray_icon, style_tray_info
 from energy_dashboard.ui.work_area import client_cap, fit_window_to_work_area
@@ -807,6 +808,8 @@ class EnergyDashboard(QMainWindow):
         self.bug_tracker_tab = BugTrackerTab(self)
 
         self.alarm_defs_tab = AlarmDefsTab(self)
+
+        self.sms_gateway_tab = SmsGatewayTab(self)
 
         self.alarms_tab = AlarmsTab(self)
 

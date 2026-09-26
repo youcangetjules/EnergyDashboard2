@@ -71,8 +71,9 @@ The outcome slot takes two blocks as well: keep the warning or critical
 wording and drop <b>send SMS</b> or <b>create a desktop alert</b> beside it.
 On a rule that matches a built-in alarm, that is what the alarm then does —
 name only the text and it texts you without a pop-up; name only the alert and
-it pops up without a text. Say nothing about channels and the Setup &amp; Info
-ticks decide, as before. A channel on its own, with no warning or critical
+it pops up without a text. Say nothing about channels and the tick on
+<b>Controls → SMS gateway</b>, plus the desktop tick in Setup &amp; Info,
+decide as before. A channel on its own, with no warning or critical
 wording, no longer matches a built-in alarm, so it does not fire.</p>
 <p>
 <b>Add rule</b> gives you an empty line, and <b>Reset</b> puts the built-in

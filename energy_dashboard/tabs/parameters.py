@@ -772,12 +772,6 @@ class ParametersTab(QWidget):
             "Grott feed, Tasmota plugs, inverter offline, live SOC, PV, and charge. "
             "Grott lost fires after ~20s; SOC/PV rules use the hold period below."
         )
-        self.chk_alarm_sms = QCheckBox("SMS")
-        self.chk_alarm_sms.setChecked(s_al.value("alarms/sms_enabled", False, type=bool))
-        self.chk_alarm_sms.setToolTip(
-            "Text the mobile number below when an alarm notifies. "
-            "Uses the same timing as the desktop pop-up, so it does not text on every refresh."
-        )
         self.chk_alarm_desktop = QCheckBox("Desktop notifications")
         self.chk_alarm_desktop.setChecked(s_al.value("alarms/desktop", True, type=bool))
         self.chk_alarm_desktop.setToolTip(
@@ -810,7 +804,6 @@ class ParametersTab(QWidget):
         alarm_chk_row.setContentsMargins(0, 0, 0, 0)
         alarm_chk_row.addWidget(self.chk_alarms)
         alarm_chk_row.addWidget(self.chk_alarm_desktop)
-        alarm_chk_row.addWidget(self.chk_alarm_sms)
         alarm_chk_row.addStretch(1)
         g_alarm.addLayout(alarm_chk_row)
         alarm_grid = _params_make_field_grid()
@@ -823,75 +816,16 @@ class ParametersTab(QWidget):
         alarm_btn_row.setContentsMargins(0, 0, 0, 0)
         alarm_btn_row.addSpacing(_SETUP_INFO_SPIN_BTN_GAP)
         alarm_btn_row.addWidget(save_alarm_btn)
-        test_sms_btn = QPushButton("Test SMS")
-        test_sms_btn.setToolTip("Save these settings and send one test text")
-        test_sms_btn.clicked.connect(self._test_sms)
-        alarm_btn_row.addWidget(test_sms_btn)
         alarm_btn_row.addStretch()
         alarm_grid.addLayout(
             alarm_btn_row, 0, _save_btn_col, 1, _PARAMS_GRID_SPAN + 1 - _save_btn_col,
         )
         _params_add_field_grid(g_alarm, alarm_grid)
-        self.ed_sms_to = QLineEdit(str(s_al.value("alarms/sms_to", "") or ""))
-        self.ed_sms_to.setPlaceholderText("+447700900123")
-        self.ed_sms_to.setToolTip("Mobile number in international form, starting with +")
-        apply_setup_info_line_field_motif(self.ed_sms_to, width=160)
-        self.cb_sms_provider = QComboBox()
-        self.cb_sms_provider.addItem("HTTP", "http")
-        self.cb_sms_provider.addItem("Twilio", "twilio")
-        saved_provider = str(s_al.value("alarms/sms_provider", "http") or "http")
-        provider_index = self.cb_sms_provider.findData(saved_provider)
-        self.cb_sms_provider.setCurrentIndex(provider_index if provider_index >= 0 else 0)
-        self.cb_sms_provider.setToolTip(
-            "HTTP posts JSON to your gateway address. Twilio uses Twilio's Messages API."
-        )
-        apply_combo_field_motif(self.cb_sms_provider, width=110)
-        self.ed_sms_from = QLineEdit(str(s_al.value("alarms/sms_from", "") or ""))
-        self.ed_sms_from.setPlaceholderText("+44…")
-        self.ed_sms_from.setToolTip("Twilio only: the number Twilio sends from")
-        apply_setup_info_line_field_motif(self.ed_sms_from, width=140)
-        self.ed_sms_url = QLineEdit(str(s_al.value("alarms/sms_url", "") or ""))
-        self.ed_sms_url.setPlaceholderText("https://…")
-        self.ed_sms_url.setToolTip(
-            "HTTP only. We POST {\"to\", \"message\"} here. "
-            "A token, if set, goes in Authorization: Bearer."
-        )
-        apply_setup_info_line_field_motif(self.ed_sms_url, width=280)
-        self.ed_sms_sid = QLineEdit(str(s_al.value("alarms/sms_sid", "") or ""))
-        self.ed_sms_sid.setToolTip(
-            "Twilio account SID. Leave blank to use SMS_TWILIO_SID from secrets.env."
-        )
-        apply_setup_info_line_field_motif(self.ed_sms_sid, width=180)
-        self.ed_sms_token = QLineEdit(str(s_al.value("alarms/sms_token", "") or ""))
-        self.ed_sms_token.setEchoMode(QLineEdit.EchoMode.Password)
-        self.ed_sms_token.setToolTip(
-            "Gateway token, or the Twilio auth token. "
-            "Leave blank to use SMS_GATEWAY_TOKEN from secrets.env."
-        )
-        apply_setup_info_line_field_motif(self.ed_sms_token, width=160)
-        sms_row_1 = QHBoxLayout()
-        sms_row_1.setContentsMargins(0, 4, 0, 0)
-        sms_row_2 = QHBoxLayout()
-        sms_row_2.setContentsMargins(0, 2, 0, 0)
-        for label, widget, row in (
-            ("To:", self.ed_sms_to, sms_row_1),
-            ("Gateway:", self.cb_sms_provider, sms_row_1),
-            ("From:", self.ed_sms_from, sms_row_1),
-            ("URL:", self.ed_sms_url, sms_row_2),
-            ("Account SID:", self.ed_sms_sid, sms_row_2),
-            ("Token:", self.ed_sms_token, sms_row_2),
-        ):
-            row.addWidget(_params_field_label(label))
-            row.addWidget(widget)
-        sms_row_1.addStretch(1)
-        sms_row_2.addStretch(1)
-        g_alarm.addLayout(sms_row_1)
-        g_alarm.addLayout(sms_row_2)
         alarm_help = QLabel(
             "Alarms: (1) SOC below the low-SOC threshold for the hold time, "
             "(2) same, while PV ≥ min and charge ≈ 0 (sun not refilling the pack). "
             "Active alarms appear under the live banner — click for detail. "
-            "SMS uses the gateway above and the same repeat timing as desktop pop-ups."
+            "Texts are set up on Controls → SMS gateway."
         )
         alarm_help.setWordWrap(True)
         alarm_help.setStyleSheet("color: #6c7086; font-size: 11px;")
@@ -3204,41 +3138,11 @@ class ParametersTab(QWidget):
             hold_minutes=float(self.sp_alarm_hold.value()),
             pv_min_kw=float(self.sp_alarm_pv_min.value()),
         )
-        self._save_sms_settings()
         self.dash.set_status("Live alarm settings saved.")
         try:
             self.dash._evaluate_alarms()
         except Exception:
             pass
-
-    def _save_sms_settings(self) -> None:
-        provider = self.cb_sms_provider.currentData() or "http"
-        s = self._settings()
-        s.setValue("alarms/sms_enabled", self.chk_alarm_sms.isChecked())
-        s.setValue("alarms/sms_to", self.ed_sms_to.text().strip())
-        s.setValue("alarms/sms_provider", str(provider))
-        s.setValue("alarms/sms_from", self.ed_sms_from.text().strip())
-        s.setValue("alarms/sms_url", self.ed_sms_url.text().strip())
-        s.setValue("alarms/sms_sid", self.ed_sms_sid.text().strip())
-        s.setValue("alarms/sms_token", self.ed_sms_token.text())
-        s.sync()
-
-    def _test_sms(self) -> None:
-        import threading
-        self._save_alarm_settings()
-        self.dash.set_status("Sending a test SMS…")
-
-        def work() -> None:
-            from energy_dashboard.fetch.sms_gateway import load_sms_config, send_sms
-            ok, detail = send_sms(
-                load_sms_config(),
-                "Energy Dashboard test. The SMS gateway is working.",
-                force=True,
-            )
-            msg = "Test SMS sent." if ok else f"Test SMS failed: {detail}"
-            QTimer.singleShot(0, lambda m=msg: self.dash.set_status(m))
-
-        threading.Thread(target=work, daemon=True).start()
 
     @staticmethod
     def _fmt_solar_coord(val) -> str:

@@ -45,6 +45,7 @@ _MAIN_TAB_BAR_REGISTRY = (
     ("maximiser", "maximiser_tab", "  Maximiser  ", "calculators", True),
     ("grott_align", "grott_align_tab", "  Grott / API Align  ", "calculators", True),
     ("alarm_defs", "alarm_defs_tab", "  Alarm defs  ", "controls", False),
+    ("sms_gateway", "sms_gateway_tab", "  SMS gateway  ", "controls", False),
     ("connectivity", "connectivity_tab", "  Connectivity Status  ", "controls", False),
     ("grott_setup", "grott_setup_tab", "  Grott Setup  ", "controls", False),
     ("command_sim", "command_sim_tab", "  Command Sim  ", "controls", False),
