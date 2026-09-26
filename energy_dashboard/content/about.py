@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.437", "2026-09-26", [
+        "String voltage has <b>Today</b> and <b>Rolling 24Hr</b>. Today is "
+        "one London day and is the default. Rolling 24Hr draws now where "
+        "22:00 sits on the day chart (22 hours back, 2 hours ahead). The "
+        "day menu can reach today after midnight.",
+    ]),
     ("2.9.436", "2026-09-25", [
         "Octopus Live 15-minute view asks for 5-minute Home Mini readings "
         "and adds them into quarter-hour slots. The old 15-minute request "

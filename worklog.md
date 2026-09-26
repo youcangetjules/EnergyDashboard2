@@ -10,6 +10,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-09-26
+
+- String voltage can show one London day, or a rolling 24-hour window. The rolling window puts “now” where 22:00 sits on the day chart: 22 hours of history and two empty hours to the right, so the latest volts still fit beside the line. Today stays the default. The day menu was stuck on yesterday after midnight; opening it now allows today.
+
 ## 2026-09-25
 
 - Octopus Live was about half a day behind when 15-minute was selected. Octopus rejected that grouping, so the page used the ordinary meter instead of the Home Mini. 15-minute now uses the live 5-minute readings, added up into quarter-hour slots, so the chart reaches the latest half hour.

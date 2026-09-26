@@ -117,6 +117,22 @@ IDs are `BUG-` + a running sequence (`001` is the oldest, never reused) + `-` + 
 
 ## <span style="color:green">Fixed</span>
 
+### <span style="color:green">BUG-063-20260926-01 — String voltage day menu cannot reach today after midnight</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 09:32 (Europe/London) |
+| **Status** | fixed |
+| **Area** | String voltage day menu |
+| **Version found** | 2.9.436 |
+| **Version fixed** | 2.9.437 |
+
+**Symptom:** On Saturday morning the string voltage page was still on Friday. The day menu’s latest allowed day had been set when the control was built, so after midnight today could not be chosen until the page was rebuilt.
+
+**Cause:** The calendar ceiling was captured once, at startup, so a newer day was clamped back to yesterday. On this page the jump back to today also crashed: the day value type was never imported, so Reload could not move the chart.
+
+**Resolution:** Opening the day menu sets the latest day to the current London day, and the menu is given the calendar’s full size. String voltage imports that day type, and it follows today unless an earlier day was picked. Shipped in 2.9.437.
+
 ### <span style="color:green">BUG-062-20260925-05 — Octopus Live chart sits many hours behind on 15-minute view</span>
 
 | Field | Value |

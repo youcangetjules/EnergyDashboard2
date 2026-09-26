@@ -1,13 +1,19 @@
 """
-PV string DC voltage for one London day.
+PV string DC voltage.
 
 Measured volts only (vPv1 / vPv2), from the 2-minute lots in
 ``pv_string_voltage``. Earlier days stay empty until this build has been logging.
+
+Today is one London day, midnight to midnight. Rolling 24Hr is 22 hours
+behind now and 2 hours ahead, so the now line sits where 22:00 sits on
+the day chart.
 """
 from __future__ import annotations
 
 from collections import deque
 from datetime import datetime, timedelta, timezone
+
+from PySide6.QtCore import QDate
 
 from energy_dashboard.common import *
 from energy_dashboard.db.pv_string_voltage import query_pv_string_voltage
@@ -21,6 +27,11 @@ from energy_dashboard.tabs.pv_string_charge import (
 _COL_S1 = "#89b4fa"
 _COL_S2 = "#a6e3a1"
 _COL_NOW = "#94e2d5"
+_MODE_TODAY = 0
+_MODE_ROLLING = 1
+# 22:00 on a midnight-to-midnight chart is 22/24 of the width.
+_ROLL_BEHIND = timedelta(hours=22)
+_ROLL_AHEAD = timedelta(hours=2)
 
 
 def _volts(val):
@@ -46,6 +57,7 @@ class PvStringVoltageTab(QWidget):
         self.on_data_updated = None
         self._lots = deque()
         self._view_day = _london_today()
+        self._pinned_day = False
         self._live = (None, None)
         self.build_ui()
         self._load_day()
@@ -67,14 +79,31 @@ class PvStringVoltageTab(QWidget):
 
         ctrl = QHBoxLayout()
         self.btn_reload = QPushButton("Reload")
-        self.btn_reload.setToolTip("Re-read stored voltage lots for the day on screen.")
+        self.btn_reload.setToolTip("Re-read stored voltage lots for the window on screen.")
         self.btn_reload.clicked.connect(self.refresh_now)
         _apply_primary_button_style(self.btn_reload)
         ctrl.addWidget(self.btn_reload)
         ctrl.addSpacing(16)
-        lbl_day = QLabel("Day:")
-        lbl_day.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        ctrl.addWidget(lbl_day)
+        self.mode_group = QButtonGroup(self)
+        self.rb_mode_today = QRadioButton("Today")
+        self.rb_mode_today.setToolTip(
+            "One London day, midnight to midnight. The day menu picks which day."
+        )
+        self.rb_mode_roll = QRadioButton("Rolling 24Hr")
+        self.rb_mode_roll.setToolTip(
+            "22 hours behind now and 2 hours ahead, so the now line sits "
+            "where 22:00 sits on the day chart."
+        )
+        self.mode_group.addButton(self.rb_mode_today, _MODE_TODAY)
+        self.mode_group.addButton(self.rb_mode_roll, _MODE_ROLLING)
+        self.rb_mode_today.setChecked(True)
+        self.mode_group.idClicked.connect(self._on_mode_changed)
+        ctrl.addWidget(self.rb_mode_today)
+        ctrl.addWidget(self.rb_mode_roll)
+        ctrl.addSpacing(16)
+        self.lbl_day = QLabel("Day:")
+        self.lbl_day.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        ctrl.addWidget(self.lbl_day)
         self.date_day = _LondonDayPicker(self._view_day)
         self.date_day.setToolTip(
             "London day. Today includes the live reading. "
@@ -84,6 +113,7 @@ class PvStringVoltageTab(QWidget):
         ctrl.addWidget(self.date_day)
         self.btn_today = QPushButton("Today")
         self.btn_today.setFixedWidth(72)
+        self.btn_today.setToolTip("Jump the day menu back to today (London).")
         self.btn_today.setEnabled(False)
         self.btn_today.clicked.connect(self._go_today)
         _apply_primary_button_style(self.btn_today)
@@ -151,9 +181,15 @@ class PvStringVoltageTab(QWidget):
                 pass
 
     def on_growatt_live_update(self):
-        """Live volts on the cards, and beside the now line when today is on screen."""
+        """Live volts on the cards, and beside the now line when that line is shown."""
         self._read_live()
-        if self._viewing_today():
+        before = self._view_day
+        self._sync_day_limit()
+        if self._view_day != before:
+            self._load_day()
+            self._paint()
+            return
+        if self._show_now():
             self._paint()
             return
         self._paint_cards()
@@ -161,28 +197,54 @@ class PvStringVoltageTab(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._sync_day_limit()
         self._load_day()
         self._paint()
 
+    def _rolling(self) -> bool:
+        return self.mode_group.checkedId() == _MODE_ROLLING
+
     def _viewing_today(self) -> bool:
-        return self._view_day == _london_today()
+        return (not self._rolling()) and self._view_day == _london_today()
+
+    def _show_now(self) -> bool:
+        return self._rolling() or self._viewing_today()
+
+    def _on_mode_changed(self, _mode_id):
+        self._sync_day_limit()
+        self._load_day()
+        self._paint()
 
     def _sync_day_limit(self):
         today = _london_today()
+        rolling = self._rolling()
         self.date_day.blockSignals(True)
         self.date_day.setMaximumDate(QDate(today.year, today.month, today.day))
+        if not rolling and not self._pinned_day and self._view_day != today:
+            self._view_day = today
+            self.date_day.setDate(QDate(today.year, today.month, today.day))
         self.date_day.blockSignals(False)
-        self.btn_today.setEnabled(self._view_day < today)
+        self.lbl_day.setEnabled(not rolling)
+        self.date_day.setEnabled(not rolling)
+        self.btn_today.setEnabled((not rolling) and self._view_day < today)
 
     def _on_view_day_changed(self, qdate):
         self._view_day = qdate.toPython()
+        self._pinned_day = self._view_day != _london_today()
         self._sync_day_limit()
         self._load_day()
         self._paint()
 
     def _go_today(self):
+        self._pinned_day = False
         today = _london_today()
-        self.date_day.setDate(QDate(today.year, today.month, today.day))
+        self._sync_day_limit()
+        qtoday = QDate(today.year, today.month, today.day)
+        if self._view_day != today or self.date_day.date() != qtoday:
+            self.date_day.setDate(qtoday)
+            return
+        self._load_day()
+        self._paint()
 
     def _day_bounds(self):
         london = _london_tz()
@@ -191,18 +253,33 @@ class PvStringVoltageTab(QWidget):
         end = start + timedelta(days=1)
         return start, end, london
 
+    def _window_bounds(self):
+        """Start, end, timezone, and now. Rolling ends two hours after now."""
+        london = _london_tz()
+        now = datetime.now(london)
+        if self._rolling():
+            return now - _ROLL_BEHIND, now + _ROLL_AHEAD, london, now
+        start, end, london = self._day_bounds()
+        return start, end, london, now
+
     def _load_day(self):
-        start, end, _london = self._day_bounds()
+        start, end, _london, now = self._window_bounds()
+        query_end = now if self._rolling() else (end - timedelta(seconds=1))
         rows = query_pv_string_voltage(
             self.data_logger,
             start_utc=start.astimezone(timezone.utc),
-            end_utc=(end - timedelta(seconds=1)).astimezone(timezone.utc),
+            end_utc=query_end.astimezone(timezone.utc),
         )
         self._lots.clear()
         for row in rows:
             self._lots.append(row)
         self._read_live()
-        label = "today" if self._viewing_today() else self._view_day.strftime("%a %-d %b")
+        if self._rolling():
+            label = "the rolling 24 h"
+        elif self._viewing_today():
+            label = "today"
+        else:
+            label = self._view_day.strftime("%a %-d %b")
         if self.set_status:
             self.set_status(f"String voltage: {len(self._lots)} lot(s) for {label}.")
 
@@ -227,7 +304,7 @@ class PvStringVoltageTab(QWidget):
     def _paint_cards(self):
         s1 = self._series_stats("v1")
         s2 = self._series_stats("v2")
-        if self._viewing_today():
+        if self._show_now():
             v1, v2 = self._live
             self.card_s1._value.setText(self._fmt_v(v1))
             self.card_s2._value.setText(self._fmt_v(v2))
@@ -248,13 +325,13 @@ class PvStringVoltageTab(QWidget):
 
     def _paint(self):
         self._paint_cards()
-        stamp = (
-            "today from 00:00"
-            if self._viewing_today()
-            else self._view_day.strftime("%a %-d %b %Y")
-        )
-        start, end, london = self._day_bounds()
-        now = datetime.now(london)
+        if self._rolling():
+            stamp = "rolling 24 h"
+        elif self._viewing_today():
+            stamp = "today from 00:00"
+        else:
+            stamp = self._view_day.strftime("%a %-d %b %Y")
+        start, end, london, now = self._window_bounds()
         ax = self.ax
         ax.clear()
         _style_ax_dark(ax, self.fig)
@@ -268,7 +345,7 @@ class PvStringVoltageTab(QWidget):
             times.append(ts.astimezone(london))
             v1.append(row.get("v1"))
             v2.append(row.get("v2"))
-        if self._viewing_today():
+        if self._show_now():
             live1, live2 = self._live
             if live1 is not None or live2 is not None:
                 times.append(now)
@@ -286,7 +363,9 @@ class PvStringVoltageTab(QWidget):
             )
         else:
             ax.text(
-                0.5, 0.5, "No stored voltage for this day",
+                0.5, 0.5,
+                "No stored voltage in this window" if self._rolling()
+                else "No stored voltage for this day",
                 ha="center", va="center", transform=ax.transAxes,
                 color=_DARK_SUBTEXT, fontsize=11,
             )
@@ -296,15 +375,27 @@ class PvStringVoltageTab(QWidget):
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=london))
         ax.xaxis.set_major_locator(mdates.HourLocator(interval=2, tz=london))
         ax.grid(axis="y", color=_DARK_GRID, linewidth=0.4)
-        if self._viewing_today():
+        if self._show_now():
             ax.axvline(now, color=_COL_NOW, linestyle="--", linewidth=1.0, zorder=4)
             self._label_beside_now(ax, now, end, v1, v2)
         self.fig.subplots_adjust(left=0.07, right=0.98, top=0.90, bottom=0.12)
         self.canvas.draw_idle()
         if not self._lots:
+            if self._rolling():
+                self.lbl_detail.setText(
+                    "Nothing stored in the last 22 hours. Voltage is kept from "
+                    "the build that added the table onward, while the dashboard is open."
+                )
+            else:
+                self.lbl_detail.setText(
+                    "Nothing stored for this day. Voltage is kept from the build "
+                    "that added the table onward, while the dashboard is open."
+                )
+        elif self._rolling():
             self.lbl_detail.setText(
-                "Nothing stored for this day. Voltage is kept from the build "
-                "that added the table onward, while the dashboard is open."
+                f"{len(self._lots)} stored lot(s) from 22 hours ago up to now. "
+                "The chart runs two hours past now, so the teal line sits where "
+                "22:00 sits on a day chart. A missing string is left blank, not 0 V."
             )
         else:
             self.lbl_detail.setText(

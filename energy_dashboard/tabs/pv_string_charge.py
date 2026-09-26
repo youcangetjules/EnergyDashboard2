@@ -116,7 +116,16 @@ class _LondonDayPicker(QToolButton):
         self.setText(self._day.strftime("%d %b %Y"))
 
     def _prepare_calendar(self) -> None:
+        # The latest day is captured when the control is built. After midnight
+        # that ceiling is still yesterday, so today cannot be chosen.
+        today = _london_today()
+        cap = QDate(today.year, today.month, today.day)
+        if self._maximum != cap:
+            self.setMaximumDate(cap)
         self._cal.setSelectedDate(self.date())
+        hint = self._cal.sizeHint()
+        self._cal.setMinimumSize(hint)
+        self._menu.setMinimumSize(hint.width() + 8, hint.height() + 8)
 
     def _on_calendar(self, qdate: QDate) -> None:
         self._menu.close()
@@ -678,6 +687,7 @@ class PvStringChargeTab(QWidget):
         self._refresh_day_summaries()
 
     def _go_today(self):
+        self._sync_day_limit()
         today = _london_today()
         self.date_day.setDate(QDate(today.year, today.month, today.day))
 
