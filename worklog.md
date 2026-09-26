@@ -14,6 +14,14 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 21:07
+
+- A rule that mixes units is no longer marked Syntax Correct. Battery charge is a percentage and spare solar is power in kilowatts, so putting both on “stays below” the low-battery line now shows Syntax incorrect. Hover the row to see which units clashed. The built-in alarms still match, because each of those already compares like with like.
+
+### 20:59
+
+- Double-click a block on an Alarm defs rule and it comes off. You can also drop a second signal onto one that is already there; they sit side by side with “and” between them, and double-clicking one removes only that signal.
+
 ### 20:57
 
 - The comparison list on Alarm defs was in the order each phrase was first used, so “stays below” and “stays above” sat at opposite ends. They now sit together, with the other level checks beside them, then the “it stopped” phrases, then “cannot be reached” and “is reported offline”.

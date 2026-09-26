@@ -53,6 +53,12 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.471", "2026-09-26", [
+        "Alarm defs: a rule is syntax incorrect when its signals and limit are not the same kind of measurement — a percentage cannot sit with power in kW, or with volts.",
+    ]),
+    ("2.9.470", "2026-09-26", [
+        "Alarm defs: double-click a block on a rule to remove it. A signal slot can hold two or more signals.",
+    ]),
     ("2.9.469", "2026-09-26", [
         "Alarm defs: comparisons are grouped. Stays below and stays above sit together, then the other level checks, then the ones about a feed stopping, then the ones about something being unreachable.",
     ]),

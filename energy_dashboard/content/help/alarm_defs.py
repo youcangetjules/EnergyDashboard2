@@ -31,7 +31,9 @@ example “logging is switched on”. Optional.</li>
 The palette is a short scrolling list for each colour. Drag a block from a
 list into a slot of the same colour; a signal will not drop into a comparison
 slot. You should see the coloured block follow the pointer. <b>Right-click</b>
-a slot to empty it, or drag the block down to the bin. Rules are numbered
+a slot to empty it, <b>double-click</b> a block to take it off the rule, or drag
+the block down to the bin. Drop a second signal onto a signal that is
+already there and both stay, joined by “and”. Rules are numbered
 down the left. The three bars on the left of a rule are its handle: drag
 that to change the order, or drag it into the bin to remove the whole rule.
 Hovering a rule shows the whole sentence.</p>
@@ -51,8 +53,12 @@ alarm uses the new number.</p>
 The line itself is the syntax, in the form
 <b>WHEN</b> signal comparison threshold <b>FOR</b> how long
 <b>WHILE</b> extra condition <b>THEN</b> outcome.
-When that sentence is complete the rule gets a green fill and
-<b>Syntax Correct</b> on a green background under the right-hand end.
+When that sentence is complete, and the pieces share a unit, the rule gets
+a green fill and <b>Syntax Correct</b> on a green background under the
+right-hand end. Battery charge is a percentage, spare solar and house load
+are power in kW, and the string voltages are volts. Mixing those — or
+comparing one of them to a limit in a different unit — turns the line
+<b>Syntax incorrect</b>. Hover the rule to see which units clashed.
 The block lists fill the space above the rules. Drag the bar between the
 lists and the rules to give either side more room. A complete sentence that is
 not one of the built-in alarms still does not fire — the hover says so.

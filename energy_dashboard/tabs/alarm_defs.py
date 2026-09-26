@@ -32,6 +32,7 @@ from energy_dashboard.core.alarms import (
     ALARM_PIECE_REQUIRED,
     alarm_blocks_key,
     alarm_palette,
+    alarm_unit_problem,
     alarm_piece_accepted,
     alarm_rule_syntax,
 )
@@ -108,12 +109,40 @@ def _decode_token(mime: QMimeData, fmt: str) -> str:
         return ""
 
 
-def _decode_slot(mime: QMimeData) -> tuple[str, str]:
+def _decode_slot(mime: QMimeData) -> tuple[str, str, int | None]:
     raw = _decode_token(mime, _MIME_SLOT)
     if not raw:
-        return "", ""
-    token, _, kind = raw.partition("\n")
-    return token.strip(), kind.strip()
+        return "", "", None
+    lines = raw.split("\n")
+    token = lines[0].strip()
+    kind = lines[1].strip() if len(lines) > 1 else ""
+    index = None
+    if len(lines) > 2 and lines[2].strip().isdigit():
+        index = int(lines[2].strip())
+    return token, kind, index
+
+
+def _split_signals(text: str) -> list[str]:
+    """One signal stays whole. 'A and B' splits only when both are real signals."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    known = set(alarm_palette("signal"))
+    if text in known:
+        return [text]
+    parts = [part.strip() for part in text.split(" and ") if part.strip()]
+    if len(parts) > 1 and all(part in known for part in parts):
+        return parts
+    return [text]
+
+
+def _piece_caption(text: str) -> str:
+    if text == _TASMOTA_SIGNAL:
+        return _tasmota_caption(text)
+    spec = _PARAM_FOR.get(text)
+    if spec is None:
+        return text
+    return spec.chip(_read_param(spec))
 
 
 def _event_pos(event):
@@ -550,6 +579,102 @@ class _PaletteList(QListWidget):
         drag.exec(Qt.DropAction.CopyAction)
 
 
+class _SignalChip(QFrame):
+    """One signal inside a rule that holds more than one."""
+
+    def __init__(self, slot: "_Slot", index: int, text: str):
+        super().__init__(slot)
+        self._slot = slot
+        self._index = index
+        self._text = text
+        self._armed = False
+        self.setAcceptDrops(True)
+        self.setFixedHeight(_ROW_H - 4)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(6, 0, 6, 0)
+        label = QLabel(_piece_caption(text))
+        label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        label.setStyleSheet("color: #1e1e2e; font-size: 11px; background: transparent;")
+        lay.addWidget(label)
+        self.setStyleSheet(
+            "_SignalChip { background: #89b4fa; border-radius: 3px; }"
+        )
+        self.setToolTip("Double-click to remove this signal.")
+        self._click_timer = QTimer(self)
+        self._click_timer.setSingleShot(True)
+        self._click_timer.timeout.connect(self._open_editor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._armed = True
+            self._press = _event_pos(event)
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not self._armed:
+            return
+        if (_event_pos(event) - self._press).manhattanLength() < QApplication.startDragDistance():
+            return
+        self._armed = False
+        self._click_timer.stop()
+        rule = self._slot._rule()
+        if rule is None:
+            return
+        mime = QMimeData()
+        mime.setData(
+            _MIME_SLOT,
+            f"{rule.token}\n{self._slot.kind}\n{self._index}".encode("utf-8"),
+        )
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        chip = QLabel(_piece_caption(self._text))
+        chip.setStyleSheet(
+            "QLabel { background: #89b4fa; color: #1e1e2e; border-radius: 3px; "
+            "padding: 2px 8px; font-size: 11px; }"
+        )
+        chip.adjustSize()
+        drag.setPixmap(chip.grab())
+        drag.setHotSpot(chip.rect().center())
+        drag.exec(Qt.DropAction.MoveAction)
+
+    def mouseReleaseEvent(self, event):
+        if self._armed and event.button() == Qt.MouseButton.LeftButton:
+            self._armed = False
+            if self._text == _TASMOTA_SIGNAL:
+                self._click_timer.start(QApplication.doubleClickInterval())
+            return
+        self._armed = False
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        self._click_timer.stop()
+        self._armed = False
+        if event.button() == Qt.MouseButton.LeftButton:
+            index = self._index
+            slot = self._slot
+            QTimer.singleShot(0, lambda: slot.remove_at(index))
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def dragEnterEvent(self, event):
+        self._slot.dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        self._slot.dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        self._slot.dropEvent(event)
+
+    def _open_editor(self) -> None:
+        if self._text != _TASMOTA_SIGNAL:
+            return
+        tab = self._slot._tab()
+        if tab is not None and _edit_tasmota_ip(tab):
+            tab.refresh_param_chips()
+
+
 class _Slot(QFrame):
     """One drop target on a rule line. Drag it to the bin, or click a number."""
 
@@ -559,7 +684,11 @@ class _Slot(QFrame):
         super().__init__(parent)
         self.kind = kind
         self._text = ""
+        self._parts: list[str] = []
         self._armed = False
+        self._click_timer = QTimer(self)
+        self._click_timer.setSingleShot(True)
+        self._click_timer.timeout.connect(self._open_editor)
         self.setAcceptDrops(True)
         self.setFixedHeight(_ROW_H)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
@@ -572,6 +701,12 @@ class _Slot(QFrame):
         # this frame. Mouse events (including the drop) now hit the frame.
         self._body.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         lay.addWidget(self._body)
+        self._chip_host = QWidget()
+        self._chip_row = QHBoxLayout(self._chip_host)
+        self._chip_row.setContentsMargins(0, 0, 0, 0)
+        self._chip_row.setSpacing(3)
+        self._chip_host.hide()
+        lay.addWidget(self._chip_host)
         self.set_piece("")
 
     def resizeEvent(self, event):
@@ -582,17 +717,20 @@ class _Slot(QFrame):
         return self._text
 
     def caption(self) -> str:
+        if self.kind == "signal" and self._parts:
+            return " and ".join(_piece_caption(part) for part in self._parts)
         if not self._text:
             return ""
-        if self._text == _TASMOTA_SIGNAL:
-            return _tasmota_caption(self._text)
-        spec = _PARAM_FOR.get(self._text)
-        if spec is None:
-            return self._text
-        return spec.chip(_read_param(spec))
+        return _piece_caption(self._text)
 
     def set_piece(self, text: str) -> None:
-        self._text = (text or "").strip()
+        raw = (text or "").strip()
+        if self.kind == "signal":
+            self._parts = _split_signals(raw)
+            self._text = " and ".join(self._parts)
+        else:
+            self._parts = []
+            self._text = raw
         colour = _KIND_COLOR[self.kind]
         if self._text:
             self._body.setStyleSheet(
@@ -606,8 +744,11 @@ class _Slot(QFrame):
             lines = [self.caption()]
             if self._text in _PARAM_FOR or self._text == _TASMOTA_SIGNAL:
                 lines.append("Click to change this.")
+            lines.append("Double-click to remove it.")
             lines.append("Drag onto the bin to remove it.")
             lines.append("Right-click to empty this slot.")
+            if self.kind == "signal":
+                lines.append("Drop another signal here to add it.")
             self.setToolTip("\n".join(lines))
         else:
             optional = self.kind not in ALARM_PIECE_REQUIRED
@@ -625,8 +766,51 @@ class _Slot(QFrame):
             self.setCursor(Qt.CursorShape.ArrowCursor)
             self.setToolTip(
                 f"Drop a {_KIND_SHORT[self.kind].lower()} here."
+                + (" Drop more than one." if self.kind == "signal" else "")
                 + (" Optional." if optional else "")
             )
+        self._show_signal_chips()
+
+    def remove_at(self, index: int) -> None:
+        if self.kind != "signal" or not (0 <= index < len(self._parts)):
+            self.set_piece("")
+        else:
+            parts = list(self._parts)
+            del parts[index]
+            self.set_piece(" and ".join(parts))
+        self.changed.emit()
+
+    def _show_signal_chips(self) -> None:
+        while self._chip_row.count():
+            item = self._chip_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        if self.kind != "signal" or len(self._parts) < 2:
+            self._chip_host.hide()
+            self._body.show()
+            return
+        for index, part in enumerate(self._parts):
+            if index:
+                word = QLabel("and")
+                word.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+                word.setStyleSheet(
+                    "color: #6c7086; font-size: 10px; background: transparent;"
+                )
+                self._chip_row.addWidget(word)
+            self._chip_row.addWidget(_SignalChip(self, index, part))
+        self._chip_row.addStretch(1)
+        self._body.hide()
+        self._chip_host.show()
+        self.setStyleSheet(
+            "_Slot { background: transparent; border: 1px dashed #89b4fa; border-radius: 3px; }"
+        )
+        self.setToolTip(
+            "Drop another signal to add it.\n"
+            "Double-click a signal to remove it.\n"
+            "Drag one onto the bin to remove it."
+        )
 
     def _paint_caption(self) -> None:
         if not self._text:
@@ -636,6 +820,29 @@ class _Slot(QFrame):
         )
         if shown != self._body.text():
             self._body.setText(shown)
+
+    def mouseDoubleClickEvent(self, event):
+        self._click_timer.stop()
+        self._armed = False
+        if event.button() != Qt.MouseButton.LeftButton or not self._text:
+            return
+        if self.kind == "signal" and len(self._parts) > 1:
+            return
+        self.set_piece("")
+        self.changed.emit()
+
+    def _open_editor(self) -> None:
+        if not self._text:
+            return
+        spec = _PARAM_FOR.get(self._text)
+        tab = self._tab()
+        edited = False
+        if self._text == _TASMOTA_SIGNAL and tab is not None:
+            edited = _edit_tasmota_ip(tab)
+        elif spec is not None and tab is not None:
+            edited = _edit_param(tab, spec, tab.dash)
+        if edited and tab is not None:
+            tab.refresh_param_chips()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.RightButton and self._text:
@@ -677,15 +884,8 @@ class _Slot(QFrame):
     def mouseReleaseEvent(self, event):
         if self._armed and event.button() == Qt.MouseButton.LeftButton and self._text:
             self._armed = False
-            spec = _PARAM_FOR.get(self._text)
-            tab = self._tab()
-            edited = False
-            if self._text == _TASMOTA_SIGNAL and tab is not None:
-                edited = _edit_tasmota_ip(tab)
-            elif spec is not None and tab is not None:
-                edited = _edit_param(tab, spec, tab.dash)
-            if edited and tab is not None:
-                tab.refresh_param_chips()
+            if self._text in _PARAM_FOR or self._text == _TASMOTA_SIGNAL:
+                self._click_timer.start(QApplication.doubleClickInterval())
             return
         self._armed = False
         super().mouseReleaseEvent(event)
@@ -718,10 +918,15 @@ class _Slot(QFrame):
         if not text or not alarm_piece_accepted(self.kind, kind):
             event.ignore()
             return
-        self.set_piece(text)
+        if self.kind == "signal" and self._parts:
+            if text not in self._parts:
+                self.set_piece(" and ".join(self._parts + [text]))
+                self.changed.emit()
+        else:
+            self.set_piece(text)
+            self.changed.emit()
         event.setDropAction(Qt.DropAction.CopyAction)
         event.accept()
-        self.changed.emit()
 
 
 class _RuleHandle(QWidget):
@@ -831,9 +1036,9 @@ class _Bin(QWidget):
     def dropEvent(self, event):
         self._hot = False
         self.update()
-        token, kind = _decode_slot(event.mimeData())
+        token, kind, index = _decode_slot(event.mimeData())
         if token and kind:
-            self._tab.clear_slot(token, kind)
+            self._tab.clear_slot(token, kind, index)
             event.setDropAction(Qt.DropAction.MoveAction)
             event.accept()
             return
@@ -856,6 +1061,7 @@ class _RuleLine(QFrame):
         super().__init__(parent)
         self.token = f"r{id(self)}"
         self._complete = False
+        self._unit_bad = False
         self._reorder_edge = ""
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAcceptDrops(True)
@@ -965,6 +1171,9 @@ class _RuleLine(QFrame):
         if self._complete:
             border = "1px solid #a6e3a1"
             background = "#1c3324"
+        elif self._unit_bad:
+            border = "1px solid #f38ba8"
+            background = "#2a1a1e"
         else:
             border = "1px solid transparent"
             background = "transparent"
@@ -1005,6 +1214,11 @@ class _RuleLine(QFrame):
                 [k for k in ALARM_PIECE_REQUIRED if not pieces.get(k)]
             ))
             return
+        problem = alarm_unit_problem(pieces)
+        if problem:
+            self._set_halo(False, bad=problem)
+            self.setToolTip("Syntax incorrect. " + problem)
+            return
         self._set_halo(True)
         if alarm_blocks_key(pieces):
             self.setToolTip(sentence)
@@ -1014,9 +1228,35 @@ class _RuleLine(QFrame):
                 "built-in alarms, so it does not fire."
             )
 
-    def _set_halo(self, on: bool) -> None:
-        self._complete = on
-        self._syntax_note.setVisible(on)
+    def _set_halo(self, on: bool, *, bad: str = "") -> None:
+        self._unit_bad = bool(bad)
+        self._complete = bool(on) and not bad
+        self._syntax_note.setVisible(bool(on) or bool(bad))
+        if bad:
+            self._syntax_note.setText("Syntax incorrect")
+            self._syntax_note.setStyleSheet(
+                "QLabel {"
+                "  color: #1e1e2e;"
+                "  background-color: #f38ba8;"
+                "  font-size: 10px;"
+                "  font-weight: bold;"
+                "  padding: 1px 8px;"
+                "  border-radius: 3px;"
+                "}"
+            )
+            self.setGraphicsEffect(None)
+        else:
+            self._syntax_note.setText("Syntax Correct")
+            self._syntax_note.setStyleSheet(
+                "QLabel {"
+                "  color: #1e1e2e;"
+                "  background-color: #a6e3a1;"
+                "  font-size: 10px;"
+                "  font-weight: bold;"
+                "  padding: 1px 8px;"
+                "  border-radius: 3px;"
+                "}"
+            )
         if on:
             glow = QGraphicsDropShadowEffect(self)
             glow.setBlurRadius(16)
@@ -1158,12 +1398,15 @@ class AlarmDefsTab(QWidget):
                 return card
         return None
 
-    def clear_slot(self, token: str, kind: str) -> None:
+    def clear_slot(self, token: str, kind: str, index: int | None = None) -> None:
         card = self._card(token)
         if card is None:
             return
         slot = card.slots.get(kind)
         if slot is None or not slot.text():
+            return
+        if index is not None:
+            QTimer.singleShot(0, lambda s=slot, i=index: s.remove_at(i))
             return
         slot.set_piece("")
         card._on_changed()

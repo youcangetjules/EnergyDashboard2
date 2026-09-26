@@ -295,6 +295,10 @@ ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
     "outcome": ("Warning", "Critical"),
 }
 
+# These choose how a rule tells you. They are not a severity, so a built-in
+# rule can keep its warning or critical wording and still name a channel.
+ACTION_OUTCOMES = ("send SMS", "create a desktop alert")
+
 
 # Comparisons are listed by family, not by which alarm used them first.
 # "stays below" and "stays above" sit together; the rest follow the same idea.
@@ -336,9 +340,202 @@ def alarm_palette(kind: str) -> tuple[str, ...]:
     return tuple(sorted(out, key=lambda text: (rank.get(text, tail), out.index(text))))
 
 
+def split_joined_pieces(text: str, known: set[str]) -> tuple[list[str], str]:
+    """Split 'A and B' or 'A or B' when every part is a real block.
+
+    A single known phrase stays whole, including ones that happen to contain
+    the word "or" (such as "Warning, or critical if the pack is very low").
+    """
+    text = (text or "").strip()
+    if not text:
+        return [], "and"
+    if text in known:
+        return [text], "and"
+    for op in (" or ", " and "):
+        parts = [part.strip() for part in text.split(op) if part.strip()]
+        if len(parts) > 1 and all(part in known for part in parts):
+            return parts, op.strip()
+    return [text], "and"
+
+
+def severity_outcome(text: str) -> str:
+    """Outcome wording used to match a built-in rule, without the channels."""
+    parts, _join = split_joined_pieces(text, set(alarm_palette("outcome")))
+    kept = [part for part in parts if part not in ACTION_OUTCOMES]
+    if len(kept) == 1:
+        return kept[0]
+    if len(kept) > 1:
+        return " and ".join(kept)
+    if text and text not in ACTION_OUTCOMES:
+        return text
+    return ""
+
+
+def outcome_channels(text: str) -> set[str] | None:
+    """Channels named on a rule, or None when the rule leaves that to Setup.
+
+    ``sms`` and ``desktop`` are the only names. None means both Setup
+    choices still apply.
+    """
+    parts, _join = split_joined_pieces(text, set(alarm_palette("outcome")))
+    chosen: set[str] = set()
+    if "send SMS" in parts:
+        chosen.add("sms")
+    if "create a desktop alert" in parts:
+        chosen.add("desktop")
+    return chosen or None
+
+
+def signal_builtin_keys(signal: str) -> tuple[str, ...]:
+    """Built-in alarm keys that watch this signal, if any."""
+    return tuple(row.key for row in ALARM_BLOCKS if row.signal == signal)
+
+
+def signal_combo(text: str) -> tuple[list[str], str] | None:
+    """Two or more real signals, and whether they combine with and or or."""
+    parts, join = split_joined_pieces(text, set(alarm_palette("signal")))
+    if len(parts) < 2:
+        return None
+    return parts, join
+
+
+def combo_matches(text: str, active_keys: set[str]) -> bool:
+    """True when this signal phrase's AND/OR is met by alarms already sounding.
+
+    A signal with no built-in alarm (string voltage, for example) is never
+    sounding. AND needs every signal's alarm. OR needs any one of them.
+    """
+    combo = signal_combo(text)
+    if combo is None:
+        return False
+    parts, join = combo
+    flags = []
+    for part in parts:
+        keys = signal_builtin_keys(part)
+        flags.append(bool(keys) and any(key in active_keys for key in keys))
+    if join == "or":
+        return any(flags)
+    return all(flags)
+
+
+# What each block is measured in. A rule can only compare like with like:
+# a percentage with a percentage, power with power, volts with volts.
+# "status" is a feed or a device, not a number.
+_SIGNAL_UNIT = {
+    "Battery state of charge": "percent",
+    "Spare solar": "power",
+    "House load": "power",
+    "string A voltage": "volts",
+    "string B voltage": "volts",
+    "Grott feed": "status",
+    "Logging database": "status",
+    "Database writing": "status",
+    "Inverter": "status",
+    "Tasmota MQTT": "status",
+    "Tasmota device": "status",
+}
+_THRESHOLD_UNIT = {
+    "the low-battery line": "percent",
+    "the spare-solar minimum": "power",
+    "the solar coming in": "power",
+    "Volts": "volts",
+}
+_UNIT_WORDS = {
+    "percent": "a percentage",
+    "power": "power, in kW",
+    "volts": "volts",
+    "status": "a feed, not a number",
+}
+_MEASURED_COMPARISONS = frozenset({
+    "stays below",
+    "stays above",
+    "is at least",
+    "has a differential of",
+    "uses almost all of",
+})
+_STATUS_COMPARISONS = frozenset({
+    "stops arriving",
+    "stops",
+    "drops",
+    "goes silent",
+    "cannot be reached",
+    "is reported offline",
+})
+
+
+def _unit_list(pairs: list[tuple[str, str]]) -> str:
+    bits = [f"{name} is {_UNIT_WORDS[unit]}" for name, unit in pairs]
+    if len(bits) == 1:
+        return bits[0]
+    if len(bits) == 2:
+        return f"{bits[0]}, and {bits[1]}"
+    return ", ".join(bits[:-1]) + f", and {bits[-1]}"
+
+
+def alarm_unit_problem(pieces: dict[str, str]) -> str:
+    """Why this sentence mixes units, or "" when the units agree.
+
+    Battery state of charge is a percentage. Spare solar is power in kW.
+    Putting both on one comparison, or comparing either to a limit in the
+    other unit, is not a valid rule.
+    """
+    p = {k: str((pieces or {}).get(k) or "").strip() for k in ALARM_PIECE_KINDS}
+    if not all(p[k] for k in ALARM_PIECE_REQUIRED):
+        return ""
+    parts, _join = split_joined_pieces(p["signal"], set(alarm_palette("signal")))
+    if not parts:
+        return ""
+    paired: list[tuple[str, str]] = []
+    for part in parts:
+        unit = _SIGNAL_UNIT.get(part)
+        if not unit:
+            return ""
+        paired.append((part, unit))
+    units = {unit for _name, unit in paired}
+    if len(units) > 1:
+        return (
+            f"{_unit_list(paired)}. Those units don't match, "
+            "so they cannot share one comparison."
+        )
+    signal_unit = paired[0][1]
+    comparison = p["comparison"]
+    threshold = p["threshold"]
+    threshold_unit = _THRESHOLD_UNIT.get(threshold, "") if threshold else ""
+    if comparison in _MEASURED_COMPARISONS:
+        if signal_unit == "status":
+            return (
+                f"{comparison.capitalize()} compares a measurement, "
+                f"but {paired[0][0]} is a feed, not a number."
+            )
+        if not threshold:
+            return (
+                f"{comparison.capitalize()} needs a limit in the same unit "
+                f"({_UNIT_WORDS[signal_unit]})."
+            )
+        if threshold_unit and threshold_unit != signal_unit:
+            return (
+                f"{_unit_list(paired)}, but {threshold} is {_UNIT_WORDS[threshold_unit]}. "
+                "The limit has to be in the same unit as the signal."
+            )
+        return ""
+    if comparison in _STATUS_COMPARISONS:
+        if signal_unit != "status":
+            return (
+                f"{comparison.capitalize()} is about a feed going quiet, "
+                f"but {paired[0][0]} is {_UNIT_WORDS[signal_unit]}."
+            )
+        if threshold_unit:
+            return (
+                f"{comparison.capitalize()} does not take "
+                f"a limit that is {_UNIT_WORDS[threshold_unit]}."
+            )
+    return ""
+
+
 def alarm_blocks_key(pieces: dict[str, str]) -> str | None:
     """Key of the built-in alarm these blocks match, or None for a draft."""
     p = {k: str((pieces or {}).get(k) or "").strip() for k in ALARM_PIECE_KINDS}
+    p["outcome"] = severity_outcome(p["outcome"])
     for row in ALARM_BLOCKS:
         if row.pieces() == p:
             return row.key
@@ -453,6 +650,22 @@ class AlarmMonitor:
 
     def _drop_alarm(self, key: str) -> None:
         self._active.pop(key, None)
+        self._last_notify_wall.pop(key, None)
+        self._notify_count.pop(key, None)
+
+    def custom_notify_due(self, key: str, now_wall: float) -> bool:
+        """Same repeat spacing as a built-in alarm, for a combined rule."""
+        sent = int(self._notify_count.get(key, 0))
+        interval = notify_backoff_interval_s(sent)
+        last = float(self._last_notify_wall.get(key, 0.0))
+        if sent > 0 and (float(now_wall) - last) < interval:
+            return False
+        self._last_notify_wall[key] = float(now_wall)
+        self._notify_count[key] = sent + 1
+        return True
+
+    def custom_notify_clear(self, key: str) -> None:
+        """Forget a combined rule once it is no longer true, so the next time is fresh."""
         self._last_notify_wall.pop(key, None)
         self._notify_count.pop(key, None)
 
@@ -1118,6 +1331,14 @@ __all__ = [
     "alarm_rule_syntax",
     "alarm_piece_accepted",
     "alarm_blocks_key",
+    "alarm_unit_problem",
+    "split_joined_pieces",
+    "severity_outcome",
+    "outcome_channels",
+    "signal_builtin_keys",
+    "signal_combo",
+    "combo_matches",
+    "ACTION_OUTCOMES",
     "notify_backoff_interval_s",
     "NOTIFY_BACKOFF_STAGES",
     "NOTIFY_BACKOFF_FINAL_S",
