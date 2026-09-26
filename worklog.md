@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 20:11
+
+- On Alarm defs the block lists now run down to the rules, instead of stopping short and leaving a gap. A bar between the lists and the rules can be dragged to give either side more room.
+
 ### 20:03
 
 - On Alarm defs, clicking a block that has a number — a length of time, the hold time, the low-battery line, or the spare-solar minimum — opens a box so that figure can be changed. The alarm uses the new number.

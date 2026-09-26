@@ -46,7 +46,8 @@ The line itself is the syntax, in the form
 <b>WHILE</b> extra condition <b>THEN</b> outcome.
 When that sentence is complete the rule gets a green fill and
 <b>Syntax Correct</b> on a green background under the right-hand end.
-The rules sit at the bottom of the page. A complete sentence that is
+The block lists fill the space above the rules. Drag the bar between the
+lists and the rules to give either side more room. A complete sentence that is
 not one of the built-in alarms still does not fire — the hover says so.
 The thing that actually raises alarms is still the built-in rule in the code.</p>
 <p>

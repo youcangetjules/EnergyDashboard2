@@ -41,7 +41,7 @@ _MIME_SLOT = "application/x-powermon-alarm-slot"
 _MIME_RULE = "application/x-powermon-alarm-rule"
 _QS_RULES = "alarms/defs_blocks"
 _ROW_H = 28
-_PALETTE_H = 118
+_QS_SPLIT = "alarms/defs_split"
 
 # One colour per kind of block, so a line reads as a sentence of parts.
 _KIND_COLOR = {
@@ -406,7 +406,8 @@ class _PaletteList(QListWidget):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setSpacing(1)
-        self.setFixedHeight(_PALETTE_H)
+        self.setMinimumHeight(72)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setToolTip(
             f"Drag a {_KIND_SHORT[kind].lower()} into a slot of the same colour"
         )
@@ -969,12 +970,6 @@ class AlarmDefsTab(QWidget):
         head.addWidget(reset_btn)
         layout.addLayout(head)
 
-        pieces = QHBoxLayout()
-        pieces.setSpacing(6)
-        for kind in ALARM_PIECE_KINDS:
-            pieces.addWidget(self._piece_column(kind), 1)
-        layout.addLayout(pieces)
-
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -983,22 +978,79 @@ class AlarmDefsTab(QWidget):
         # Room around each line so the green halo is not clipped.
         self._rules.setContentsMargins(8, 6, 8, 6)
         self._rules.setSpacing(10)
-        # Stretch stays above the rules so spare space is at the top and
-        # the lines sit on the bottom of the window.
-        self._rules.addStretch(1)
         scroll.setWidget(self._rules_host)
-        layout.addWidget(scroll, 1)
+        rules_pane = QWidget()
+        rules_lay = QVBoxLayout(rules_pane)
+        rules_lay.setContentsMargins(0, 0, 0, 0)
+        rules_lay.setSpacing(4)
+        rules_lay.addWidget(scroll, 1)
         bin_row = QHBoxLayout()
         bin_row.setContentsMargins(0, 0, 4, 0)
         bin_row.addStretch(1)
         self._bin = _Bin(self)
         bin_row.addWidget(self._bin)
-        layout.addLayout(bin_row)
+        rules_lay.addLayout(bin_row)
+
+        pieces_host = QWidget()
+        pieces = QHBoxLayout(pieces_host)
+        pieces.setContentsMargins(0, 0, 0, 0)
+        pieces.setSpacing(6)
+        for kind in ALARM_PIECE_KINDS:
+            pieces.addWidget(self._piece_column(kind), 1)
+        pieces_host.setMinimumHeight(100)
+        rules_pane.setMinimumHeight(140)
+
+        self._split = QSplitter(Qt.Orientation.Vertical)
+        self._split.setChildrenCollapsible(False)
+        self._split.setHandleWidth(8)
+        self._split.setStyleSheet(
+            "QSplitter::handle { background: #45475a; }"
+            "QSplitter::handle:hover { background: #89b4fa; }"
+            "QSplitter::handle:vertical { height: 8px; }"
+        )
+        self._split.addWidget(pieces_host)
+        self._split.addWidget(rules_pane)
+        self._split.setStretchFactor(0, 1)
+        self._split.setStretchFactor(1, 0)
+        self._split.splitterMoved.connect(self._save_split)
+        self._split_ready = False
+        layout.addWidget(self._split, 1)
         self._load()
 
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh_param_chips()
+        if not self._split_ready:
+            self._split_ready = True
+            QTimer.singleShot(0, self._restore_split)
+
+    def _preferred_rules_height(self) -> int:
+        count = max(1, len(self._cards))
+        cards = count * (_ROW_H + 22) + max(0, count - 1) * 10 + 20
+        return cards + 48
+
+    def _restore_split(self) -> None:
+        raw = QSettings("PowerModel", "EnergyDashboard2").value(_QS_SPLIT)
+        sizes = []
+        if isinstance(raw, (list, tuple)) and len(raw) == 2:
+            try:
+                sizes = [int(x) for x in raw]
+            except (TypeError, ValueError):
+                sizes = []
+        if len(sizes) == 2 and all(n > 40 for n in sizes):
+            self._split.setSizes(sizes)
+            return
+        total = max(self._split.height(), self.height() - 48, 480)
+        rules_h = min(self._preferred_rules_height(), int(total * 0.62))
+        rules_h = max(rules_h, 160)
+        self._split.setSizes([max(120, total - rules_h), rules_h])
+
+    def _save_split(self, *_args) -> None:
+        if not self._split_ready:
+            return
+        QSettings("PowerModel", "EnergyDashboard2").setValue(
+            _QS_SPLIT, self._split.sizes(),
+        )
 
     def refresh_param_chips(self) -> None:
         for card in self._cards:
@@ -1052,7 +1104,7 @@ class AlarmDefsTab(QWidget):
             f"color: {_KIND_COLOR[kind]}; font-size: 11px; font-weight: bold;"
         )
         col.addWidget(label)
-        col.addWidget(_PaletteList(kind))
+        col.addWidget(_PaletteList(kind), 1)
         return box
 
     def _show_live(self) -> None:
