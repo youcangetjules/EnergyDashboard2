@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 14:00
+
+- Logged BUG-071. On PV String Charge, String 1 and String 2 contributions are not showing on the charts. Still open.
+
 ### 12:06
 
 - The bottom button bar is back on screen. A tall page was stretching the window under the taskbar, which hid Refresh Page, Refresh All, Help, and Close. The page now stops above that bar.
