@@ -65,7 +65,7 @@ class AppParameters:
         self.growatt_wifi_user = ""
         self.growatt_wifi_password = ""
         self.grott_mqtt_enabled = False
-        self.growatt_telemetry_source = "api"  # api | grott | hybrid
+        self.growatt_telemetry_source = "api"  # api | grott | hybrid | modbus
         self.grott_fill_missing_api = False
         self.grott_mqtt_host = ""
         self.grott_mqtt_port = 1883
@@ -154,15 +154,32 @@ def growatt_http_host(params) -> str:
 GROWATT_TELEMETRY_API = "api"
 GROWATT_TELEMETRY_GROTT = "grott"
 GROWATT_TELEMETRY_HYBRID = "hybrid"
+GROWATT_TELEMETRY_MODBUS = "modbus"
 GROWATT_TELEMETRY_SOURCES = (
     GROWATT_TELEMETRY_API,
     GROWATT_TELEMETRY_GROTT,
     GROWATT_TELEMETRY_HYBRID,
+    GROWATT_TELEMETRY_MODBUS,
 )
 
 
 def growatt_uses_grott(source: str) -> bool:
     return source in (GROWATT_TELEMETRY_GROTT, GROWATT_TELEMETRY_HYBRID)
+
+
+def growatt_uses_modbus(source: str) -> bool:
+    return source == GROWATT_TELEMETRY_MODBUS
+
+
+def growatt_modbus_mode_label(mode: str) -> str:
+    """Short name of Setup → Local Modbus check."""
+    key = (mode or "off").strip().lower()
+    return {
+        "off": "Local Modbus off",
+        "tcp": "Modbus TCP",
+        "tcp_rtu": "RTU over TCP",
+        "serial": "USB–RS485",
+    }.get(key, key or "Local Modbus off")
 
 
 def read_growatt_telemetry_source(settings, params=None) -> str:

@@ -13,7 +13,9 @@ database logger. Settings here are the same as
 <b>Setup &amp; Info → Growatt → telemetry source</b>.</p>
 <p>
 <b>Telemetry source:</b> choose <b>GROTT MQTT</b> for local-only data, or
-<b>Hybrid</b> to fall back to the Growatt cloud API when Grott is stale.
+<b>Hybrid</b> to fall back to the Growatt cloud API when Grott is stale, or
+<b>Modbus RS485</b> to read the inverter in the mode set under
+Setup → Local Modbus check (that path does not use EMQX).
 <b>Fill missing Grott data with API</b> patches individual registers (shown in
 amber on Growatt Live) without switching the whole source.</p>
 <p>

@@ -23,6 +23,7 @@ from energy_dashboard.config import (
     GROWATT_TELEMETRY_API,
     GROWATT_TELEMETRY_GROTT,
     GROWATT_TELEMETRY_HYBRID,
+    GROWATT_TELEMETRY_MODBUS,
     growatt_uses_grott,
     read_growatt_telemetry_source,
     read_grott_fill_missing_api,
@@ -383,6 +384,8 @@ class ParametersTab(QWidget):
             return GROWATT_TELEMETRY_HYBRID
         if getattr(self, "chk_grott_mqtt", None) and self.chk_grott_mqtt.isChecked():
             return GROWATT_TELEMETRY_GROTT
+        if getattr(self, "rb_growatt_modbus", None) and self.rb_growatt_modbus.isChecked():
+            return GROWATT_TELEMETRY_MODBUS
         return GROWATT_TELEMETRY_API
 
     def _make_db_action_row(self, backend: str) -> QHBoxLayout:
@@ -1290,8 +1293,10 @@ class ParametersTab(QWidget):
         src_hint = QLabel(
             "Choose the live Growatt data path. <b>GROTT MQTT</b> is local only; "
             "<b>Hybrid</b> prefers Grott then falls back to the cloud API when "
-            "Grott is stale. The checkbox below patches individual missing Grott "
-            "registers from the cloud without switching the whole source."
+            "Grott is stale. <b>Modbus RS485</b> reads the inverter directly in "
+            "whatever mode <b>Local Modbus check</b> above is set to — it does "
+            "not go through EMQX. The checkbox below patches individual missing "
+            "Grott registers from the cloud without switching the whole source."
         )
         src_hint.setWordWrap(True)
         src_hint.setTextFormat(Qt.RichText)
@@ -1310,15 +1315,23 @@ class ParametersTab(QWidget):
             "Prefer fresh GROTT MQTT telemetry; if Grott is stale or unavailable, "
             "fall back to the Growatt cloud API."
         )
+        self.rb_growatt_modbus = QRadioButton("Modbus RS485")
+        self.rb_growatt_modbus.setToolTip(
+            "Read live inverter registers over the RS485 path. The transport is "
+            "whatever Local Modbus check is set to (Modbus TCP, RTU over TCP, "
+            "or USB–RS485). Not an EMQX feed."
+        )
         _src = read_growatt_telemetry_source(self._settings(), self.p)
         self.rb_growatt_api.setChecked(_src == GROWATT_TELEMETRY_API)
         self.chk_grott_mqtt.setChecked(_src == GROWATT_TELEMETRY_GROTT)
         self.rb_growatt_hybrid.setChecked(_src == GROWATT_TELEMETRY_HYBRID)
+        self.rb_growatt_modbus.setChecked(_src == GROWATT_TELEMETRY_MODBUS)
         self.growatt_source_group = QButtonGroup(self)
         self.growatt_source_group.setExclusive(True)
         self.growatt_source_group.addButton(self.rb_growatt_api)
         self.growatt_source_group.addButton(self.chk_grott_mqtt)
         self.growatt_source_group.addButton(self.rb_growatt_hybrid)
+        self.growatt_source_group.addButton(self.rb_growatt_modbus)
         self.chk_grott_mqtt.toggled.connect(self._update_grott_source_controls)
         self.rb_growatt_hybrid.toggled.connect(self._update_grott_source_controls)
         source_row = QHBoxLayout()
@@ -1327,6 +1340,7 @@ class ParametersTab(QWidget):
         source_row.addWidget(self.rb_growatt_api)
         source_row.addWidget(self.chk_grott_mqtt)
         source_row.addWidget(self.rb_growatt_hybrid)
+        source_row.addWidget(self.rb_growatt_modbus)
         source_row.addStretch(1)
         g_gw.addLayout(source_row)
 
@@ -2935,6 +2949,10 @@ class ParametersTab(QWidget):
                 self.rb_growatt_hybrid.setChecked(
                     self.p.growatt_telemetry_source == GROWATT_TELEMETRY_HYBRID
                 )
+            if hasattr(self, "rb_growatt_modbus"):
+                self.rb_growatt_modbus.setChecked(
+                    self.p.growatt_telemetry_source == GROWATT_TELEMETRY_MODBUS
+                )
         if s.contains("params/grott_fill_missing_api"):
             self.p.grott_fill_missing_api = s.value("params/grott_fill_missing_api", False, type=bool)
             if hasattr(self, "chk_grott_fill_missing"):
@@ -3365,13 +3383,24 @@ class ParametersTab(QWidget):
         """Mirror the live-status source toggle onto the Setup radios."""
         if not hasattr(self, "chk_grott_mqtt"):
             return
-        if source not in (GROWATT_TELEMETRY_API, GROWATT_TELEMETRY_GROTT, GROWATT_TELEMETRY_HYBRID):
+        if source not in (
+            GROWATT_TELEMETRY_API,
+            GROWATT_TELEMETRY_GROTT,
+            GROWATT_TELEMETRY_HYBRID,
+            GROWATT_TELEMETRY_MODBUS,
+        ):
             source = GROWATT_TELEMETRY_API
         self.p.growatt_telemetry_source = source
         self.p.grott_mqtt_enabled = growatt_uses_grott(source)
         if fill_missing is not None:
             self.p.grott_fill_missing_api = bool(fill_missing)
-        for btn in (self.rb_growatt_api, self.chk_grott_mqtt, getattr(self, "rb_growatt_hybrid", None)):
+        buttons = (
+            self.rb_growatt_api,
+            self.chk_grott_mqtt,
+            getattr(self, "rb_growatt_hybrid", None),
+            getattr(self, "rb_growatt_modbus", None),
+        )
+        for btn in buttons:
             if btn is not None:
                 btn.blockSignals(True)
         try:
@@ -3379,6 +3408,8 @@ class ParametersTab(QWidget):
             self.chk_grott_mqtt.setChecked(source == GROWATT_TELEMETRY_GROTT)
             if hasattr(self, "rb_growatt_hybrid"):
                 self.rb_growatt_hybrid.setChecked(source == GROWATT_TELEMETRY_HYBRID)
+            if hasattr(self, "rb_growatt_modbus"):
+                self.rb_growatt_modbus.setChecked(source == GROWATT_TELEMETRY_MODBUS)
             if fill_missing is not None and hasattr(self, "chk_grott_fill_missing"):
                 self.chk_grott_fill_missing.blockSignals(True)
                 try:
@@ -3386,7 +3417,7 @@ class ParametersTab(QWidget):
                 finally:
                     self.chk_grott_fill_missing.blockSignals(False)
         finally:
-            for btn in (self.rb_growatt_api, self.chk_grott_mqtt, getattr(self, "rb_growatt_hybrid", None)):
+            for btn in buttons:
                 if btn is not None:
                     btn.blockSignals(False)
         self._update_grott_source_controls()

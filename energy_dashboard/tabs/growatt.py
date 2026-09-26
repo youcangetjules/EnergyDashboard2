@@ -10,7 +10,10 @@ from energy_dashboard.config import (
     GROWATT_TELEMETRY_API,
     GROWATT_TELEMETRY_GROTT,
     GROWATT_TELEMETRY_HYBRID,
+    GROWATT_TELEMETRY_MODBUS,
+    growatt_modbus_mode_label,
     growatt_uses_grott,
+    growatt_uses_modbus,
     read_growatt_telemetry_source,
     read_grott_fill_missing_api,
     write_growatt_telemetry_settings,
@@ -342,18 +345,27 @@ class GrowattTab(QWidget):
             "Prefer fresh GROTT MQTT telemetry; if Grott is stale or unavailable, "
             "fall back to the Growatt cloud API."
         )
+        self.rb_src_modbus = QRadioButton("Modbus RS485")
+        self.rb_src_modbus.setToolTip(
+            "Read live registers on the inverter RS485 port, using whichever "
+            "mode Setup → Local Modbus check is set to (Modbus TCP, RTU over "
+            "TCP, or a USB–RS485 adapter). This path does not use EMQX."
+        )
         self._src_group = QButtonGroup(self)
         self._src_group.setExclusive(True)
         self._src_group.addButton(self.rb_src_api)
         self._src_group.addButton(self.rb_src_grott)
         self._src_group.addButton(self.rb_src_hybrid)
+        self._src_group.addButton(self.rb_src_modbus)
         self._sync_source_radios_from_settings()
         self.rb_src_api.toggled.connect(self._on_source_toggled)
         self.rb_src_grott.toggled.connect(self._on_source_toggled)
         self.rb_src_hybrid.toggled.connect(self._on_source_toggled)
+        self.rb_src_modbus.toggled.connect(self._on_source_toggled)
         cred_layout.addWidget(self.rb_src_api)
         cred_layout.addWidget(self.rb_src_grott)
         cred_layout.addWidget(self.rb_src_hybrid)
+        cred_layout.addWidget(self.rb_src_modbus)
         cred_layout.addSpacing(10)
         self.test_cred_btn = QPushButton("Test")
         self.test_cred_btn.setToolTip(
@@ -863,6 +875,9 @@ class GrowattTab(QWidget):
     def _uses_grott(self) -> bool:
         return growatt_uses_grott(self._telemetry_source())
 
+    def _uses_modbus(self) -> bool:
+        return growatt_uses_modbus(self._telemetry_source())
+
     def _hybrid_mode(self) -> bool:
         return self._telemetry_source() == GROWATT_TELEMETRY_HYBRID
 
@@ -878,6 +893,10 @@ class GrowattTab(QWidget):
             return "Hybrid · Grott + API fallback"
         return "Local · Grott MQTT"
 
+    def _modbus_connection_method(self) -> str:
+        mode = str(getattr(self.app_params, "growatt_modbus_mode", "off") or "off")
+        return f"Local · {growatt_modbus_mode_label(mode)}"
+
     def _sync_source_radios_from_settings(self) -> None:
         src = self._telemetry_source()
         self._src_sync = True
@@ -885,6 +904,8 @@ class GrowattTab(QWidget):
             self.rb_src_api.setChecked(src == GROWATT_TELEMETRY_API)
             self.rb_src_grott.setChecked(src == GROWATT_TELEMETRY_GROTT)
             self.rb_src_hybrid.setChecked(src == GROWATT_TELEMETRY_HYBRID)
+            if hasattr(self, "rb_src_modbus"):
+                self.rb_src_modbus.setChecked(src == GROWATT_TELEMETRY_MODBUS)
         finally:
             self._src_sync = False
 
@@ -904,6 +925,8 @@ class GrowattTab(QWidget):
             return "GROTT MQTT"
         if src == GROWATT_TELEMETRY_HYBRID:
             return "Hybrid (Grott → API fallback)"
+        if src == GROWATT_TELEMETRY_MODBUS:
+            return "Modbus RS485"
         return "Growatt Cloud API"
 
     def apply_grott_settings(self) -> None:
@@ -1157,6 +1180,9 @@ class GrowattTab(QWidget):
     def _refresh_v1_pause_notice(self):
         if self._growatt_connecting or self._growatt_testing:
             return
+        if self._uses_modbus():
+            self._v1_pause_notice_active = False
+            return
         if not self.token_edit.text().strip():
             self._v1_pause_notice_active = False
             return
@@ -1245,16 +1271,21 @@ class GrowattTab(QWidget):
             self.rb_src_api.isChecked()
             or self.rb_src_grott.isChecked()
             or self.rb_src_hybrid.isChecked()
+            or self.rb_src_modbus.isChecked()
         ):
             return
         if self.rb_src_api.isChecked():
             source = GROWATT_TELEMETRY_API
         elif self.rb_src_hybrid.isChecked():
             source = GROWATT_TELEMETRY_HYBRID
+        elif self.rb_src_modbus.isChecked():
+            source = GROWATT_TELEMETRY_MODBUS
         else:
             source = GROWATT_TELEMETRY_GROTT
         fill_missing = (
-            self.chk_fill_missing_api.isChecked() if source != GROWATT_TELEMETRY_API else False
+            self.chk_fill_missing_api.isChecked()
+            if source in (GROWATT_TELEMETRY_GROTT, GROWATT_TELEMETRY_HYBRID)
+            else False
         )
         self._persist_telemetry_settings(source, fill_missing)
         pt = getattr(self.dash, "parameters_tab", None) if self.dash else None
@@ -1264,7 +1295,12 @@ class GrowattTab(QWidget):
             pt.set_growatt_source(source != GROWATT_TELEMETRY_API)
         self._update_fill_missing_controls()
         self.apply_grott_settings()
+        gst = getattr(self.dash, "grott_setup_tab", None) if self.dash else None
+        if gst is not None and hasattr(gst, "apply_telemetry_source"):
+            gst.apply_telemetry_source(source, fill_missing)
         self.set_status(f"Growatt telemetry source: {self._telemetry_source_label()}")
+        if source == GROWATT_TELEMETRY_MODBUS:
+            self._refresh_modbus_live()
 
     def _on_fill_missing_toggled(self, checked: bool):
         if getattr(self, "_src_sync", False):
@@ -1537,9 +1573,16 @@ class GrowattTab(QWidget):
         if getattr(self, "_growatt_testing", False):
             return
         self._growatt_testing = True
-        self._record_cloud_test = not self._uses_grott()
+        self._record_cloud_test = not self._uses_grott() and not self._uses_modbus()
         gen = self._bump_growatt_auth_gen()
         self.test_cred_btn.setEnabled(False)
+        if self._uses_modbus():
+            self._apply_growatt_link_status(
+                "checking", self._modbus_connection_method(), "Reading RS485 registers…",
+            )
+            self.set_status("Testing Modbus RS485…")
+            threading.Thread(target=self._test_modbus_thread, args=(gen,), daemon=True).start()
+            return
         if self._uses_grott():
             self._apply_growatt_link_status(
                 "checking", self._grott_connection_method(), "Testing Grott MQTT…",
@@ -1722,6 +1765,9 @@ class GrowattTab(QWidget):
     def connect(self):
         if self._growatt_connecting:
             return
+        if self._uses_modbus():
+            self._refresh_modbus_live()
+            return
         if self._restore_grott_live_path():
             return
         self._begin_cloud_connect()
@@ -1823,6 +1869,9 @@ class GrowattTab(QWidget):
         QTimer.singleShot(
             900, lambda: self._schedule_modbus_battery_poll(force=True)
         )
+        if self._uses_modbus():
+            self._refresh_modbus_live()
+            return
         if self._restore_grott_live_path():
             return
         self._begin_cloud_connect()
@@ -2948,7 +2997,92 @@ class GrowattTab(QWidget):
             f"waiting for next payload ({age_txt})."
         )
 
+    def _test_modbus_thread(self, gen: int):
+        from energy_dashboard.fetch.growatt_modbus_live import read_growatt_modbus_live
+
+        try:
+            ok, detail, status, totals = read_growatt_modbus_live(self.app_params)
+        except Exception as exc:
+            ok, detail, status, totals = False, str(exc), {}, {}
+        if self._growatt_auth_stale(gen):
+            self._growatt_testing = False
+            self._inv.invoke(lambda: self.test_cred_btn.setEnabled(True))
+            return
+        method = self._modbus_connection_method()
+
+        def _done():
+            self._finish_growatt_test(
+                ok, detail, flow_key=("ok" if ok else "bad"), method=method, gen=gen,
+            )
+            if ok:
+                self._apply_modbus_live(status, totals, detail)
+
+        self._inv.invoke(_done)
+
+    def _refresh_modbus_live(self):
+        """Poll the inverter over the Local Modbus check mode."""
+        if getattr(self, "_modbus_live_polling", False):
+            self._note_auto_refresh_busy()
+            return
+        self._modbus_live_polling = True
+        self._apply_growatt_link_status(
+            "checking", self._modbus_connection_method(), "Reading RS485 registers…",
+        )
+        threading.Thread(target=self._modbus_live_worker, daemon=True).start()
+
+    def _modbus_live_worker(self):
+        from energy_dashboard.fetch.growatt_modbus_live import read_growatt_modbus_live
+
+        try:
+            ok, detail, status, totals = read_growatt_modbus_live(self.app_params)
+        except Exception as exc:
+            ok, detail, status, totals = False, str(exc), {}, {}
+        self._inv.invoke(
+            lambda o=ok, d=detail, s=status, t=totals: self._finish_modbus_live(o, d, s, t)
+        )
+
+    def _finish_modbus_live(self, ok: bool, detail: str, status: dict, totals: dict):
+        self._modbus_live_polling = False
+        method = self._modbus_connection_method()
+        if not self._uses_modbus():
+            return
+        if not ok:
+            self._apply_growatt_link_status("bad", method, detail, connected=False)
+            self.set_status(f"Growatt Modbus RS485: {detail}")
+            pending = getattr(self, "_auto_refresh_pending", False)
+            self._auto_refresh_pending = False
+            if pending:
+                QTimer.singleShot(300, self.refresh_data)
+            return
+        self._apply_modbus_live(status, totals, detail)
+        pending = getattr(self, "_auto_refresh_pending", False)
+        self._auto_refresh_pending = False
+        if pending:
+            QTimer.singleShot(300, self.refresh_data)
+
+    def _apply_modbus_live(self, status: dict, totals: dict, detail: str):
+        if self.plant_name in (None, "", "Grott MQTT"):
+            self.plant_name = "Modbus RS485"
+            if "plant" in self.info_labels:
+                self.info_labels["plant"].setText(self.plant_name)
+        self._apply_live_bundle(
+            status if isinstance(status, dict) else {},
+            {},
+            totals if isinstance(totals, dict) else {},
+            source="modbus",
+            from_worker=False,
+        )
+        self._apply_growatt_link_status(
+            "ok", self._modbus_connection_method(), detail, connected=True,
+        )
+        now = datetime.now().strftime("%H:%M:%S")
+        self.last_refresh_label.setText(f"Last refresh: {now} (Modbus RS485)")
+        self.set_status(f"Growatt: {detail}")
+
     def refresh_data(self):
+        if self._uses_modbus():
+            self._refresh_modbus_live()
+            return
         if self._uses_grott():
             if self._grott_only():
                 # Applies the newest snapshot, and resubscribes when the feed
@@ -3602,11 +3736,16 @@ class GrowattTab(QWidget):
             _fmt_kwh_day(totals.get('etoGridToday')))
 
     def _on_auto_tick(self):
-        if self._uses_grott() or (self.api and self.device_sn):
+        if self._uses_grott() or self._uses_modbus() or (self.api and self.device_sn):
             self.refresh_data()
 
     def live_refresh_expectation(self):
         """(active, expected_seconds, detail) for the banner refresh pill."""
+        if self._uses_modbus():
+            if not self._auto_timer.isActive():
+                return False, 60.0, "auto-refresh off"
+            sec = max(5, int(self._auto_timer.interval() // 1000))
+            return True, float(sec), f"Modbus RS485 poll every {sec}s"
         if self._uses_grott():
             fresh_s = max(15, int(self._grott_config().get("fresh_s", 120) or 120))
             return True, float(fresh_s), f"GROTT MQTT push, stale after {fresh_s}s"
@@ -3636,7 +3775,11 @@ class GrowattTab(QWidget):
         rem_s = max(0, (rem_ms + 999) // 1000)
         # Cloud V1 sessions poll no faster than the Open API allows — show the
         # real time to the next API call, not the raw timer tick.
-        if not self._uses_grott() and _growatt_uses_open_api_v1(self.api):
+        if (
+            not self._uses_grott()
+            and not self._uses_modbus()
+            and _growatt_uses_open_api_v1(self.api)
+        ):
             wait = self._v1_poll_wait_s()
             if wait > rem_s:
                 w = int(wait)

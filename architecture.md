@@ -20,18 +20,19 @@ The dashboard is a **publish / subscribe hub**: it pulls (and sometimes writes) 
      ┌──────────◄──────────┼──────────◄──────────┐
      ▼                     ▼                     ▼
  Growatt cloud API       GROTT                 Modbus
- (report up;             (local decode)        (read / write)
-  schedule down)              │                     │
-     │                        ▼                     ├──► Energy Dashboard
-     │                      EMQX ◄──────────────────┘     (direct; amber
-     │                   (MQTT broker)  (Modbus→EMQX        control when
-     │                        ▲          bridge only;       writes enabled)
-     │                        │          never reverse)
-     │              Tasmota Wi‑Fi  ◄──►  (two-way MQTT)
-     │                     │
-     └──────────┬──────────┘
+ (report up;             (local decode)        (Local Modbus check:
+  schedule down)              │                 TCP / RTU-over-TCP /
+     │                        ▼                  USB–RS485)
+     │                      EMQX                      │
+     │                   (MQTT broker)                │
+     │                        ▲                       │
+     │              Tasmota Wi‑Fi  ◄──►               │
+     │                     │                          │
+     └──────────┬──────────┘                          │
+                │                                     │
+         Energy Dashboard ◄───────────────────────────┘
                 │
-         Energy Dashboard ◄──► AI Controller
+                ◄──► AI Controller
          (PySide6 GUI)    ▲
                 │         │
                 └────► Databases ◄──── (two-way)
@@ -51,7 +52,7 @@ The dashboard is a **publish / subscribe hub**: it pulls (and sometimes writes) 
 |------|----------------|--------------|
 | **Growatt cloud API** | Dashboard talks to Growatt’s internet servers (REST). | Fallback / standby telemetry; many **schedule / mode writes** |
 | **GROTT → EMQX MQTT** | Local process that intercepts/decodes Growatt’s **own cloud reporting stream** and republishes it on your MQTT broker | Often freshest live SOC / power |
-| **Modbus TCP/RTU** | Direct register reads/writes on the LAN (inverter or serial–Ethernet gateway, e.g. USR). Dashboard talks to Modbus **directly**; readings can also be bridged onto EMQX (Modbus → broker only, never the reverse) | Fields Grott/cloud miss (e.g. multi-pack serials); Command Sim / probes |
+| **Modbus (Local Modbus check)** | Direct register reads/writes: inverter ↔ the mode chosen in Setup (Modbus TCP, RTU over TCP, or USB–RS485) ↔ this dashboard. EMQX is not on this path | Live source when Modbus RS485 is selected; also pack serials and optional local writes |
 
 **Community / external outputs:**
 
@@ -105,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 ## Decisions affecting architecture
 
 Newest first. Keep each entry short: context → decision → consequence.
+
+### 2026-09-26 — Modbus is inverter ↔ Local Modbus check ↔ dashboard
+
+- **Context:** The connectivity diagram drew Modbus into EMQX as well as into the dashboard. Modbus is the inverter’s RS485 registers. The only hop is the mode chosen under Setup → Local Modbus check (Modbus TCP, RTU over TCP, or USB–RS485).
+- **Decision:** Drop the Modbus → EMQX line. The Modbus card subtitle is that Local Modbus check mode. Live Status can select **Modbus RS485** as a source (Hybrid stays). That source polls the same mode; it does not subscribe to EMQX.
+- **Consequence:** Do not draw or describe Modbus as an MQTT feed. EMQX health is Grott and Tasmota only.
 
 ### 2026-09-26 — A complete alarm sentence wears a green halo
 

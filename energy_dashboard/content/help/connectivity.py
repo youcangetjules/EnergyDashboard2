@@ -9,7 +9,7 @@ HELP_TEXT = """\
 <h2>Connectivity Status</h2><p>
 At-a-glance health of every external dependency: Octopus Energy API, Growatt API, the <b>Forecast.solar</b> PV curve (same fetch as the Forecasts tab), Tasmota IPs, <b>PVOutput.org</b> upload status, <b>Wonderwatt.com</b> share link, and each configured database backend.</p>
 <p>
-The animated diagram also shows community <b>outputs</b> under the dashboard: local Databases &amp; Exports, PVOutput (we push live Add Status), and Wonderwatt (share / Growatt-cloud peer — Wonderwatt does not accept uploads from us).</p>
+The animated diagram also shows community <b>outputs</b> under the dashboard: local Databases &amp; Exports, PVOutput (we push live Add Status), and Wonderwatt (share / Growatt-cloud peer — Wonderwatt does not accept uploads from us). <b>Modbus</b> on that diagram is the inverter talking to this dashboard in whatever mode <b>Local Modbus check</b> is set to on Setup &amp; Info. It does not go through EMQX.</p>
 <p>
 The <b>Inverter write (this app)</b> row says whether this dashboard can push MIX schedules and/or local register writes. Cloud schedule push (Optimiser / AC charge / discharge windows) needs a <b>Growatt cloud</b> session on the Live tab. Local <b>Modbus inverter writes</b> are a separate safety opt-in: right-click State → <b>Enable Modbus inverter writes</b>, or tick <b>Allow inverter writes via Modbus</b> under Setup &amp; Info (Modbus mode must already be configured). Default is off.</p>
 <p>

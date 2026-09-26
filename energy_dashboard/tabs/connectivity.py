@@ -22,6 +22,8 @@ from energy_dashboard.config import (
     GROWATT_TELEMETRY_API,
     GROWATT_TELEMETRY_GROTT,
     GROWATT_TELEMETRY_HYBRID,
+    GROWATT_TELEMETRY_MODBUS,
+    growatt_modbus_mode_label,
     growatt_uses_grott,
     read_growatt_telemetry_source,
     read_grott_fill_missing_api,
@@ -226,6 +228,8 @@ def _growatt_source_label(source: str) -> str:
         return "Hybrid (Grott → API fallback)"
     if source == GROWATT_TELEMETRY_GROTT:
         return "GROTT MQTT"
+    if source == GROWATT_TELEMETRY_MODBUS:
+        return "Modbus RS485"
     return "Growatt Cloud API"
 
 
@@ -408,7 +412,6 @@ _SERVICE_ROW_META = {
         "can_downtime": True,
         "highlight_edges": _edges(
             ("inverter", "modbus"),
-            ("modbus", "emqx"),
             ("modbus", "dashboard"),
             ("dashboard", "modbus"),
             ("modbus", "inverter"),
@@ -1244,16 +1247,15 @@ class _ConnectivityFlowDiagram(QWidget):
             "pvoutput": direct.get("pvoutput", "off"),
             "wonderwatt": direct.get("wonderwatt", "off"),
         }
-        # EMQX carries Grott, Tasmota, and bridged Modbus MQTT — not cloud REST.
+        # EMQX carries Grott and Tasmota MQTT. Modbus is a direct
+        # inverter ↔ dashboard register path and does not touch the broker.
         emqx = self._worst_state(
             self._health.get("grott", "off"),
             self._health.get("tasmota", "off"),
-            self._health.get("modbus", "off"),
         )
         if (
             self._health.get("grott") == "ok"
             or self._health.get("tasmota") == "ok"
-            or self._health.get("modbus") == "ok"
         ):
             emqx = "ok"
         self._health["emqx"] = emqx or "off"
@@ -1270,8 +1272,6 @@ class _ConnectivityFlowDiagram(QWidget):
             if self._telemetry.get("uses_grott"):
                 return self._worst_state(grott, emqx) or "off"
             return grott if grott != "off" else emqx
-        if fr == "modbus" and to == "emqx":
-            return self._health.get("modbus", "off")
         if fr == "inverter" and to == "grott" and self._telemetry.get("uses_grott"):
             return self._health.get("grott", "off")
         if fr == "growatt_cloud" and to == "dashboard" and src == GROWATT_TELEMETRY_HYBRID:
@@ -1288,6 +1288,13 @@ class _ConnectivityFlowDiagram(QWidget):
                 return "warn"
             return self._worst_state(grott, cloud) or "off"
         return self._health.get(health_key, "off")
+
+    def _modbus_card_subtitle(self) -> str:
+        """Local Modbus check mode: inverter ↔ that mode ↔ dashboard."""
+        dash = getattr(getattr(self, "_tab", None), "dash", None)
+        params = getattr(dash, "app_params", None) if dash is not None else None
+        mode = getattr(params, "growatt_modbus_mode", "off") if params is not None else "off"
+        return growatt_modbus_mode_label(mode)
 
     def _diagram_card_copy(self, key, title, sub):
         t = self._telemetry
@@ -1329,9 +1336,13 @@ class _ConnectivityFlowDiagram(QWidget):
                     sub = "cloud REST · fallback"
             elif src == GROWATT_TELEMETRY_GROTT:
                 sub = "cloud REST · patch only" if t.get("fill_missing") else "cloud REST · standby"
+            elif src == GROWATT_TELEMETRY_MODBUS:
+                sub = "cloud REST · standby"
             else:
                 sub = "cloud REST"
             return title, sub
+        if key == "modbus":
+            return title, self._modbus_card_subtitle()
         if key == "emqx" and t.get("uses_grott"):
             if t.get("hybrid_fallback"):
                 if not t.get("grott_connected"):
@@ -1737,7 +1748,8 @@ class _ConnectivityFlowDiagram(QWidget):
     #   Growatt API ↔ inverter (parallel data + return) → dashboard
     #   GROTT ↔ inverter; GROTT → EMQX (dedicated lane) → dashboard
     #   Tasmota ↔ EMQX mid (two-way MQTT: tele/stat in, cmnd out)
-    #   Modbus ↔ inverter; Modbus → EMQX (one-way) and → dashboard direct
+    #   Modbus ↔ inverter ↔ dashboard, in the Local Modbus check mode
+    #   (no EMQX hop)
     # Octopus / PV forecast run in the lower lanes straight to the dashboard.
     # Bottom row (evenly spaced left→right): Octopus · PV forecast ·
     # PVOutput.org · Wonderwatt.com.
@@ -2039,12 +2051,11 @@ class _ConnectivityFlowDiagram(QWidget):
             return title, "\n\n".join(blocks)
         if box_key == "emqx":
             blocks.append(
-                "MQTT broker. Feeds in: Grott’s decoded Growatt JSON, Tasmota "
-                "tele/stat topics, and Modbus readings bridged onto MQTT. "
-                "<b>Tasmota is two-way</b> on this broker — the dashboard also "
-                "publishes <code>cmnd/…</code> (and can HTTP-poll devices). "
-                "Modbus is still one-way into the broker — EMQX never drives "
-                "Modbus registers itself.\n\n"
+                "MQTT broker. Feeds in: Grott’s decoded Growatt JSON and Tasmota "
+                "tele/stat topics. <b>Tasmota is two-way</b> on this broker — the "
+                "dashboard also publishes <code>cmnd/…</code> (and can HTTP-poll "
+                "devices). Modbus does not use this broker: the inverter talks "
+                "to the dashboard in the Setup → Local Modbus check mode.\n\n"
                 f"Diagram status: {self._state_label(flow)}"
             )
             t = self._telemetry
@@ -2110,11 +2121,12 @@ class _ConnectivityFlowDiagram(QWidget):
                 blocks.append(f"{svc}\n  No status row available.")
         if box_key == "modbus":
             blocks.append(
-                "Modbus TCP/RTU on the LAN — one of the three Growatt connection "
-                "methods (alongside Growatt API and GROTT). The dashboard talks "
-                "to Modbus <b>directly</b> (reads and control writes). Readings "
-                "can also be bridged onto EMQX (Modbus feeds the broker, never "
-                "the reverse). Independent of Grott MQTT."
+                "RS485 register path between the Growatt inverter and this "
+                "dashboard. The hop in the middle is whatever "
+                "<b>Setup &amp; Info → Local Modbus check</b> is set to: "
+                "Modbus TCP, RTU over TCP, or a USB–RS485 adapter. "
+                "Reads (and, if you opted in, control writes) stay on that "
+                "link. EMQX is not involved."
             )
         if box_key == "pvoutput":
             blocks.append(
@@ -2533,8 +2545,7 @@ class _ConnectivityFlowDiagram(QWidget):
         #   EMQX data / EMQX control
         #   Modbus data (direct) / Modbus control
         # Two-way peers use parallel lanes (upper↔upper, lower↔lower).
-        # Modbus also feeds EMQX (separate short link); that does not replace
-        # the direct Modbus → Dashboard data lane.
+        # Modbus is inverter ↔ Local Modbus check mode ↔ dashboard.
         _dash_left = self._even_edge_fractions(
             6, bp["dashboard"].height(), pad_px=12.0,
         )
@@ -2566,8 +2577,7 @@ class _ConnectivityFlowDiagram(QWidget):
         # Forward data connections — three Growatt methods only:
         #   inverter → Growatt API (cloud REST) → dashboard (top lane)
         #   inverter → Grott → EMQX → dashboard
-        #   inverter → Modbus (TCP/RTU) → dashboard (direct)
-        #                    ↘ EMQX (bridge; broker never drives Modbus)
+        #   inverter → Modbus (Local Modbus check mode) → dashboard
         # Planar routing: sources are stacked in the same top-to-bottom order
         # as their entry points, so no data line crosses another data line.
         # (fr, fe, ft, to, te, tt, color, straight, curveK, health_key)
@@ -2586,9 +2596,6 @@ class _ConnectivityFlowDiagram(QWidget):
             #   cmnd/         broker → device (lower lane)
             ("tasmota", "right", 0.3, "emqx", "left", 0.5, emerald, False, 30.0, "tasmota"),
             ("emqx", "left", 0.75, "tasmota", "right", 0.7, emerald, False, 30.0, "tasmota"),
-            # Modbus → EMQX bridge (one-way into the broker) — kept in addition
-            # to the direct Modbus → Dashboard lane below.
-            ("modbus", "right", 0.35, "emqx", "left", 0.9, emerald, False, 40.0, "modbus"),
             # EMQX → dashboard: upper of the EMQX pair (below Growatt lanes).
             ("emqx", "right", 0.30, "dashboard", "left", _dl_emqx_data, emerald, False, None, "emqx"),
             # Modbus → dashboard direct (does not go through EMQX).
@@ -2700,8 +2707,8 @@ class _ConnectivityFlowDiagram(QWidget):
         # Grott→EMQX and inverter→Cloud/Grott/Modbus).
         #   Cloud / Grott / Modbus → inverter (lower inverter ports)
         #   Dashboard → Cloud / EMQX / Modbus (lower dashboard left ports)
-        #   EMQX → Grott topology return (lower Grott↔EMQX lane; broker never
-        #   drives Modbus — Modbus→EMQX stays one-way).
+        #   EMQX → Grott topology return (lower Grott↔EMQX lane).
+        #   Modbus writes stay on the inverter ↔ dashboard link.
         # (fr, fe, ft, to, te, tt, active, straight, curveK)
         ctrl_conns = [
             ("dashboard", "left", _dl_growatt_ctrl, "growatt_cloud", "right", 0.70, False, False, None),
@@ -2741,7 +2748,7 @@ class _ConnectivityFlowDiagram(QWidget):
             ("forecast", "PV forecast", "Forecast.Solar · Open-Meteo", "internet", "forecast", False, False),
             ("growatt_cloud", "Growatt API", "cloud REST", "internet", "growatt_cloud", False, False),
             ("grott", "GROTT", "MQTT primary path", "lan", "grott", False, False),
-            ("modbus", "Modbus", "↔ Dashboard · → EMQX", "lan", "modbus", False, False),
+            ("modbus", "Modbus", "Inverter ↔ Dashboard", "lan", "modbus", False, False),
             ("emqx", "EMQX", "MQTT broker", "lan", "emqx", False, False),
             ("ai", "AI Controller", "↔ optimise", "ai", "ai", False, False),
             ("storage", "Databases", "↔ read / write", "data", "storage", False, False),

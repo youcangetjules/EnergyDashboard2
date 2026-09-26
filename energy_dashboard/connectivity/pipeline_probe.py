@@ -22,6 +22,7 @@ from energy_dashboard.config import (
     GROWATT_TELEMETRY_API,
     GROWATT_TELEMETRY_GROTT,
     GROWATT_TELEMETRY_HYBRID,
+    GROWATT_TELEMETRY_MODBUS,
     growatt_modbus_tcp_host,
     growatt_modbus_uses_lan_tcp,
     growatt_uses_grott,
@@ -611,7 +612,7 @@ def run_growatt_pipeline_probe(
     grott_wait_s: float = 20.0,
     progress: Callable[[str], None] | None = None,
 ) -> PipelineProbeReport:
-    """Probe Growatt API / GROTT / Modbus peers → EMQX → dashboard and return structured results."""
+    """Probe Growatt cloud, GROTT → EMQX, and Modbus (inverter ↔ Local Modbus check ↔ dashboard)."""
     started = datetime.now()
     settings = settings or QSettings("PowerModel", "EnergyDashboard2")
     source = read_growatt_telemetry_source(settings, params)
@@ -693,6 +694,8 @@ def _source_label(source: str) -> str:
         return "Hybrid (Grott → API)"
     if source == GROWATT_TELEMETRY_GROTT:
         return "GROTT MQTT"
+    if source == GROWATT_TELEMETRY_MODBUS:
+        return "Modbus RS485"
     return "Growatt Cloud API"
 
 

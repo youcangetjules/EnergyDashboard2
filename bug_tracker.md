@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-26 | 12 | 12 | 4 |
+| 2026-09-26 | 13 | 13 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
 | 2026-09-23 | 11 | 8 | 4 |
@@ -133,6 +133,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-075-20260926-13 — Connectivity diagram sent Modbus through EMQX</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 19:36 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Connectivity diagram |
+| **Version found** | 2.9.461 |
+| **Version fixed** | 2.9.462 |
+
+**Symptom:** The Modbus box said “↔ Dashboard · → EMQX”, and a line ran from Modbus into the broker. Modbus is the inverter’s RS485 link, in the mode set under Setup → Local Modbus check, straight to the dashboard.
+
+**Cause:** An earlier diagram decision kept a one-way Modbus → EMQX bridge next to the direct lane. This install does not bridge Modbus onto MQTT.
+
+**Resolution:** Removed the Modbus → EMQX line. The card subtitle is the Local Modbus check mode. Live Status can select Modbus RS485, which polls that same mode. Hybrid is unchanged.
 
 ### <span style="color:green">BUG-074-20260926-12 — Tray database block renders blank</span>
 

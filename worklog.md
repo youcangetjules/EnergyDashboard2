@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 19:36
+
+- The connectivity diagram was drawing Modbus as if it fed EMQX and then the dashboard. Modbus is the inverter’s RS485 registers. The only middle step is the mode already chosen under Setup & Info → Local Modbus check (Modbus TCP, RTU over TCP, or a USB adapter). That card now names that mode, and the EMQX arrow is gone.
+- Growatt Live Status can use Modbus RS485 as the live source, alongside cloud, Grott, and Hybrid. Hybrid is unchanged. Connect and Refresh read the registers over that same Local Modbus check path.
+
 ### 19:35
 
 - Dragging a block on Alarm defs did nothing you could see. The drag had no picture, so nothing followed the pointer, and the wording inside each slot was sitting on top of the drop target, so a drop never arrived. The lists now drag the coloured block itself, and a block only lands in a slot of the same colour.

@@ -7,13 +7,14 @@ TAB_CLASS = "GrowattTab"
 
 HELP_TEXT = """\
 <h2>Growatt Live Status</h2><p>
-Live snapshot of the inverter: SOC, battery / PV / grid / load power, today's totals, device information, and the three-column physical panel. Data can come from the Growatt cloud API, local <b>GROTT MQTT</b>, or <b>Hybrid</b> (Grott first, cloud fallback when Grott is stale).</p>
+Live snapshot of the inverter: SOC, battery / PV / grid / load power, today's totals, device information, and the three-column physical panel. Data can come from the Growatt cloud API, local <b>GROTT MQTT</b>, <b>Hybrid</b> (Grott first, cloud fallback when Grott is stale), or <b>Modbus RS485</b>.</p>
 <p>
 <b>Telemetry source</b></p>
 <ul>
 <li><b>Growatt Cloud API</b> — server.growatt.com / Open API credentials from Setup.</li>
 <li><b>GROTT MQTT</b> — decoded local telemetry via your MQTT broker (Setup → Grott fields). Grott republishes when the Shine stick sends a status or heartbeat (~1&nbsp;min). After the stick reconnects (often around the hour) it can go quiet for about 11 minutes while it handshakes with Growatt’s servers — MQTT stays up, but a tray alarm fires because live registers stopped. Historical buffer dumps are ignored.</li>
 <li><b>Hybrid</b> — prefer fresh Grott; if no fresh snapshot, fall back to the cloud API. The UI can keep updating from cloud, but a system-tray alarm still fires because Grott must stay live.</li>
+<li><b>Modbus RS485</b> — live registers on the inverter’s RS485 port. The transport is whatever <b>Setup → Local Modbus check</b> is set to (Modbus TCP, RTU over TCP, or a USB–RS485 adapter). This path does not use EMQX.</li>
 <li><b>Fill missing Grott data with API</b> — while Grott/Hybrid is live, patch only registers Grott did not publish from the cloud. Patched values show in <span style="color:#fab387">amber</span>.</li>
 </ul>
 <p>

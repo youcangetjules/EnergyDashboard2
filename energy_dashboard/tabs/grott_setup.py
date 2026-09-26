@@ -8,6 +8,7 @@ from energy_dashboard.config import (
     GROWATT_TELEMETRY_API,
     GROWATT_TELEMETRY_GROTT,
     GROWATT_TELEMETRY_HYBRID,
+    GROWATT_TELEMETRY_MODBUS,
     growatt_uses_grott,
     read_grott_fill_missing_api,
     read_growatt_telemetry_source,
@@ -66,7 +67,9 @@ class GrottSetupTab(QWidget):
         src_hint = QLabel(
             "<b>GROTT MQTT</b> is local only. <b>Hybrid</b> prefers Grott, then "
             "falls back to the Growatt cloud API when Grott is stale. "
-            "<b>Fill missing</b> patches individual registers from the cloud "
+            "<b>Modbus RS485</b> reads the inverter in the mode set under "
+            "Setup → Local Modbus check (not via EMQX). "
+            "<b>Fill missing</b> patches individual Grott registers from the cloud "
             "without switching the whole source."
         )
         src_hint.setWordWrap(True)
@@ -76,14 +79,20 @@ class GrottSetupTab(QWidget):
         self.rb_api = QRadioButton("Growatt Cloud API")
         self.rb_grott = QRadioButton("GROTT MQTT")
         self.rb_hybrid = QRadioButton("Hybrid (Grott → API fallback)")
+        self.rb_modbus = QRadioButton("Modbus RS485")
+        self.rb_modbus.setToolTip(
+            "Live registers over the RS485 path. Transport is Setup → "
+            "Local Modbus check (Modbus TCP, RTU over TCP, or USB–RS485)."
+        )
         self._src_group = QButtonGroup(self)
-        for rb in (self.rb_api, self.rb_grott, self.rb_hybrid):
+        for rb in (self.rb_api, self.rb_grott, self.rb_hybrid, self.rb_modbus):
             self._src_group.addButton(rb)
             rb.toggled.connect(self._on_source_toggled)
         src_row = QHBoxLayout()
         src_row.addWidget(self.rb_api)
         src_row.addWidget(self.rb_grott)
         src_row.addWidget(self.rb_hybrid)
+        src_row.addWidget(self.rb_modbus)
         src_row.addStretch(1)
         cfg_lay.addLayout(src_row)
 
@@ -177,7 +186,29 @@ class GrottSetupTab(QWidget):
             return GROWATT_TELEMETRY_HYBRID
         if self.rb_grott.isChecked():
             return GROWATT_TELEMETRY_GROTT
+        if self.rb_modbus.isChecked():
+            return GROWATT_TELEMETRY_MODBUS
         return GROWATT_TELEMETRY_API
+
+    def apply_telemetry_source(self, source: str, fill_missing: bool | None = None) -> None:
+        """Mirror a source change made on Live Status or Setup."""
+        for rb in (self.rb_api, self.rb_grott, self.rb_hybrid, self.rb_modbus):
+            rb.blockSignals(True)
+        try:
+            self.rb_api.setChecked(source == GROWATT_TELEMETRY_API)
+            self.rb_grott.setChecked(source == GROWATT_TELEMETRY_GROTT)
+            self.rb_hybrid.setChecked(source == GROWATT_TELEMETRY_HYBRID)
+            self.rb_modbus.setChecked(source == GROWATT_TELEMETRY_MODBUS)
+            if fill_missing is not None:
+                self.chk_fill_missing.blockSignals(True)
+                try:
+                    self.chk_fill_missing.setChecked(bool(fill_missing))
+                finally:
+                    self.chk_fill_missing.blockSignals(False)
+        finally:
+            for rb in (self.rb_api, self.rb_grott, self.rb_hybrid, self.rb_modbus):
+                rb.blockSignals(False)
+        self._on_source_toggled()
 
     def load_from_settings(self):
         p = self.dash.app_params
@@ -187,6 +218,7 @@ class GrottSetupTab(QWidget):
         self.rb_api.setChecked(src == GROWATT_TELEMETRY_API)
         self.rb_grott.setChecked(src == GROWATT_TELEMETRY_GROTT)
         self.rb_hybrid.setChecked(src == GROWATT_TELEMETRY_HYBRID)
+        self.rb_modbus.setChecked(src == GROWATT_TELEMETRY_MODBUS)
         self.chk_fill_missing.setChecked(bool(fill))
         self.ed_host.setText(str(s.value("params/grott_mqtt_host", p.grott_mqtt_host) or ""))
         self.sp_port.setValue(int(s.value("params/grott_mqtt_port", p.grott_mqtt_port) or 1883))
