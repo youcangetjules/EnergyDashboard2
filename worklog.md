@@ -14,6 +14,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 15:59
+
+- The two alarm pages swapped homes. **Alarms** is a new page in Dashboards: it lists whatever is sounding right now, worst first, with how long the condition has been true, and underneath it every alarm raised since the app was started. The Alarms button on the bottom bar, the red banner, and the tray menu all open that page now instead of throwing up a pop-up box you had to dismiss.
+- **Alarm defs** moved to Controls, next to the Bug Tracker. It is the page that describes the rules; the Alarms page is the page that shows what those rules caught. Having the description sat in Dashboards while the live view was hidden behind a button was the wrong way round.
+- The new page does not judge anything itself — it reads the one alarm monitor the tray and the banner already use, so the three can never tell you different stories. The history is for this session only, and the page says so.
+
 ### 15:42
 
 - The tray database lines are ordinary menu entries now, the same kind as Stop Broker. They had been small embedded panels, and this desktop reserves the space for those but never draws them — which is why two colour fixes changed nothing. Clicking one of the lines opens Show system health.

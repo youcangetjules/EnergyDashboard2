@@ -53,6 +53,11 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.458", "2026-09-26", [
+        "New Alarms page in Dashboards: what is sounding now, and every alarm raised since the app started, with the reason in plain English.",
+        "The Alarms button, the red banner, and the tray now open that page instead of a pop-up box.",
+        "Alarm defs has moved to Controls, next to the Bug Tracker — it describes the rules, the Alarms page shows what they caught.",
+    ]),
     ("2.9.457", "2026-09-26", [
         "The tray database lines are ordinary menu entries now, so they read like Stop Broker instead of showing a blank strip.",
     ]),

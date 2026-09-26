@@ -1,5 +1,8 @@
 """
-Energy Dashboard — Alarm defs tab (Dashboards group).
+Energy Dashboard — Alarm defs tab (Controls group).
+
+Describes the alarms. What is sounding right now is the Alarms page in
+Dashboards (`tabs/alarms.py`).
 
 Drag a What, a Condition, and an Outcome into a row. The line underneath
 is the alarm syntax. A sentence that matches a built-in rule is live.
@@ -234,7 +237,7 @@ class AlarmRuleCard(QFrame):
 
 
 class AlarmDefsTab(QWidget):
-    """Dashboards page: drag pieces to build an alarm sentence."""
+    """Controls page: drag pieces to build an alarm sentence."""
 
     def __init__(self, dash=None):
         super().__init__()

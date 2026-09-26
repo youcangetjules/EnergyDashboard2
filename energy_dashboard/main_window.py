@@ -20,6 +20,7 @@ from energy_dashboard.tabs.agile_year import AgileYearTab
 from energy_dashboard.tabs.analytics import AnalyticsTab
 from energy_dashboard.tabs.battery_analysis import BatteryAnalysisTab
 from energy_dashboard.tabs.alarm_defs import AlarmDefsTab
+from energy_dashboard.tabs.alarms import AlarmsTab
 from energy_dashboard.tabs.bug_tracker import BugTrackerTab
 from energy_dashboard.tabs.combined import CombinedTab
 from energy_dashboard.tabs.connectivity import ConnectivityStatusTab
@@ -66,6 +67,7 @@ _TAB_REFRESH_TARGETS = (
     ('agile_year_tab', 'refresh_now'),
     ('battery_tab', 'fetch_history'),
     ('combined_tab', 'refresh'),
+    ('alarms_tab', 'refresh_now'),
     ('device_costs_tab', '_refresh'),
     ('pv_string_charge_tab', 'refresh_now'),
     ('pv_string_voltage_tab', 'refresh_now'),
@@ -509,7 +511,7 @@ class EnergyDashboard(QMainWindow):
         self._alarm_banner.setTextFormat(Qt.RichText)
         self._alarm_banner.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self._alarm_banner.setCursor(QCursor(Qt.PointingHandCursor))
-        self._alarm_banner.setToolTip("Click for alarm detail and recent history.")
+        self._alarm_banner.setToolTip("Click to open the Alarms page.")
         self._alarm_banner.setStyleSheet(
             "color: #6c7086; font-size: 11px; padding: 0 8px 0 0;"
         )
@@ -617,11 +619,14 @@ class EnergyDashboard(QMainWindow):
         refresh_page_btn.clicked.connect(self._refresh_current_tab)
 
         alarms_btn = QPushButton("Alarms")
-        alarms_btn.setToolTip("Show active alarms and alarms from this session.")
+        alarms_btn.setToolTip(
+            "Open the Alarms page: what is sounding now, and what has fired "
+            "since the app started."
+        )
         alarms_btn.setFixedWidth(_ACTION_BTN_WIDTH)
         alarms_btn.setProperty(PRIMARY_BUTTON_EXEMPT, True)
         alarms_btn.setStyleSheet(_ALARMS_BTN_QSS)
-        alarms_btn.clicked.connect(self._show_alarm_dialog)
+        alarms_btn.clicked.connect(self._show_alarms_page)
 
         refresh_pair = QWidget()
         refresh_pair_row = QHBoxLayout(refresh_pair)
@@ -796,6 +801,8 @@ class EnergyDashboard(QMainWindow):
         self.bug_tracker_tab = BugTrackerTab(self)
 
         self.alarm_defs_tab = AlarmDefsTab(self)
+
+        self.alarms_tab = AlarmsTab(self)
 
         self.parameters_tab = ParametersTab(self)
 
@@ -1318,7 +1325,7 @@ class EnergyDashboard(QMainWindow):
             tray.setContextMenu(menu)
             tray.activated.connect(self._tray_activated)
             tray.setVisible(True)
-            tray.messageClicked.connect(self._show_alarm_dialog)
+            tray.messageClicked.connect(self._tray_show_alarms)
             self._alarm_tray = tray
             self._tray_menu = menu
             QTimer.singleShot(800, self._tray_probe_broker)
@@ -1504,7 +1511,7 @@ class EnergyDashboard(QMainWindow):
 
     def _tray_show_alarms(self):
         self._tray_ensure_visible()
-        self._show_alarm_dialog()
+        self._show_alarms_page()
 
     def _tray_quit_app(self):
         self._tray_quit = True
@@ -1631,6 +1638,12 @@ class EnergyDashboard(QMainWindow):
                 ct.set_diagram_alarms(hits)
         except Exception:
             pass
+        try:
+            at = getattr(self, "alarms_tab", None)
+            if at is not None:
+                at.set_hits(hits)
+        except Exception:
+            pass
         for hit in hits:
             if hit.should_notify:
                 self._desktop_alarm_notify(hit)
@@ -1708,45 +1721,20 @@ class EnergyDashboard(QMainWindow):
             and event.type() == QEvent.Type.MouseButtonRelease
             and event.button() == Qt.LeftButton
         ):
-            self._show_alarm_dialog()
+            self._show_alarms_page()
             return True
         return super().eventFilter(obj, event)
 
-    def _show_alarm_dialog(self):
-        mon = self.alarm_monitor
-        active = list(mon._active.values())
-        lines = []
-        if active:
-            lines.append("Active now")
-            lines.append("─" * 40)
-            for h in active:
-                lines.append(h.title)
-                lines.append(h.detail)
-                lines.append("")
-        else:
-            lines.append("No active alarms.")
-            lines.append("")
-        if mon.history:
-            lines.append("Recent (this session)")
-            lines.append("─" * 40)
-            for row in mon.history[:12]:
-                ts = _time_mod.strftime("%Y-%m-%d %H:%M", _time_mod.localtime(row["wall"]))
-                lines.append(f"{ts}  [{row['severity']}]  {row['title']}")
-                lines.append(f"  {row['detail']}")
-                lines.append("")
-        else:
-            lines.append("No alarms have fired this session yet.")
-        lines.append(
-            f"Rules: Grott feed must stay live (~20s if MQTT drops, or after "
-            f"Fresh max — often Shine’s ~11 min handshake); inverter reported "
-            f"offline by Growatt; logging database unreachable, or no Growatt/"
-            f"Tasmota rows for 15 min while devices are live; Tasmota MQTT down "
-            f"or named plugs silent; SOC below Setup threshold for "
-            f"≥{mon.hold_minutes:.0f} min; or spare PV ≥ {mon.pv_min_kw:.1f} kW "
-            f"not charging (same hold). Tray repeats: immediate, then 4×/5 min, "
-            f"4×/10 min, 4×/30 min, then hourly. Configure under Setup → Live alarms."
-        )
-        QMessageBox.information(self, "Alarms", "\n".join(lines))
+    def _show_alarms_page(self):
+        """Open the Alarms page in Dashboards (replaces the old popup)."""
+        page = getattr(self, "alarms_tab", None)
+        if page is None:
+            return
+        try:
+            page.refresh_now()
+        except Exception as exc:
+            _log.warn("Alarms", f"Alarms page refresh failed: {exc}")
+        self.show_main_page(page)
 
     def _log_growatt_data(self):
         gt = self.growatt_tab

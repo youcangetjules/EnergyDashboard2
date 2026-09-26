@@ -8,7 +8,9 @@ TAB_CLASS = "AlarmDefsTab"
 HELP_TEXT = """\
 <h2>Alarm defs</h2>
 <p>
-This page is in <b>Dashboards</b>. Each row is an alarm written as three pieces:
+This page is in <b>Controls</b>, next to the Bug Tracker. It is where alarms
+are <i>described</i>; what is actually sounding is on the <b>Alarms</b> page in
+Dashboards. Each row is an alarm written as three pieces:
 <b>What</b> (blue), <b>Condition</b> (amber), and <b>Outcome</b> (red).
 Drag a piece from the top into the matching box. A what will not drop into
 a condition box.</p>
