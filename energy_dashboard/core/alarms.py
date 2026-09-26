@@ -292,7 +292,7 @@ ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
     "comparison": ("has a differential of", "stays above", "stops"),
     "threshold": ("Volts",),
     "duration": ("about 5 minutes", "an hour"),
-    "outcome": ("Warning", "Critical"),
+    "outcome": ("send SMS", "create a desktop alert", "Warning", "Critical"),
 }
 
 # These choose how a rule tells you. They are not a severity, so a built-in
@@ -384,6 +384,28 @@ def outcome_channels(text: str) -> set[str] | None:
     if "create a desktop alert" in parts:
         chosen.add("desktop")
     return chosen or None
+
+
+def rule_channel_overrides(rows: Any) -> dict[str, set[str]]:
+    """Per-alarm channels taken from saved Alarm defs rows.
+
+    Only a row that still matches a built-in alarm counts, and only when it
+    names a channel. Anything else leaves the Setup choices alone.
+    """
+    out: dict[str, set[str]] = {}
+    if not isinstance(rows, list):
+        return out
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        pieces = {k: str(row.get(k) or "") for k in ALARM_PIECE_KINDS}
+        key = alarm_blocks_key(pieces)
+        if not key:
+            continue
+        channels = outcome_channels(pieces["outcome"])
+        if channels:
+            out[key] = channels
+    return out
 
 
 def signal_builtin_keys(signal: str) -> tuple[str, ...]:
@@ -1335,6 +1357,7 @@ __all__ = [
     "split_joined_pieces",
     "severity_outcome",
     "outcome_channels",
+    "rule_channel_overrides",
     "signal_builtin_keys",
     "signal_combo",
     "combo_matches",

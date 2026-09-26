@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 21:12
+
+- The little word between two signals on a rule is now a button. Click it and AND becomes OR: AND means both signals have to be true at once, OR means either one will do. The choice is saved with the rule.
+- The outcome end of a rule can now also say how you are told. Drop “send SMS” or “create a desktop alert” next to the warning or critical wording, and on a rule that matches a real alarm that is what happens — text only, pop-up only, or both. Leave it alone and the Setup ticks decide, as they always did.
+
 ### 21:07
 
 - A rule that mixes units is no longer marked Syntax Correct. Battery charge is a percentage and spare solar is power in kilowatts, so putting both on “stays below” the low-battery line now shows Syntax incorrect. Hover the row to see which units clashed. The built-in alarms still match, because each of those already compares like with like.

@@ -25,7 +25,8 @@ compare against, so this box can stay empty.</li>
 sounds. “The hold time” is the figure in Setup &amp; Info.</li>
 <li><b>While</b> (orange) — an extra condition that also has to be true, for
 example “logging is switched on”. Optional.</li>
-<li><b>Outcome</b> (red) — warning or critical.</li>
+<li><b>Outcome</b> (red) — warning or critical, and how you are told:
+<b>send SMS</b> or <b>create a desktop alert</b>.</li>
 </ul>
 <p>
 The palette is a short scrolling list for each colour. Drag a block from a
@@ -33,7 +34,9 @@ list into a slot of the same colour; a signal will not drop into a comparison
 slot. You should see the coloured block follow the pointer. <b>Right-click</b>
 a slot to empty it, <b>double-click</b> a block to take it off the rule, or drag
 the block down to the bin. Drop a second signal onto a signal that is
-already there and both stay, joined by “and”. Rules are numbered
+already there and both stay, joined by “and”. Click that joining word and it
+becomes <b>OR</b>: AND means both signals have to be true at the same time,
+OR means either one is enough. Rules are numbered
 down the left. The three bars on the left of a rule are its handle: drag
 that to change the order, or drag it into the bin to remove the whole rule.
 Hovering a rule shows the whole sentence.</p>
@@ -63,6 +66,14 @@ The block lists fill the space above the rules. Drag the bar between the
 lists and the rules to give either side more room. A complete sentence that is
 not one of the built-in alarms still does not fire — the hover says so.
 The thing that actually raises alarms is still the built-in rule in the code.</p>
+<p>
+The outcome slot takes two blocks as well: keep the warning or critical
+wording and drop <b>send SMS</b> or <b>create a desktop alert</b> beside it.
+On a rule that matches a built-in alarm, that is what the alarm then does —
+name only the text and it texts you without a pop-up; name only the alert and
+it pops up without a text. Say nothing about channels and the Setup &amp; Info
+ticks decide, as before. A channel on its own, with no warning or critical
+wording, no longer matches a built-in alarm, so it does not fire.</p>
 <p>
 <b>Add rule</b> gives you an empty line, and <b>Reset</b> puts the built-in
 rules back. <b>Alarms page</b> jumps to the live view in Dashboards.</p>

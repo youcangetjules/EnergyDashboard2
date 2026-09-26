@@ -1728,9 +1728,27 @@ class EnergyDashboard(QMainWindow):
         self._alarm_banner.setToolTip("\n".join(tip_lines).strip())
         self._alarm_banner.show()
 
+    def _alarm_channels(self, hit) -> set[str] | None:
+        """Channels named on the matching Alarm defs rule, or None for Setup's choice."""
+        try:
+            import json
+            from energy_dashboard.core.alarms import rule_channel_overrides
+            raw = QSettings("PowerModel", "EnergyDashboard2").value(
+                "alarms/defs_blocks", "",
+            )
+            if not raw:
+                return None
+            overrides = rule_channel_overrides(json.loads(str(raw)))
+        except Exception:
+            return None
+        return overrides.get(str(getattr(hit, "key", "") or "")) or None
+
     def _desktop_alarm_notify(self, hit):
         tray = getattr(self, "_alarm_tray", None)
         if tray is None or not self.alarm_monitor.desktop_enabled:
+            return
+        channels = self._alarm_channels(hit)
+        if channels is not None and "desktop" not in channels:
             return
         icon = (
             QSystemTrayIcon.MessageIcon.Critical
@@ -1744,6 +1762,9 @@ class EnergyDashboard(QMainWindow):
 
     def _sms_alarm_notify(self, hit) -> None:
         """Text the alarm on the same cadence as the desktop pop-up."""
+        channels = self._alarm_channels(hit)
+        if channels is not None and "sms" not in channels:
+            return
         title = str(getattr(hit, "title", "") or "Alarm")
         detail = str(getattr(hit, "detail", "") or "")
 

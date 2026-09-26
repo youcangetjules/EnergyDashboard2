@@ -33,6 +33,7 @@ from energy_dashboard.core.alarms import (
     alarm_blocks_key,
     alarm_palette,
     alarm_unit_problem,
+    split_joined_pieces,
     alarm_piece_accepted,
     alarm_rule_syntax,
 )
@@ -122,18 +123,14 @@ def _decode_slot(mime: QMimeData) -> tuple[str, str, int | None]:
     return token, kind, index
 
 
-def _split_signals(text: str) -> list[str]:
-    """One signal stays whole. 'A and B' splits only when both are real signals."""
-    text = (text or "").strip()
-    if not text:
-        return []
-    known = set(alarm_palette("signal"))
-    if text in known:
-        return [text]
-    parts = [part.strip() for part in text.split(" and ") if part.strip()]
-    if len(parts) > 1 and all(part in known for part in parts):
-        return parts
-    return [text]
+# A signal slot can watch more than one thing, and an outcome slot can pair a
+# severity with how it tells you. The rest hold one block.
+_MULTI_KINDS = ("signal", "outcome")
+
+
+def _split_parts(kind: str, text: str) -> tuple[list[str], str]:
+    """Blocks on one slot, and whether they are joined by and or or."""
+    return split_joined_pieces(text, set(alarm_palette(kind)))
 
 
 def _piece_caption(text: str) -> str:
@@ -579,14 +576,58 @@ class _PaletteList(QListWidget):
         drag.exec(Qt.DropAction.CopyAction)
 
 
+class _JoinChip(QFrame):
+    """The AND / OR between two signals. Click it to swap.
+
+    AND means both signals have to be true at once. OR means either one is
+    enough.
+    """
+
+    def __init__(self, slot: "_Slot", word: str):
+        super().__init__(slot)
+        self._slot = slot
+        self.setFixedHeight(_ROW_H - 8)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(5, 0, 5, 0)
+        label = QLabel(word.upper())
+        label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        label.setStyleSheet(
+            "color: #f5a524; font-size: 9px; font-weight: bold; background: transparent;"
+        )
+        lay.addWidget(label)
+        self.setStyleSheet(
+            "_JoinChip {"
+            "  background: #2a2b3c;"
+            "  border: 1px solid #f5a524;"
+            "  border-radius: 3px;"
+            "}"
+        )
+        other = "OR" if word == "and" else "AND"
+        both = (
+            "Both signals have to be true."
+            if word == "and"
+            else "Either signal is enough."
+        )
+        self.setToolTip(f"{both}\nClick to change it to {other}.")
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            slot = self._slot
+            QTimer.singleShot(0, slot.toggle_join)
+            return
+        super().mouseReleaseEvent(event)
+
+
 class _SignalChip(QFrame):
     """One signal inside a rule that holds more than one."""
 
-    def __init__(self, slot: "_Slot", index: int, text: str):
+    def __init__(self, slot: "_Slot", index: int, text: str, colour: str = "#89b4fa"):
         super().__init__(slot)
         self._slot = slot
         self._index = index
         self._text = text
+        self._colour = colour
         self._armed = False
         self.setAcceptDrops(True)
         self.setFixedHeight(_ROW_H - 4)
@@ -598,9 +639,9 @@ class _SignalChip(QFrame):
         label.setStyleSheet("color: #1e1e2e; font-size: 11px; background: transparent;")
         lay.addWidget(label)
         self.setStyleSheet(
-            "_SignalChip { background: #89b4fa; border-radius: 3px; }"
+            f"_SignalChip {{ background: {colour}; border-radius: 3px; }}"
         )
-        self.setToolTip("Double-click to remove this signal.")
+        self.setToolTip("Double-click to remove this one.")
         self._click_timer = QTimer(self)
         self._click_timer.setSingleShot(True)
         self._click_timer.timeout.connect(self._open_editor)
@@ -631,8 +672,8 @@ class _SignalChip(QFrame):
         drag.setMimeData(mime)
         chip = QLabel(_piece_caption(self._text))
         chip.setStyleSheet(
-            "QLabel { background: #89b4fa; color: #1e1e2e; border-radius: 3px; "
-            "padding: 2px 8px; font-size: 11px; }"
+            f"QLabel {{ background: {self._colour}; color: #1e1e2e; border-radius: 3px; "
+            "padding: 2px 8px; font-size: 11px; }}"
         )
         chip.adjustSize()
         drag.setPixmap(chip.grab())
@@ -685,6 +726,7 @@ class _Slot(QFrame):
         self.kind = kind
         self._text = ""
         self._parts: list[str] = []
+        self._join = "and"
         self._armed = False
         self._click_timer = QTimer(self)
         self._click_timer.setSingleShot(True)
@@ -716,18 +758,23 @@ class _Slot(QFrame):
     def text(self) -> str:
         return self._text
 
+    @property
+    def _multi(self) -> bool:
+        return self.kind in _MULTI_KINDS
+
     def caption(self) -> str:
-        if self.kind == "signal" and self._parts:
-            return " and ".join(_piece_caption(part) for part in self._parts)
+        if self._multi and self._parts:
+            joiner = f" {self._join} "
+            return joiner.join(_piece_caption(part) for part in self._parts)
         if not self._text:
             return ""
         return _piece_caption(self._text)
 
     def set_piece(self, text: str) -> None:
         raw = (text or "").strip()
-        if self.kind == "signal":
-            self._parts = _split_signals(raw)
-            self._text = " and ".join(self._parts)
+        if self._multi:
+            self._parts, self._join = _split_parts(self.kind, raw)
+            self._text = f" {self._join} ".join(self._parts)
         else:
             self._parts = []
             self._text = raw
@@ -747,8 +794,12 @@ class _Slot(QFrame):
             lines.append("Double-click to remove it.")
             lines.append("Drag onto the bin to remove it.")
             lines.append("Right-click to empty this slot.")
-            if self.kind == "signal":
-                lines.append("Drop another signal here to add it.")
+            if self._multi:
+                lines.append(
+                    f"Drop another {_KIND_SHORT[self.kind].lower()} here to add it."
+                )
+                if self.kind == "signal" and len(self._parts) > 1:
+                    lines.append("Click the joining word to swap and for or.")
             self.setToolTip("\n".join(lines))
         else:
             optional = self.kind not in ALARM_PIECE_REQUIRED
@@ -772,12 +823,20 @@ class _Slot(QFrame):
         self._show_signal_chips()
 
     def remove_at(self, index: int) -> None:
-        if self.kind != "signal" or not (0 <= index < len(self._parts)):
+        if not self._multi or not (0 <= index < len(self._parts)):
             self.set_piece("")
         else:
             parts = list(self._parts)
             del parts[index]
-            self.set_piece(" and ".join(parts))
+            self.set_piece(f" {self._join} ".join(parts))
+        self.changed.emit()
+
+    def toggle_join(self) -> None:
+        """Swap AND for OR between the signals on this slot."""
+        if self.kind != "signal" or len(self._parts) < 2:
+            return
+        word = "or" if self._join == "and" else "and"
+        self.set_piece(f" {word} ".join(self._parts))
         self.changed.emit()
 
     def _show_signal_chips(self) -> None:
@@ -787,30 +846,45 @@ class _Slot(QFrame):
             if widget is not None:
                 widget.setParent(None)
                 widget.deleteLater()
-        if self.kind != "signal" or len(self._parts) < 2:
+        if not self._multi or len(self._parts) < 2:
             self._chip_host.hide()
             self._body.show()
             return
+        colour = _KIND_COLOR[self.kind]
         for index, part in enumerate(self._parts):
             if index:
-                word = QLabel("and")
-                word.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-                word.setStyleSheet(
-                    "color: #6c7086; font-size: 10px; background: transparent;"
-                )
-                self._chip_row.addWidget(word)
-            self._chip_row.addWidget(_SignalChip(self, index, part))
+                if self.kind == "signal":
+                    self._chip_row.addWidget(_JoinChip(self, self._join))
+                else:
+                    word = QLabel("and")
+                    word.setAttribute(
+                        Qt.WidgetAttribute.WA_TransparentForMouseEvents, True,
+                    )
+                    word.setStyleSheet(
+                        "color: #6c7086; font-size: 10px; background: transparent;"
+                    )
+                    self._chip_row.addWidget(word)
+            self._chip_row.addWidget(_SignalChip(self, index, part, colour))
         self._chip_row.addStretch(1)
         self._body.hide()
         self._chip_host.show()
         self.setStyleSheet(
-            "_Slot { background: transparent; border: 1px dashed #89b4fa; border-radius: 3px; }"
+            "_Slot {"
+            "  background: transparent;"
+            f"  border: 1px dashed {colour};"
+            "  border-radius: 3px;"
+            "}"
         )
-        self.setToolTip(
-            "Drop another signal to add it.\n"
-            "Double-click a signal to remove it.\n"
-            "Drag one onto the bin to remove it."
-        )
+        short = _KIND_SHORT[self.kind].lower()
+        lines = []
+        if self.kind == "signal":
+            lines.append(
+                f"Joined by {self._join.upper()} — click that word to change it."
+            )
+        lines.append(f"Drop another {short} to add it.")
+        lines.append("Double-click one to remove it.")
+        lines.append("Drag one onto the bin to remove it.")
+        self.setToolTip("\n".join(lines))
 
     def _paint_caption(self) -> None:
         if not self._text:
@@ -826,7 +900,7 @@ class _Slot(QFrame):
         self._armed = False
         if event.button() != Qt.MouseButton.LeftButton or not self._text:
             return
-        if self.kind == "signal" and len(self._parts) > 1:
+        if self._multi and len(self._parts) > 1:
             return
         self.set_piece("")
         self.changed.emit()
@@ -918,9 +992,10 @@ class _Slot(QFrame):
         if not text or not alarm_piece_accepted(self.kind, kind):
             event.ignore()
             return
-        if self.kind == "signal" and self._parts:
+        if self._multi and self._parts:
             if text not in self._parts:
-                self.set_piece(" and ".join(self._parts + [text]))
+                joiner = f" {self._join} "
+                self.set_piece(joiner.join(self._parts + [text]))
                 self.changed.emit()
         else:
             self.set_piece(text)
