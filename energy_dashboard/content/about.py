@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.446", "2026-09-26", [
+        "Popup windows accept copy and paste again, and a screenshot of a popup can be taken.",
+    ]),
     ("2.9.445", "2026-09-26", [
         "Maximise stops above the taskbar, so the bottom buttons stay visible.",
     ]),

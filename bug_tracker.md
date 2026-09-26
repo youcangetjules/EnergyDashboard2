@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-26 | 6 | 6 | 4 |
+| 2026-09-26 | 7 | 7 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
 | 2026-09-23 | 11 | 8 | 4 |
@@ -133,6 +133,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-069-20260926-07 — Popup windows block copy, paste, and screenshots</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 11:58 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Popup windows |
+| **Version found** | 2.9.445 |
+| **Version fixed** | 2.9.446 |
+
+**Symptom:** From any popup in the dashboard, text cannot be copied or pasted, and a screenshot of that popup cannot be taken.
+
+**Cause:** Every blocking popup was marked keep-above, and a timer pulled focus back to it whenever it was not the active window. That closed the Copy and Paste menu, and it took the popup off the layer a screenshot can capture.
+
+**Resolution:** Popups are ordinary windows again. The timer only brings a popup forward when the main window has covered it. Shipped in 2.9.446.
 
 ### <span style="color:green">BUG-068-20260926-06 — Maximised window covers the bottom buttons</span>
 

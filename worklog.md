@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 12:00
+
+- Popup windows can be copied, pasted, and screenshotted again. They are no longer forced above every other window, which had been closing the Copy and Paste menu and hiding the popup from the screenshot tool.
+
 ### 11:53
 
 - Maximise no longer covers the taskbar. The window snaps to the space above the panel, so the buttons along the bottom stay visible. A guessed title-bar gap is not added back.
