@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-26 | 10 | 10 | 4 |
+| 2026-09-26 | 11 | 11 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
 | 2026-09-23 | 11 | 8 | 4 |
@@ -133,6 +133,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-073-20260926-11 — Tray database lines still unreadable</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 15:23 (Europe/London) |
+| **Status** | fixed |
+| **Area** | System tray menu |
+| **Version found** | 2.9.452 |
+| **Version fixed** | 2.9.453 |
+
+**Symptom:** The block above Stop Broker on the tray menu is a blank dark strip. The database address, 15-minute total, 1-hour total, and stream count are still not readable.
+
+**Cause:** Those lines were ordinary labels. The menu style painted them the same colour as the dark background, so the words disappeared. The earlier colour change did not stick.
+
+**Resolution:** Each line is drawn directly: white text on the dark menu colour. The menu style cannot recolour it. Shipped in 2.9.453.
 
 ### <span style="color:green">BUG-072-20260926-10 — Tray menu database lines are hard to read</span>
 

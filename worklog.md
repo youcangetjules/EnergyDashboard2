@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 15:25
+
+- The database lines on the tray menu are drawn in white on the dark background. The menu style had been painting them the same colour as the menu, so that block looked blank.
+
 ### 15:23
 
 - Alarms and Refresh Page have swapped on the bottom bar. Alarms is on the left, then a 30px gap, then Refresh Page.

@@ -45,7 +45,11 @@ from energy_dashboard.tabs.shadow_trial import ShadowTrialTab
 from PySide6.QtWidgets import QWidgetAction
 
 from energy_dashboard.ui.system_status_bar import tray_database_lines
-from energy_dashboard.ui.tray_icon import powermon_tray_icon, style_tray_info
+from energy_dashboard.ui.tray_icon import (
+    TrayInfoLine,
+    powermon_tray_icon,
+    style_tray_info,
+)
 from energy_dashboard.ui.work_area import client_cap, fit_window_to_work_area
 from energy_dashboard.tabs.smart_advisor import SmartAdvisorTab
 from energy_dashboard.tabs.tasmota import TasmotaTab
@@ -1299,7 +1303,7 @@ class EnergyDashboard(QMainWindow):
             menu = QMenu(self)
             self._tray_stat_labels = []
             for _ in range(4):
-                lab = QLabel("—")
+                lab = TrayInfoLine(menu)
                 act = QWidgetAction(menu)
                 act.setDefaultWidget(lab)
                 menu.addAction(act)

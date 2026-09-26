@@ -26,14 +26,53 @@ def powermon_tray_icon() -> QIcon:
     return icon
 
 
-def style_tray_info(menu, labels) -> None:
+# Painted by hand. A QLabel in this menu inherits the app stylesheet and
+# comes out the same colour as the menu, so the figures disappear.
+_INFO_BG = QColor("#1e1e2e")
+_INFO_FG = QColor("#ffffff")
+
+
+class TrayInfoLine(QWidget):
+    """One database line in the tray menu. Draws its own text."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._text = "—"
+        self.setMinimumHeight(22)
+        self.setMinimumWidth(240)
+
+    def setText(self, text: str) -> None:
+        self._text = text or "—"
+        self.update()
+
+    def text(self) -> str:
+        return self._text
+
+    def sizeHint(self):
+        return QSize(280, 22)
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), _INFO_BG)
+        painter.setPen(_INFO_FG)
+        font = painter.font()
+        font.setPixelSize(13)
+        painter.setFont(font)
+        painter.drawText(
+            self.rect().adjusted(14, 0, -10, 0),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            self._text,
+        )
+        painter.end()
+
+
+def style_tray_info(menu, _labels=None) -> None:
     """Paint the tray menu like the rest of the app.
 
-    A label dropped into the menu otherwise keeps the app's pale text
-    while the menu itself stays the desktop colour, so the figures vanish.
+    The database lines are ``TrayInfoLine`` widgets. They do not use a
+    stylesheet, because a label in this menu was coming out the same
+    colour as the background.
     """
-    bg = QColor(_DARK_SURFACE_BG)
-    fg = QColor(_DARK_TEXT)
     menu.setStyleSheet(
         f"""
         QMenu {{
@@ -56,25 +95,8 @@ def style_tray_info(menu, labels) -> None:
             background: #45475a;
             margin: 4px 10px;
         }}
-        QLabel {{
-            color: {_DARK_TEXT};
-            background-color: {_DARK_SURFACE_BG};
-            padding: 3px 16px;
-        }}
         """
     )
-    for lab in labels:
-        pal = lab.palette()
-        pal.setColor(QPalette.ColorRole.Window, bg)
-        pal.setColor(QPalette.ColorRole.Base, bg)
-        pal.setColor(QPalette.ColorRole.WindowText, fg)
-        pal.setColor(QPalette.ColorRole.Text, fg)
-        lab.setPalette(pal)
-        lab.setAutoFillBackground(True)
-        lab.setStyleSheet(
-            f"color: {_DARK_TEXT}; background-color: {_DARK_SURFACE_BG}; "
-            "padding: 3px 16px;"
-        )
 
 
 def _pixmap(size: int) -> QPixmap:
