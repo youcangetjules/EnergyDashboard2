@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — A complete alarm sentence wears a green halo
+
+- **Context:** The compact rule lines had no sign that a sentence was finished, the rules were not numbered, and dragging a block did nothing. The drag had no pixmap, so nothing followed the pointer, and the text label inside each slot was the widget under the cursor, so the drop never reached the slot.
+- **Decision:** Palette drags go through the list’s own drag, with a coloured pixmap of the block. The label inside a slot ignores the mouse, so the slot receives the drop, and a block only lands in a slot of its own kind. Rules are numbered from 1 in display order. A sentence `alarm_rule_syntax` can build gets a `#a6e3a1` border and glow, and the words “Syntax Correct” under the right-hand end. A complete sentence that is not a built-in alarm still does not fire; the hover says so.
+- **Consequence:** Do not put a mouse-catching widget back over a drop slot. Do not treat “Syntax Correct” as permission for a new alarm to fire.
+
 ### 2026-09-26 — Alarm defs is one line per rule
 
 - **Context:** Six big wells per rule, stacked in two rows, plus a palette of wrapping chips, pushed the nine built-in alarms off the bottom of the screen.

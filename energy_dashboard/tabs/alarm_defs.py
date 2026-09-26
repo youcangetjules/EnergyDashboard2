@@ -14,8 +14,14 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import QMimeData
-from PySide6.QtGui import QDrag, QFontMetrics
+from PySide6.QtCore import QMimeData, QSize
+from PySide6.QtGui import QColor, QDrag, QFontMetrics, QPainter
+from PySide6.QtWidgets import (
+    QGraphicsDropShadowEffect,
+    QListWidget,
+    QListWidgetItem,
+    QStyledItemDelegate,
+)
 
 from energy_dashboard.common import *
 from energy_dashboard.core.alarms import (
@@ -89,75 +95,103 @@ def _decode_piece(mime: QMimeData) -> tuple[str, str]:
     return kind.strip(), text.strip()
 
 
-class _PaletteChip(QLabel):
-    """One palette row. Fixed height, so a long block scrolls instead of growing."""
+class _PaletteDelegate(QStyledItemDelegate):
+    """Paints each palette row itself. A list stylesheet was hiding the colour."""
 
-    def __init__(self, kind: str, text: str, parent=None):
+    def __init__(self, kind: str, parent=None):
+        super().__init__(parent)
+        self._fill = QColor(_KIND_COLOR[kind])
+        self._ink = QColor("#1e1e2e")
+
+    def paint(self, painter, option, index):
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = option.rect.adjusted(2, 1, -2, -1)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._fill)
+        painter.drawRoundedRect(rect, 3, 3)
+        text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
+        shown = option.fontMetrics.elidedText(
+            text, Qt.TextElideMode.ElideRight, max(24, rect.width() - 12),
+        )
+        painter.setPen(self._ink)
+        painter.drawText(
+            rect.adjusted(6, 0, -4, 0),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            shown,
+        )
+        painter.restore()
+
+    def sizeHint(self, _option, _index):
+        return QSize(80, 20)
+
+
+class _PaletteList(QListWidget):
+    """One kind of block, as a short scrolling list. Drag uses Qt's own drag."""
+
+    def __init__(self, kind: str, parent=None):
         super().__init__(parent)
         self.kind = kind
-        self._full = text
-        self._press = None
-        self.setFixedHeight(20)
-        self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setToolTip(text)
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setItemDelegate(_PaletteDelegate(kind, self))
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.setDefaultDropAction(Qt.DropAction.CopyAction)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setSpacing(1)
+        self.setFixedHeight(_PALETTE_H)
+        self.setToolTip(
+            f"Drag a {_KIND_SHORT[kind].lower()} into a slot of the same colour"
+        )
+        for text in alarm_palette(kind):
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, text)
+            item.setToolTip(text)
+            self.addItem(item)
+        # No QListWidget::item rule. That replaces the delegate and the
+        # rows vanish on this desktop.
         self.setStyleSheet(
-            "QLabel {"
-            f"  background: {_KIND_COLOR[kind]};"
-            "  color: #1e1e2e;"
-            "  border-radius: 3px;"
-            "  padding: 0px 6px;"
+            "QListWidget {"
+            "  background: #181825;"
+            "  border: 1px solid #313244;"
+            "  border-radius: 4px;"
+            "  outline: none;"
             "  font-size: 11px;"
             "}"
         )
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        shown = QFontMetrics(self.font()).elidedText(
-            self._full, Qt.TextElideMode.ElideRight, max(24, self.width() - 14),
-        )
-        if shown != self.text():
-            self.setText(shown)
+    def mimeTypes(self):
+        return [_MIME]
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._press = event.position().toPoint()
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self._press is None or not (event.buttons() & Qt.MouseButton.LeftButton):
-            return
-        if (event.position().toPoint() - self._press).manhattanLength() < 8:
-            return
-        drag = QDrag(self)
+    def mimeData(self, items):
         mime = QMimeData()
-        mime.setData(_MIME, f"{self.kind}\n{self._full}".encode("utf-8"))
+        if items:
+            text = items[0].data(Qt.ItemDataRole.UserRole) or items[0].text()
+            mime.setData(_MIME, f"{self.kind}\n{text}".encode("utf-8"))
+        return mime
+
+    def startDrag(self, _supported):
+        item = self.currentItem()
+        text = item.data(Qt.ItemDataRole.UserRole) if item is not None else ""
+        if not text:
+            return
+        mime = QMimeData()
+        mime.setData(_MIME, f"{self.kind}\n{text}".encode("utf-8"))
+        drag = QDrag(self)
         drag.setMimeData(mime)
+        # Without a pixmap the drag is invisible, so it looks like nothing moved.
+        chip = QLabel(str(text))
+        chip.setStyleSheet(
+            "QLabel {"
+            f"  background: {_KIND_COLOR[self.kind]};"
+            "  color: #1e1e2e; border-radius: 3px; padding: 2px 8px; font-size: 11px;"
+            "}"
+        )
+        chip.adjustSize()
+        drag.setPixmap(chip.grab())
+        drag.setHotSpot(chip.rect().center())
         drag.exec(Qt.DropAction.CopyAction)
-        self._press = None
-
-
-def _palette_list(kind: str) -> QScrollArea:
-    """Short scrolling list of one kind of block."""
-    host = QWidget()
-    col = QVBoxLayout(host)
-    col.setContentsMargins(2, 2, 2, 2)
-    col.setSpacing(2)
-    for text in alarm_palette(kind):
-        col.addWidget(_PaletteChip(kind, text))
-    col.addStretch(1)
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    scroll.setFixedHeight(_PALETTE_H)
-    scroll.setWidget(host)
-    scroll.setToolTip(f"Drag a {_KIND_SHORT[kind].lower()} into a slot of the same colour")
-    scroll.setStyleSheet(
-        "QScrollArea { background: #181825; border: 1px solid #313244; border-radius: 4px; }"
-    )
-    host.setStyleSheet("background: #181825;")
-    return scroll
 
 
 class _Slot(QFrame):
@@ -178,6 +212,9 @@ class _Slot(QFrame):
         self._body = QLabel("")
         self._body.setWordWrap(False)
         self._body.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        # The label was the widget under the cursor, so the drop never reached
+        # this frame. Mouse events (including the drop) now hit the frame.
+        self._body.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         lay.addWidget(self._body)
         self.set_piece("")
 
@@ -214,7 +251,7 @@ class _Slot(QFrame):
             )
             self.setStyleSheet(
                 "_Slot {"
-                "  background: #181825;"
+                "  background: transparent;"
                 f"  border: 1px dashed {colour};"
                 "  border-radius: 3px;"
                 "}"
@@ -234,7 +271,8 @@ class _Slot(QFrame):
     def dragEnterEvent(self, event):
         kind, text = _decode_piece(event.mimeData())
         if text and alarm_piece_accepted(self.kind, kind):
-            event.acceptProposedAction()
+            event.setDropAction(Qt.DropAction.CopyAction)
+            event.accept()
         else:
             event.ignore()
 
@@ -247,38 +285,45 @@ class _Slot(QFrame):
             event.ignore()
             return
         self.set_piece(text)
-        event.acceptProposedAction()
+        event.setDropAction(Qt.DropAction.CopyAction)
+        event.accept()
         self.changed.emit()
 
 
-class _RuleLine(QWidget):
-    """One alarm on a single line of slots."""
+class _RuleLine(QFrame):
+    """One numbered alarm: a line of slots, and a halo when the sentence is whole."""
 
     changed = Signal()
     remove_requested = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(_ROW_H + 4)
-        row = QHBoxLayout(self)
+        self.setFixedHeight(_ROW_H + 22)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(6, 3, 4, 2)
+        outer.setSpacing(0)
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
+        self._number = QLabel("1")
+        self._number.setFixedWidth(18)
+        self._number.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._number.setStyleSheet(
+            "color: #f5a524; font-size: 12px; font-weight: bold; background: transparent;"
+        )
+        row.addWidget(self._number)
         self.slots: dict[str, _Slot] = {}
         for kind in ALARM_PIECE_KINDS:
             word = _BEFORE.get(kind)
             if word:
                 lab = QLabel(word)
-                lab.setStyleSheet("color: #6c7086; font-size: 10px;")
+                lab.setStyleSheet("color: #6c7086; font-size: 10px; background: transparent;")
                 lab.setFixedWidth(34 if kind != "signal" else 36)
                 row.addWidget(lab)
             slot = _Slot(kind)
             slot.changed.connect(self._on_changed)
             self.slots[kind] = slot
             row.addWidget(slot, 3 if kind in ("signal", "context", "outcome") else 2)
-        self.status = QLabel("")
-        self.status.setFixedWidth(44)
-        self.status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        row.addWidget(self.status)
         remove = QPushButton("×")
         remove.setFixedSize(24, _ROW_H)
         remove.setToolTip("Take this rule off the page")
@@ -290,7 +335,19 @@ class _RuleLine(QWidget):
         )
         remove.clicked.connect(lambda: self.remove_requested.emit(self))
         row.addWidget(remove)
+        outer.addLayout(row)
+        self._syntax_note = QLabel("Syntax Correct")
+        self._syntax_note.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._syntax_note.setStyleSheet(
+            "color: #a6e3a1; font-size: 10px; background: transparent; padding-right: 28px;"
+        )
+        outer.addWidget(self._syntax_note)
         self._refresh()
+
+    def set_number(self, number: int) -> None:
+        self._number.setText(str(number))
 
     def values(self) -> dict[str, str]:
         return {kind: slot.text() for kind, slot in self.slots.items()}
@@ -308,20 +365,40 @@ class _RuleLine(QWidget):
         pieces = self.values()
         sentence = alarm_rule_syntax(pieces)
         if not sentence:
-            self.status.setText("—")
-            self.status.setStyleSheet("color: #6c7086; font-size: 11px;")
+            self._set_halo(False)
             self.setToolTip(_needs_text(
                 [k for k in ALARM_PIECE_REQUIRED if not pieces.get(k)]
             ))
             return
-        self.setToolTip(sentence)
+        self._set_halo(True)
         if alarm_blocks_key(pieces):
-            self.status.setText("Live")
-            self.status.setStyleSheet("color: #a6e3a1; font-size: 11px;")
+            self.setToolTip(sentence)
         else:
-            self.status.setText("Draft")
-            self.status.setStyleSheet("color: #f9e2af; font-size: 11px;")
-            self.setToolTip(sentence + "\nDraft — this does not fire.")
+            self.setToolTip(
+                sentence + "\nThe sentence is complete, but it is not one of the "
+                "built-in alarms, so it does not fire."
+            )
+
+    def _set_halo(self, on: bool) -> None:
+        self._syntax_note.setVisible(on)
+        if on:
+            self.setStyleSheet(
+                "_RuleLine {"
+                "  border: 1px solid #a6e3a1;"
+                "  border-radius: 5px;"
+                "  background-color: rgba(166, 227, 161, 16);"
+                "}"
+            )
+            glow = QGraphicsDropShadowEffect(self)
+            glow.setBlurRadius(16)
+            glow.setOffset(0, 0)
+            glow.setColor(QColor(166, 227, 161, 170))
+            self.setGraphicsEffect(glow)
+        else:
+            self.setStyleSheet(
+                "_RuleLine { border: 1px solid transparent; background: transparent; }"
+            )
+            self.setGraphicsEffect(None)
 
 
 class AlarmDefsTab(QWidget):
@@ -341,7 +418,7 @@ class AlarmDefsTab(QWidget):
         head.addWidget(title)
         hint = QLabel(
             "Drag a block from a list into a slot of the same colour. "
-            "Right-click a slot to empty it. Live means it matches a built-in alarm."
+            "Right-click a slot to empty it. A complete sentence gets a green halo."
         )
         hint.setStyleSheet("color: #6c7086; font-size: 11px;")
         head.addWidget(hint, 1)
@@ -373,8 +450,9 @@ class AlarmDefsTab(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._rules_host = QWidget()
         self._rules = QVBoxLayout(self._rules_host)
-        self._rules.setContentsMargins(0, 2, 0, 0)
-        self._rules.setSpacing(2)
+        # Room around each line so the green halo is not clipped.
+        self._rules.setContentsMargins(8, 6, 8, 6)
+        self._rules.setSpacing(10)
         self._rules.addStretch(1)
         scroll.setWidget(self._rules_host)
         layout.addWidget(scroll, 1)
@@ -390,7 +468,7 @@ class AlarmDefsTab(QWidget):
             f"color: {_KIND_COLOR[kind]}; font-size: 11px; font-weight: bold;"
         )
         col.addWidget(label)
-        col.addWidget(_palette_list(kind))
+        col.addWidget(_PaletteList(kind))
         return box
 
     def _show_live(self) -> None:
@@ -406,6 +484,7 @@ class AlarmDefsTab(QWidget):
         card.remove_requested.connect(self._remove_card)
         self._cards.append(card)
         self._rules.insertWidget(self._rules.count() - 1, card)
+        self._renumber()
         if save:
             self._save()
 
@@ -415,7 +494,12 @@ class AlarmDefsTab(QWidget):
         self._cards.remove(card)
         self._rules.removeWidget(card)
         card.deleteLater()
+        self._renumber()
         self._save()
+
+    def _renumber(self) -> None:
+        for index, card in enumerate(self._cards, start=1):
+            card.set_number(index)
 
     def _builtin_rows(self) -> list[dict[str, str]]:
         return [row.pieces() for row in ALARM_BLOCKS]

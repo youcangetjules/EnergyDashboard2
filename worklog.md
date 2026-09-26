@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 19:35
+
+- Dragging a block on Alarm defs did nothing you could see. The drag had no picture, so nothing followed the pointer, and the wording inside each slot was sitting on top of the drop target, so a drop never arrived. The lists now drag the coloured block itself, and a block only lands in a slot of the same colour.
+- Each rule is numbered down the left. When the sentence is complete — signal, comparison, how long, and an outcome — the rule gets a green halo and the words “Syntax Correct” under the right-hand end. Take one of those pieces away and the halo goes. A sentence that is not one of the built-in alarms still does not fire; the hover says so.
+
 ### 19:16
 
 - Alarm defs was taking a full screen for nine rules, because each rule was two rows of large boxes and the palette was a stack of wrapping chips. It is now the same idea as a compact rule builder: a short scrolling list for each kind of block, and one line per rule. All nine built-in alarms fit on the page with the palette still visible.

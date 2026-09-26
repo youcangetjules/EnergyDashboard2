@@ -29,17 +29,18 @@ example “logging is switched on”. Optional.</li>
 </ul>
 <p>
 The palette is a short scrolling list for each colour. Drag a block from a
-list into a slot of the same colour on a rule line; a signal will not drop
-into a comparison slot. <b>Right-click</b> a slot to empty it. Each rule is
-a single line, and hovering it shows the whole sentence.</p>
+list into a slot of the same colour; a signal will not drop into a comparison
+slot. You should see the coloured block follow the pointer. <b>Right-click</b>
+a slot to empty it. Rules are numbered down the left. Hovering a rule shows
+the whole sentence.</p>
 <p>
 The line itself is the syntax, in the form
 <b>WHEN</b> signal comparison threshold <b>FOR</b> how long
 <b>WHILE</b> extra condition <b>THEN</b> outcome.
-If that whole sentence matches a built-in alarm, the end of the line says
-<b>Live</b>. Any other mix says <b>Draft</b> and does not fire — change
-one block of a live rule and it becomes a draft, because the thing that
-actually raises alarms is still the built-in rule in the code.</p>
+When that sentence is complete the rule gets a green halo and
+<b>Syntax Correct</b> under the right-hand end. A complete sentence that is
+not one of the built-in alarms still does not fire — the hover says so.
+The thing that actually raises alarms is still the built-in rule in the code.</p>
 <p>
 <b>Add rule</b> gives you an empty line, <b>Reset</b> puts the built-in rules
 back, and the <b>×</b> at the end of a line takes it off the page.
