@@ -36,6 +36,8 @@ down the left. The three bars on the left of a rule are its handle: drag
 that to change the order, or drag it into the bin to remove the whole rule.
 Hovering a rule shows the whole sentence.</p>
 <p>
+Comparisons are grouped: below and above together, then other level checks,
+then phrases about a feed stopping, then ones about something you cannot reach.
 The lists also include <b>string A voltage</b>, <b>string B voltage</b>,
 <b>has a differential of</b>, and <b>Volts</b>. Click <b>Volts</b> to set how
 many volts that block means. Click <b>Tasmota device</b> and enter that

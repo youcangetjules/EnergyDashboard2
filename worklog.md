@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 20:57
+
+- The comparison list on Alarm defs was in the order each phrase was first used, so “stays below” and “stays above” sat at opposite ends. They now sit together, with the other level checks beside them, then the “it stopped” phrases, then “cannot be reached” and “is reported offline”.
+
 ### 20:55
 
 - On Alarm defs, Tasmota device is a signal you can click. A box asks for that plug’s IP address. Once an address is saved, the “device gone quiet” alarm watches that plug and not the others.

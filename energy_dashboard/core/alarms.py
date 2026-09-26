@@ -296,8 +296,29 @@ ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Comparisons are listed by family, not by which alarm used them first.
+# "stays below" and "stays above" sit together; the rest follow the same idea.
+_COMPARISON_ORDER = (
+    "stays below",
+    "stays above",
+    "is at least",
+    "has a differential of",
+    "uses almost all of",
+    "stops arriving",
+    "stops",
+    "drops",
+    "goes silent",
+    "cannot be reached",
+    "is reported offline",
+)
+
+
 def alarm_palette(kind: str) -> tuple[str, ...]:
-    """Every block of one kind, in first-used order, without repeats."""
+    """Every block of one kind, without repeats.
+
+    Comparisons use ``_COMPARISON_ORDER``. Anything else stays in first-used
+    order, then the extra pieces.
+    """
     if kind not in ALARM_PIECE_KINDS:
         return ()
     out: list[str] = []
@@ -308,7 +329,11 @@ def alarm_palette(kind: str) -> tuple[str, ...]:
     for text in ALARM_EXTRA_PIECES.get(kind, ()):
         if text not in out:
             out.append(text)
-    return tuple(out)
+    if kind != "comparison":
+        return tuple(out)
+    rank = {text: index for index, text in enumerate(_COMPARISON_ORDER)}
+    tail = len(_COMPARISON_ORDER)
+    return tuple(sorted(out, key=lambda text: (rank.get(text, tail), out.index(text))))
 
 
 def alarm_blocks_key(pieces: dict[str, str]) -> str | None:
