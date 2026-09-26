@@ -106,6 +106,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-26 — Maximise stops above the taskbar
+
+- **Context:** On KDE Wayland a floating panel reserves no strut, so the compositor’s maximise is the full monitor. The earlier rule kept that maximised state and refused to shorten the height (a guessed title bar had left a gap). The window then covered the taskbar buttons (BUG-068).
+- **Decision:** A maximise click snaps the window to the usable screen: Plasma panel thickness, plus a small pad when the panel floats. The compositor maximised state is cleared so that size sticks. Height is shortened to stay above the panel. Do not subtract a guessed title bar; only a frame Qt has actually measured.
+- **Consequence:** Do not leave the window in the compositor’s maximised state to “honour maximise”. Do not bring back a fixed title-bar cushion. The 2026-09-22 “do not shorten maximised height” line is superseded by this.
+
 ### 2026-09-26 — Do not change a visible dialog’s window flags
 
 - **Context:** Connectivity clicks open a blocking popup. The stay-on-top timer then added “keep above” by changing the window flags. Qt hides a window when its flags change. The popup was on screen for about a second, then gone, while the app was still waiting for an answer. On Wayland it did not come back, so the dashboard would not take another click (BUG-066).
@@ -187,8 +193,8 @@ Newest first. Keep each entry short: context → decision → consequence.
 ### 2026-09-22 — Maximise snaps to the monitor the window is on
 
 - **Context:** Pressing maximise still made the frame wider than that screen. The window manager ignores Qt’s maximum size and will grow to the layout minimum when that minimum is wider than the monitor.
-- **Decision:** Maximise keeps the window maximised. Width is capped to `window.screen()` so a wide layout cannot spill past that monitor. Height is the full usable height of that screen (above the taskbar). Do not subtract the title bar from that height, and do not call `showNormal()` to fake a maximise.
-- **Consequence:** Do not raise the window maximum to satisfy a layout minimum. Do not shrink maximised height to make room for a guessed title bar.
+- **Decision:** Width is capped to `window.screen()` so a wide layout cannot spill past that monitor. Height follows the usable screen above the taskbar (see 2026-09-26 — Maximise stops above the taskbar). Do not subtract a guessed title bar.
+- **Consequence:** Do not raise the window maximum to satisfy a layout minimum. Do not shrink the height for a guessed title bar. Do shorten it when the frame would cover the panel.
 
 ### 2026-09-22 — Window maximum is the screen it is on
 

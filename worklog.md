@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-26
 
+### 11:53
+
+- Maximise no longer covers the taskbar. The window snaps to the space above the panel, so the buttons along the bottom stay visible. A guessed title-bar gap is not added back.
+
 ### 11:43
 
 - A 2px line in 70% grey now runs under the whole tab bar, so the tabs sit on a clearer edge.

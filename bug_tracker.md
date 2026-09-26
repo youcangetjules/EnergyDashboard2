@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-26 | 5 | 5 | 4 |
+| 2026-09-26 | 6 | 6 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
 | 2026-09-23 | 11 | 8 | 4 |
@@ -133,6 +133,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-068-20260926-06 — Maximised window covers the bottom buttons</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-26 11:50 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Main window |
+| **Version found** | 2.9.444 |
+| **Version fixed** | 2.9.445 |
+
+**Symptom:** With the dashboard maximised, the window runs over the bottom of the screen and covers the taskbar buttons.
+
+**Cause:** On this KDE session the taskbar is a floating panel, so Qt’s available screen is the full monitor. The maximise path kept the compositor’s maximised state and would not shorten the height, so the frame sat on top of the panel.
+
+**Resolution:** Maximise now snaps the window to the usable screen above that panel, and drops the compositor’s maximised state so the shorter height sticks. Shipped in 2.9.445.
 
 ### <span style="color:green">BUG-066-20260926-04 — Connectivity Status freezes when a box or button is clicked</span>
 

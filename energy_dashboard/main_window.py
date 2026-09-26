@@ -155,7 +155,9 @@ class EnergyDashboard(QMainWindow):
                 # Snap to this monitor. A second pass catches the window
                 # manager if it applies a wider size after we have snapped.
                 QTimer.singleShot(0, self._fill_work_area)
-                QTimer.singleShot(80, self._refill_if_past_screen)
+                # The compositor may put the frame back over the taskbar
+                # a moment later. Snap to the usable screen again.
+                QTimer.singleShot(80, self._fill_work_area)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -176,24 +178,6 @@ class EnergyDashboard(QMainWindow):
     def _fill_work_area(self):
         """Snap the window to this monitor's usable resolution."""
         self._apply_work_area(fill=True)
-
-    def _refill_if_past_screen(self):
-        """Second chance after maximise, only if the frame is still too big."""
-        if self._work_area_guard:
-            return
-        screen = self.screen()
-        if screen is None:
-            return
-        monitor = screen.geometry()
-        frame = self.frameGeometry()
-        cap_w, cap_h = client_cap(self)
-        past = (
-            frame.width() > monitor.width()
-            or frame.height() > monitor.height()
-            or self.width() > cap_w
-        )
-        if past:
-            self._fill_work_area()
 
     def _clamp_work_area(self):
         self._work_area_clamp_pending = False

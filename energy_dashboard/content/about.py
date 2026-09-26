@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.445", "2026-09-26", [
+        "Maximise stops above the taskbar, so the bottom buttons stay visible.",
+    ]),
     ("2.9.444", "2026-09-26", [
         "A stronger 2px line in 70% grey runs under the tab bar.",
     ]),

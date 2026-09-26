@@ -16,10 +16,6 @@ from PySide6.QtWidgets import QApplication, QWidget
 # floating hint is 9px. A little more keeps the frame clear of the bar,
 # including while the panel is still floating and sitting off the screen edge.
 _FLOATING_EDGE_PAD = 12
-
-# Used only when the compositor has not reported a title bar yet. Subtracting
-# it stops the first sizing pass from painting the bottom edge through the panel.
-_TITLE_CUSHION_PX = 48
 _BORDER_CUSHION_PX = 6
 
 _CACHE_TTL_S = 5.0
@@ -171,18 +167,6 @@ def _measured_frame_extras(window: QWidget) -> tuple[int, int, int, int]:
     )
 
 
-def _frame_extras(window: QWidget) -> tuple[int, int, int, int]:
-    measured = _measured_frame_extras(window)
-    if any(measured):
-        return measured
-    return (
-        _BORDER_CUSHION_PX,
-        _TITLE_CUSHION_PX,
-        _BORDER_CUSHION_PX,
-        _BORDER_CUSHION_PX,
-    )
-
-
 def client_cap(window: QWidget) -> tuple[int, int]:
     """Largest client width and height that stay on this monitor.
 
@@ -210,12 +194,18 @@ def _client_cap(window: QWidget) -> tuple[int, int, QRect, int, int]:
         )
     if area.isNull():
         return 1, 1, area, 0, 0
-    left, _top, right, _bottom = _frame_extras(window)
-    # Width stays inside this monitor. Height is the full usable screen —
-    # subtracting the title bar here is what made maximise come up short.
+    measured = _measured_frame_extras(window)
+    if any(measured):
+        left, top, right, bottom = measured
+    else:
+        # A couple of pixels for a border we have not measured yet.
+        # Do not guess a title bar — that left a gap under the window.
+        left, top, right, bottom = (_BORDER_CUSHION_PX, 0, _BORDER_CUSHION_PX, 0)
+    # Width stays inside this monitor. Height is the usable screen
+    # above the taskbar, so the panel buttons stay visible.
     cap_w = max(1, area.width() - left - right)
-    cap_h = max(1, area.height())
-    return cap_w, cap_h, area, left, 0
+    cap_h = max(1, area.height() - top - bottom)
+    return cap_w, cap_h, area, left, top
 
 
 def _pull_minimum_inside_cap(window: QWidget, cap_w: int, cap_h: int) -> None:
@@ -251,12 +241,12 @@ def fit_window_to_work_area(window: QWidget, *, fill: bool = False) -> QRect:
         window.setMaximumSize(cap_w, cap_h)
 
     if fill or maximized:
-        # Stay maximised. Only pull the width back if the frame is wider
-        # than this monitor; do not shorten the height.
-        if window.width() > cap_w or (fill and not maximized):
-            window.setGeometry(QRect(area.x() + left, area.y(), cap_w, cap_h))
-        elif maximized and window.height() < cap_h:
-            window.resize(min(window.width(), cap_w), cap_h)
+        # The compositor's maximise uses the full monitor and covers a
+        # floating taskbar. Drop that state so this size sticks, then
+        # place the window in the usable rectangle above the panel.
+        if maximized:
+            window.setWindowState(state & ~Qt.WindowState.WindowMaximized)
+        window.setGeometry(QRect(area.x() + left, area.y() + top, cap_w, cap_h))
         _note_insets(window.screen(), area)
         return area
 
