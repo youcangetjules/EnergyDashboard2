@@ -386,17 +386,39 @@ def _tasmota_caption(text: str) -> str:
     return f"{text} ({ip})"
 
 
+def _dialog_hint(text: str) -> QLabel:
+    """Explanation that keeps its full height when the sentence wraps."""
+    hint = QLabel(text)
+    hint.setWordWrap(True)
+    hint.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    hint.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+    hint.setStyleSheet("color: #cdd6f4; font-size: 12px; background: transparent;")
+    return hint
+
+
+def _fit_dialog_to_hint(dlg: QDialog, hint: QLabel) -> None:
+    """Grow the dialog so a wrapped explanation is not clipped by the field below."""
+    margins = dlg.layout().contentsMargins()
+    width = max(380, dlg.minimumWidth() - margins.left() - margins.right())
+    needed = hint.fontMetrics().boundingRect(
+        0, 0, width, 2000,
+        int(Qt.TextFlag.TextWordWrap),
+        hint.text(),
+    ).height() + 12
+    hint.setMinimumHeight(needed)
+    dlg.adjustSize()
+    dlg.setMinimumHeight(dlg.sizeHint().height())
+
+
 def _edit_tasmota_ip(parent) -> bool:
     dlg = QDialog(parent)
     dlg.setWindowTitle("Tasmota device")
     dlg.setMinimumWidth(420)
     lay = QVBoxLayout(dlg)
-    hint = QLabel(
+    hint = _dialog_hint(
         "IP address of the plug or current clamp. "
         "Once this is set, the Tasmota-device alarm watches this address only."
     )
-    hint.setWordWrap(True)
-    hint.setStyleSheet("color: #cdd6f4; font-size: 12px;")
     lay.addWidget(hint)
     edit = QLineEdit(_tasmota_device_ip())
     edit.setPlaceholderText("192.168.1.50")
@@ -418,6 +440,7 @@ def _edit_tasmota_ip(parent) -> bool:
     buttons.rejected.connect(dlg.reject)
     lay.addWidget(buttons)
     _prepare_dialog_buttons(dlg)
+    _fit_dialog_to_hint(dlg, hint)
     while True:
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return False
@@ -437,9 +460,7 @@ def _edit_param(parent, spec: _Param, dash) -> bool:
     dlg.setWindowTitle(spec.title)
     dlg.setMinimumWidth(420)
     lay = QVBoxLayout(dlg)
-    hint = QLabel(spec.hint)
-    hint.setWordWrap(True)
-    hint.setStyleSheet("color: #cdd6f4; font-size: 12px;")
+    hint = _dialog_hint(spec.hint)
     lay.addWidget(hint)
     if spec.decimals:
         spin = QDoubleSpinBox()
@@ -470,6 +491,7 @@ def _edit_param(parent, spec: _Param, dash) -> bool:
     buttons.rejected.connect(dlg.reject)
     lay.addWidget(buttons)
     _prepare_dialog_buttons(dlg)
+    _fit_dialog_to_hint(dlg, hint)
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return False
     _write_param(spec, float(spin.value()), dash)

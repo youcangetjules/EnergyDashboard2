@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.478", "2026-09-27", [
+        "The number box on Alarm defs is tall enough for its explanation, so the sentence is no longer cut off.",
+    ]),
     ("2.9.477", "2026-09-27", [
         "The PowerMon tray menu opens with Critical Alarms (red), Major Alarms (amber), and Minor Alarms (yellow), each with how many are sounding.",
     ]),
