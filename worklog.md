@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 13:13
+
+- On the Alarm defs signal list, the alarm type (Hardware, Energy, and the rest) now sits on the right of the blue pill in 80% grey, on the same line as the name. The extra line under the name is gone, so each signal takes the same height as the other blocks.
+
 ### 12:51
 
 - On Alarm defs, two or more signals in one rule now stretch across the whole signal slot. AND or OR stays a small button between them. Before, the coloured pills only covered the words and left the rest of the slot empty.

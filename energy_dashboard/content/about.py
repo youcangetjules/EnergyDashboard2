@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.485", "2026-09-27", [
+        "Alarm defs: the alarm type sits on the right of each signal, in 80% grey, on the same line as the name.",
+    ]),
     ("2.9.484", "2026-09-27", [
         "Alarm defs: two or more signals widen so they fill the signal slot, with AND or OR still sitting between them.",
     ]),

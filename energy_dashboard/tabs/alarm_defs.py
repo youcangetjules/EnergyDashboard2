@@ -81,8 +81,8 @@ _KIND_WORD = {
     "context": "condition",
     "outcome": "outcome",
 }
-# Faint grey for the alarm type under each signal on the palette.
-_ALARM_TYPE_INK = "#e6e6e6"
+# 80% grey (80% of white) for the alarm type on the right of each signal pill.
+_ALARM_TYPE_INK = "#cccccc"
 # Little words between the slots, so the line still reads as a sentence.
 _BEFORE = {
     "signal": "when",
@@ -690,28 +690,30 @@ class _PaletteDelegate(QStyledItemDelegate):
         painter.setBrush(self._fill)
         painter.drawRoundedRect(rect, 3, 3)
         text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
-        shown = option.fontMetrics.elidedText(
-            text, Qt.TextElideMode.ElideRight, max(24, rect.width() - 12),
-        )
         alarm_type = signal_alarm_type(text) if self._kind == "signal" else ""
         painter.setPen(self._ink)
         if alarm_type:
-            name_rect = rect.adjusted(6, 1, -4, -(rect.height() // 2) + 1)
+            metrics = option.fontMetrics
+            type_w = metrics.horizontalAdvance(alarm_type)
+            right_pad = 8
+            gap = 12
+            name_width = max(24, rect.width() - 6 - gap - type_w - right_pad)
+            shown = metrics.elidedText(text, Qt.TextElideMode.ElideRight, name_width)
             painter.drawText(
-                name_rect,
+                rect.adjusted(6, 0, -(gap + type_w + right_pad), 0),
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
                 shown,
             )
-            small = QFont(option.font)
-            small.setPointSizeF(max(6.0, option.font.pointSizeF() - 2.0))
-            painter.setFont(small)
             painter.setPen(self._type_ink)
             painter.drawText(
-                rect.adjusted(6, rect.height() // 2 - 1, -4, -1),
-                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                rect.adjusted(0, 0, -right_pad, 0),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
                 alarm_type,
             )
         else:
+            shown = option.fontMetrics.elidedText(
+                text, Qt.TextElideMode.ElideRight, max(24, rect.width() - 12),
+            )
             painter.drawText(
                 rect.adjusted(6, 0, -4, 0),
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
@@ -720,7 +722,7 @@ class _PaletteDelegate(QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, _option, _index):
-        return QSize(80, 32 if self._kind == "signal" else 20)
+        return QSize(80, 20)
 
 
 class _PaletteList(QListWidget):
