@@ -94,6 +94,13 @@ been met. The last line says whether the alarm is sounding. A sentence that
 is not a built-in alarm is marked <b>Not watched</b>, because it does not
 fire.</p>
 <p>
+Adds, edits, and removals stay on the page until you press <b>Commit</b>.
+Until then the alarms that are actually running are unchanged. A rule you
+added or edited has an amber outline. <b>Commit</b> flashes while anything
+is waiting. <b>Cancel</b>, at the right-hand edge, puts every rule back.
+The <b>Rubbish Bin</b> is on the left: drop a block or a whole rule there.
+That too waits for Commit.</p>
+<p>
 The outcome slot takes two blocks as well: keep the warning or critical
 wording and drop <b>send SMS</b> or <b>create a desktop alert</b> beside it.
 On a rule that matches a built-in alarm, that is what the alarm then does —

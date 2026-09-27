@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 12:35
+
+- Adds, edits, and removals on Alarm defs now wait for Commit. Until then the alarms that are running are unchanged. A rule you added or edited gets an amber outline. Commit flashes while anything is waiting, and Cancel puts every rule back.
+- The rubbish bin has moved to the left, with the words Rubbish Bin beside it. Commit and Cancel sit on the right, with Cancel at the edge.
+
 ### 12:31
 
 - Each rule on Alarm defs now has an Inspect button on the right. It opens that rule and marks every part Triggering or Not triggering from the last live check: the reading against its line, any extra condition, and whether the wait or the flapping count has been met. The last line says if the alarm is actually sounding.

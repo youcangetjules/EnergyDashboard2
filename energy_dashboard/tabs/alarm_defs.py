@@ -101,6 +101,16 @@ _KIND_NOUN = dict(
 )
 
 
+def _rule_pieces(pieces: dict | None) -> dict[str, str]:
+    return {kind: str((pieces or {}).get(kind) or "") for kind in ALARM_PIECE_KINDS}
+
+
+def _same_pieces(left: dict | None, right: dict | None) -> bool:
+    a = _rule_pieces(left)
+    b = _rule_pieces(right)
+    return all(a[kind] == b[kind] for kind in ALARM_PIECE_KINDS)
+
+
 def _needs_text(missing: list[str]) -> str:
     nouns = [_KIND_NOUN[k] for k in missing]
     if len(nouns) == 1:
@@ -1320,7 +1330,8 @@ class _Bin(QWidget):
         self.setAcceptDrops(True)
         self.setToolTip(
             "Drop a block here to take it off its rule.\n"
-            "Drop a rule’s handle here to remove the whole rule."
+            "Drop a rule’s handle here to remove the whole rule.\n"
+            "Nothing is removed for good until you press Commit."
         )
 
     def paintEvent(self, _event):
@@ -1514,6 +1525,9 @@ class _RuleLine(QFrame):
         self.token = f"r{id(self)}"
         self._complete = False
         self._unit_bad = False
+        self._pending = False
+        self._baseline_index: int | None = None
+        self._baseline_pieces: dict[str, str] | None = None
         self._reorder_edge = ""
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAcceptDrops(True)
@@ -1640,15 +1654,36 @@ class _RuleLine(QFrame):
             widget = widget.parent()
         return widget
 
+    def set_pending(self, pending: bool) -> None:
+        """Amber outline while this rule is added or edited and not committed."""
+        self._pending = bool(pending)
+        self._sync_glow()
+        self._chrome()
+
+    def _sync_glow(self) -> None:
+        if self._complete and not self._pending:
+            glow = QGraphicsDropShadowEffect(self)
+            glow.setBlurRadius(16)
+            glow.setOffset(0, 0)
+            glow.setColor(QColor(166, 227, 161, 170))
+            self.setGraphicsEffect(glow)
+        else:
+            self.setGraphicsEffect(None)
+
     def _chrome(self) -> None:
-        if self._complete:
+        if self._pending:
+            border = "2px solid #f5a524"
+        elif self._complete:
             border = "1px solid #a6e3a1"
-            background = "#1c3324"
         elif self._unit_bad:
             border = "1px solid #f38ba8"
-            background = "#2a1a1e"
         else:
             border = "1px solid transparent"
+        if self._complete:
+            background = "#1c3324"
+        elif self._unit_bad:
+            background = "#2a1a1e"
+        else:
             background = "transparent"
         edge = ""
         if self._reorder_edge == "before":
@@ -1728,14 +1763,7 @@ class _RuleLine(QFrame):
             "  border-radius: 3px;"
             "}"
         )
-        if on:
-            glow = QGraphicsDropShadowEffect(self)
-            glow.setBlurRadius(16)
-            glow.setOffset(0, 0)
-            glow.setColor(QColor(166, 227, 161, 170))
-            self.setGraphicsEffect(glow)
-        else:
-            self.setGraphicsEffect(None)
+        self._sync_glow()
         self._chrome()
 
 
@@ -1755,8 +1783,8 @@ class AlarmDefsTab(QWidget):
         title.setStyleSheet("font-size: 15px; font-weight: bold; color: #cdd6f4;")
         head.addWidget(title)
         hint = QLabel(
-            "Click a time or a limit to change it. Drag a block to the bin to "
-            "remove it. The handle on the left reorders a rule, or drops the whole rule in the bin."
+            "Edits stay on the page until you press Commit. "
+            "Cancel puts the rules back. Drag a block, or a whole rule, to the rubbish bin."
         )
         hint.setStyleSheet("color: #6c7086; font-size: 11px;")
         head.addWidget(hint, 1)
@@ -1772,7 +1800,7 @@ class AlarmDefsTab(QWidget):
         head.addWidget(add_btn)
         reset_btn = QPushButton("Reset")
         reset_btn.setFixedWidth(80)
-        reset_btn.setToolTip("Put the built-in rules back")
+        reset_btn.setToolTip("Show the built-in rules again. Commit to keep them.")
         reset_btn.clicked.connect(self._reset)
         head.addWidget(reset_btn)
         layout.addLayout(head)
@@ -1792,11 +1820,31 @@ class AlarmDefsTab(QWidget):
         rules_lay.setSpacing(4)
         rules_lay.addWidget(scroll, 1)
         bin_row = QHBoxLayout()
-        bin_row.setContentsMargins(0, 0, 4, 0)
-        bin_row.addStretch(1)
+        bin_row.setContentsMargins(4, 0, 4, 0)
+        bin_row.setSpacing(8)
         self._bin = _Bin(self)
         bin_row.addWidget(self._bin)
+        bin_name = QLabel("Rubbish Bin")
+        bin_name.setStyleSheet("color: #cdd6f4; font-size: 12px; background: transparent;")
+        bin_row.addWidget(bin_name)
+        bin_row.addStretch(1)
+        self._commit_btn = QPushButton("Commit")
+        self._commit_btn.setFixedWidth(100)
+        self._commit_btn.setProperty(PRIMARY_BUTTON_EXEMPT, True)
+        self._commit_btn.setToolTip("Nothing to commit.")
+        self._commit_btn.clicked.connect(self._commit)
+        bin_row.addWidget(self._commit_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFixedWidth(100)
+        cancel_btn.setToolTip("Put the rules back to the last commit.")
+        cancel_btn.clicked.connect(self._cancel)
+        bin_row.addWidget(cancel_btn)
         rules_lay.addLayout(bin_row)
+        self._commit_blink = False
+        self._commit_timer = QTimer(self)
+        self._commit_timer.setInterval(500)
+        self._commit_timer.timeout.connect(self._blink_commit)
+        self._paint_commit(False)
 
         pieces_host = QWidget()
         pieces = QHBoxLayout(pieces_host)
@@ -1822,6 +1870,7 @@ class AlarmDefsTab(QWidget):
         self._split.splitterMoved.connect(self._save_split)
         self._split_ready = False
         layout.addWidget(self._split, 1)
+        self._baseline: list[dict[str, str]] = []
         self._load()
 
     def showEvent(self, event):
@@ -1902,7 +1951,7 @@ class AlarmDefsTab(QWidget):
         for card in self._cards:
             self._rules.addWidget(card)
         self._renumber()
-        self._save()
+        self._on_draft()
 
     def _piece_column(self, kind: str) -> QWidget:
         box = QWidget()
@@ -1926,13 +1975,13 @@ class AlarmDefsTab(QWidget):
     def _add_card(self, pieces: dict[str, str], *, save: bool = True) -> None:
         card = _RuleLine()
         card.set_values(pieces)
-        card.changed.connect(self._save)
+        card.changed.connect(self._on_draft)
         card.remove_requested.connect(self._remove_card)
         self._cards.append(card)
         self._rules.addWidget(card)
         self._renumber()
         if save:
-            self._save()
+            self._on_draft()
 
     def _remove_card(self, card: _RuleLine) -> None:
         if card not in self._cards:
@@ -1941,7 +1990,7 @@ class AlarmDefsTab(QWidget):
         self._rules.removeWidget(card)
         card.deleteLater()
         self._renumber()
-        self._save()
+        self._on_draft()
 
     def _renumber(self) -> None:
         for index, card in enumerate(self._cards, start=1):
@@ -1956,6 +2005,7 @@ class AlarmDefsTab(QWidget):
         rows = self._read_saved() or self._builtin_rows()
         for pieces in rows:
             self._add_card(pieces, save=False)
+        self._adopt_baseline()
         self._apply_rule_holds()
 
     def _read_saved(self) -> list[dict[str, str]]:
@@ -2009,14 +2059,115 @@ class AlarmDefsTab(QWidget):
             monitor.set_rule_flaps(flaps)
 
     def _reset(self) -> None:
-        QSettings("PowerModel", "EnergyDashboard2").remove(_QS_RULES)
+        """Show the built-in rules as a draft. Commit keeps them."""
+        self._replace_cards(self._builtin_rows())
+        self._stamp_against_baseline()
+
+    def _commit(self) -> None:
+        """Write the rules and start using them."""
+        if not self._session_dirty():
+            return
+        self._save()
+        self._adopt_baseline()
+
+    def _cancel(self) -> None:
+        """Drop adds, removes, and edits since the last commit."""
+        if not self._session_dirty():
+            return
+        self._replace_cards(self._baseline)
+        self._adopt_baseline()
+
+    def _replace_cards(self, rows: list[dict[str, str]]) -> None:
         for card in list(self._cards):
             self._rules.removeWidget(card)
             card.deleteLater()
         self._cards.clear()
-        for pieces in self._builtin_rows():
-            self._add_card(pieces, save=False)
-        self._save()
+        for pieces in rows:
+            self._add_card(dict(pieces), save=False)
+
+    def _adopt_baseline(self) -> None:
+        """The rules on screen are now the ones that are live."""
+        self._baseline = [_rule_pieces(card.values()) for card in self._cards]
+        for index, card in enumerate(self._cards):
+            card._baseline_index = index
+            card._baseline_pieces = dict(self._baseline[index])
+            card.set_pending(False)
+        self._set_commit_flash(False)
+
+    def _stamp_against_baseline(self) -> None:
+        """Keep a card's baseline when its sentence still matches one."""
+        used: set[int] = set()
+        for card in self._cards:
+            found = None
+            pieces = _rule_pieces(card.values())
+            for index, row in enumerate(self._baseline):
+                if index in used or not _same_pieces(pieces, row):
+                    continue
+                found = index
+                break
+            if found is None:
+                card._baseline_index = None
+                card._baseline_pieces = None
+            else:
+                used.add(found)
+                card._baseline_index = found
+                card._baseline_pieces = dict(self._baseline[found])
+        self._on_draft()
+
+    def _card_pending(self, card: _RuleLine) -> bool:
+        if card._baseline_index is None or card._baseline_pieces is None:
+            return True
+        return not _same_pieces(card.values(), card._baseline_pieces)
+
+    def _session_dirty(self) -> bool:
+        if len(self._cards) != len(self._baseline):
+            return True
+        for index, card in enumerate(self._cards):
+            if card._baseline_index != index or self._card_pending(card):
+                return True
+        return False
+
+    def _on_draft(self) -> None:
+        for card in self._cards:
+            card.set_pending(self._card_pending(card))
+        dirty = self._session_dirty()
+        self._set_commit_flash(dirty)
+        if dirty:
+            self._commit_btn.setToolTip(
+                "These adds, removes, and edits are not in use until you commit."
+            )
+        else:
+            self._commit_btn.setToolTip("Nothing to commit.")
+
+    def _set_commit_flash(self, on: bool) -> None:
+        if on:
+            if not self._commit_timer.isActive():
+                self._commit_blink = False
+                self._commit_timer.start()
+            self._blink_commit()
+            return
+        self._commit_timer.stop()
+        self._commit_blink = False
+        self._paint_commit(False)
+
+    def _blink_commit(self) -> None:
+        self._commit_blink = not self._commit_blink
+        self._paint_commit(self._commit_blink)
+
+    def _paint_commit(self, flash_on: bool) -> None:
+        if flash_on:
+            self._commit_btn.setStyleSheet(
+                "QPushButton {"
+                "  background-color: #f5a524;"
+                "  color: #1e1e2e;"
+                "  border: 2px solid #f5a524;"
+                "  border-radius: 3px;"
+                "  padding: 4px 14px;"
+                "  font-weight: bold;"
+                "}"
+            )
+        else:
+            self._commit_btn.setStyleSheet(_REFRESH_ALL_BTN_QSS)
 
 
 __all__ = ["AlarmDefsTab"]
