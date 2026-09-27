@@ -96,6 +96,61 @@ _TAB_REFRESH_TARGETS = (
 )
 
 
+def _banner_pack_kwh(app_params) -> float | None:
+    """Pack size from Setup. None when it is missing or zero."""
+    try:
+        cap = float(getattr(app_params, "battery_capacity_kwh", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    return cap if cap > 0 else None
+
+
+def _banner_min_soc_pct(app_params) -> float:
+    """Low-SOC threshold from Setup. The banner calls this Min SOC."""
+    try:
+        return float(getattr(app_params, "battery_low_soc_threshold_pct", 10) or 10)
+    except (TypeError, ValueError):
+        return 10.0
+
+
+def banner_discharge_notes(
+    soc_pct: float | None,
+    discharge_kw: float | None,
+    capacity_kwh: float | None,
+    min_soc_pct: float,
+) -> tuple[str, str]:
+    """Hours left to Min SOC, and the discharge rate in percent per hour.
+
+    Both are blank unless the pack is discharging and Setup has a pack size.
+    The rate is how many percent of that pack the present kilowatts empty
+    in one hour. The hours figure is how long until the low-SOC line if that
+    rate holds.
+    """
+    if discharge_kw is None or capacity_kwh is None or soc_pct is None:
+        return "", ""
+    try:
+        kw = float(discharge_kw)
+        cap = float(capacity_kwh)
+        soc = float(soc_pct)
+        floor = float(min_soc_pct)
+    except (TypeError, ValueError):
+        return "", ""
+    if kw <= 0.05 or cap <= 0:
+        return "", ""
+    pct_per_hr = kw / cap * 100.0
+    rate = f"{pct_per_hr:.1f}%/hr discharge"
+    if soc <= floor:
+        return "at min SOC", rate
+    hours = (soc - floor) / 100.0 * cap / kw
+    if hours >= 48:
+        hours_note = ">48 h to min SOC"
+    elif hours >= 10:
+        hours_note = f"{hours:.0f} h to min SOC"
+    else:
+        hours_note = f"{hours:.1f} h to min SOC"
+    return hours_note, rate
+
+
 class EnergyDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -485,16 +540,26 @@ class EnergyDashboard(QMainWindow):
             v.setFont(QFont('Helvetica', 13, QFont.Bold))
             v.setStyleSheet(f"color: {color}; border: none;")
             v.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            note = QLabel("")
+            note.setStyleSheet(
+                "color: #9399b2; font-size: 10px; font-weight: normal; border: none;"
+            )
+            note.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             cl.addWidget(t)
-            cl.addWidget(v, 1)
+            cl.addWidget(v)
+            cl.addWidget(note)
+            cl.addStretch(1)
             ban.addWidget(card)
-            return v
+            return v, note
 
-        self._ban_soc       = _banner_card("SOC", "#2196F3")
-        self._ban_bat_state = _banner_card("Battery", "#a6e3a1")
-        self._ban_load      = _banner_card("Load", "#fab387")
-        self._ban_pv        = _banner_card("PV", "#FF9800")
-        self._ban_grid      = _banner_card("Grid", "#cba6f7")
+        self._ban_soc, self._ban_soc_note = _banner_card("SOC", "#2196F3")
+        self._ban_bat_state, self._ban_bat_note = _banner_card("Battery", "#a6e3a1")
+        self._ban_load, _ban_load_note = _banner_card("Load", "#fab387")
+        self._ban_pv, _ban_pv_note = _banner_card("PV", "#FF9800")
+        self._ban_grid, _ban_grid_note = _banner_card("Grid", "#cba6f7")
+        _ban_load_note.hide()
+        _ban_pv_note.hide()
+        _ban_grid_note.hide()
         # Right-most cluster: auto-refresh cycle + tab wheel/hold strip (›).
         self._ban_refresh = self._build_refresh_cycle_card(ban)
         main_layout.addLayout(ban)
@@ -2098,6 +2163,7 @@ class EnergyDashboard(QMainWindow):
             self._ban_load.setText("--")
             self._ban_pv.setText("--")
             self._ban_grid.setText("--")
+            self._set_banner_discharge_notes("", "")
             return
 
         if data.get('comms_lost'):
@@ -2110,6 +2176,7 @@ class EnergyDashboard(QMainWindow):
             self._ban_pv.setText("--")
             self._ban_grid.setText("--")
             self._ban_grid.setStyleSheet("color: #6c7086;")
+            self._set_banner_discharge_notes("", "")
             self.set_status(
                 f"Growatt inverter offline ({reason}) — live banner paused"
             )
@@ -2120,8 +2187,10 @@ class EnergyDashboard(QMainWindow):
         self._ban_soc.setText(f"{soc_text}%")
         try:
             soc_val = float(soc)
+            soc_known = soc_val
         except (TypeError, ValueError):
             soc_val = 50
+            soc_known = None
         if soc_val > 80:
             self._ban_soc.setStyleSheet("color: #a6e3a1;")
         elif soc_val > 30:
@@ -2145,6 +2214,13 @@ class EnergyDashboard(QMainWindow):
             state_col = "#6c7086"
         self._ban_bat_state.setText(state_txt)
         self._ban_bat_state.setStyleSheet(f"color: {state_col};")
+        hours_note, rate_note = banner_discharge_notes(
+            soc_known,
+            abs(bp_f) if bp_f < -0.05 else None,
+            _banner_pack_kwh(self.app_params),
+            _banner_min_soc_pct(self.app_params),
+        )
+        self._set_banner_discharge_notes(hours_note, rate_note)
 
         lp = data.get('load_power', '--')
         lp_txt = growatt_format_live_kw(lp)
@@ -2174,6 +2250,23 @@ class EnergyDashboard(QMainWindow):
                 else:
                     self._ban_grid.setText("0.00 kW")
                     self._ban_grid.setStyleSheet("color: #6c7086;")
+
+    def _set_banner_discharge_notes(self, hours_note: str, rate_note: str) -> None:
+        """Small text beside SOC and Battery. Blank hides the note."""
+        self._ban_soc_note.setText(hours_note)
+        self._ban_soc_note.setVisible(bool(hours_note))
+        self._ban_bat_note.setText(rate_note)
+        self._ban_bat_note.setVisible(bool(rate_note))
+        if hours_note:
+            self._ban_soc_note.setToolTip(
+                "Hours until the low-SOC threshold in Setup, if this discharge "
+                "rate stays as it is. Uses the pack size from Setup."
+            )
+        if rate_note:
+            self._ban_bat_note.setToolTip(
+                "How fast the pack is emptying, as a percent of its Setup "
+                "capacity each hour."
+            )
 
     def set_status(self, text):
         # Status bar + Saved toast must only touch widgets on the GUI thread.

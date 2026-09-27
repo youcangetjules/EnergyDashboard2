@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 22:19
+
+- The live bar now says, while the battery is discharging, how many hours are left until the low-SOC threshold in Setup, in smaller text beside the SOC percentage. Beside the kilowatt figure it also says how fast that is, as a percent of the pack per hour. Both use the pack size from Setup. They stay blank when the battery is charging or holding.
+
 ### 22:15
 
 - The dashboard felt slow because each Tasmota update laid out every page in the window, and the power charts were drawn twice. The table now only changes row heights when the pane or the number of devices has changed, and a live chart update draws once. The safety sweep that keeps Qt objects out of the garbage collector no longer re-scans every Qt class when nothing new has been imported.

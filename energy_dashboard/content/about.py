@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.491", "2026-09-27", [
+        "The live banner shows hours left to the low-SOC threshold beside SOC, and the discharge rate in percent per hour beside Battery, while the pack is discharging.",
+    ]),
     ("2.9.490", "2026-09-27", [
         "The dashboard stays responsive. A Tasmota update no longer lays out every page, and its charts are drawn once instead of twice.",
     ]),

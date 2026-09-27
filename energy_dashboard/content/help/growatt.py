@@ -7,7 +7,7 @@ TAB_CLASS = "GrowattTab"
 
 HELP_TEXT = """\
 <h2>Growatt Live Status</h2><p>
-Live snapshot of the inverter: SOC, battery / PV / grid / load power, today's totals, device information, and the three-column physical panel. The bar is labelled <b>Telemetry Source</b>. You rank three paths — Growatt cloud API, local <b>GROTT MQTT</b>, and <b>Modbus RS485</b> — as 1st, 2nd, and 3rd. The dashboard tries them in that order. If the one on screen goes quiet and a higher-ranked source has a fresh reading, it switches back up.</p>
+Live snapshot of the inverter: SOC, battery / PV / grid / load power, today's totals, device information, and the three-column physical panel. On the live line at the top of every page, while the battery is discharging, smaller text beside SOC says how many hours are left until the low-SOC threshold in Setup if this rate holds, and smaller text beside Battery says how fast that is as a percent of the pack per hour. The bar is labelled <b>Telemetry Source</b>. You rank three paths — Growatt cloud API, local <b>GROTT MQTT</b>, and <b>Modbus RS485</b> — as 1st, 2nd, and 3rd. The dashboard tries them in that order. If the one on screen goes quiet and a higher-ranked source has a fresh reading, it switches back up.</p>
 <p>
 <b>Telemetry source</b></p>
 <ul>
