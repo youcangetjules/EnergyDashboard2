@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.489", "2026-09-27", [
+        "A Tasmota table update no longer starts an Octopus chart draw in the middle of itself. That overlap was aborting the dashboard, which the shell reported as Killed.",
+    ]),
     ("2.9.488", "2026-09-27", [
         "Alarm defs: right-click a signal in the signal list for Define or Delete. Define asks for the logging table and field. A signal on a rule does not open that box.",
     ]),

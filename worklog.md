@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 21:16
+
+- The dashboard that had been open since the afternoon aborted while drawing the Octopus daily chart. A Tasmota table update had paused to handle other waiting work, and that work started the chart draw inside the table update. Matplotlib’s font drawing cannot be entered that way, so the process stopped and the shell said Killed. The table update now only lets the layout settle, and leaves chart drawing for its own turn.
+
 ### 13:42
 
 - Right-click a signal in the Alarm defs signal list for Define or Delete. Define asks which logging table and field hold that reading. Delete clears the choice. Clicking a signal that is already on a rule no longer opens that box.

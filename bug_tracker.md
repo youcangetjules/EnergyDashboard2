@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-27 | 2 | 2 | 4 |
+| 2026-09-27 | 3 | 3 | 4 |
 | 2026-09-26 | 14 | 14 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
@@ -134,6 +134,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-079-20260927-03 — Dashboard killed while drawing the Octopus chart</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-27 21:16 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Tasmota device table / Octopus daily chart |
+| **Version found** | 2.9.488 (same stack on 2.9.474) |
+| **Version fixed** | 2.9.489 |
+
+**Symptom:** `./run-dashboard.sh` printed `line 80: 513871 Killed` and the window was gone. The process had been running since 13:52 that afternoon.
+
+**Cause:** Not out of memory. The core dump is an abort while drawing the Octopus daily chart. A Tasmota table update called `processEvents()`, which ran that queued chart draw inside the table update. Matplotlib’s font code cannot be entered that way, so the process aborted. The shell’s word for that stop was Killed.
+
+**Resolution:** The table update now flushes layout only, and does not run other waiting work. File: `tabs/tasmota.py`. Fixed 2026-09-27 21:16 in 2.9.489.
 
 ### <span style="color:green">BUG-078-20260927-02 — A written alarm is not watched</span>
 

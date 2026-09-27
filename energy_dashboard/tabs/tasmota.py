@@ -3279,7 +3279,10 @@ class TasmotaTab(QWidget):
         min_row = self._tasmota_min_row_h()
         self._tasmota_row_fit_lock = True
         try:
-            QApplication.processEvents()
+            # Layout only. Pumping the whole queue here ran a queued chart
+            # draw inside this call, and matplotlib's font code then aborted
+            # the app (the shell reports that as "Killed").
+            QApplication.sendPostedEvents(None, QEvent.Type.LayoutRequest)
             for tr in (self.tree_left, self.tree_right):
                 tr.setMaximumHeight(16777215)
                 header_h = tr.header().height() if tr.header() is not None else 0
