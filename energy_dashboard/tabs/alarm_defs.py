@@ -35,6 +35,9 @@ from energy_dashboard.core.alarms import (
     alarm_palette,
     duration_seconds,
     format_duration,
+    parse_flap,
+    FLAP_CHOICE,
+    FlapSpec,
     signal_alarm_type,
     alarm_unit_problem,
     split_joined_pieces,
@@ -148,6 +151,17 @@ _MULTI_KINDS = ("signal", "outcome")
 def _split_parts(kind: str, text: str) -> tuple[list[str], str]:
     """Blocks on one slot, and whether they are joined by and or or."""
     return split_joined_pieces(text, set(alarm_palette(kind)))
+
+
+def _opens_editor(text: str) -> bool:
+    """Click opens a box: a limit, a typed time, or Is flapping."""
+    return (
+        text in _PARAM_FOR
+        or text == _TASMOTA_SIGNAL
+        or text == "custom value"
+        or text == FLAP_CHOICE
+        or parse_flap(text) is not None
+    )
 
 
 def _piece_caption(text: str) -> str:
@@ -522,6 +536,89 @@ def _edit_custom_duration(parent) -> str | None:
     return format_duration(float(spin.value()) * scale)
 
 
+def _sentence_word(text: str) -> QLabel:
+    word = QLabel(text)
+    word.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+    word.setStyleSheet("color: #cdd6f4; font-size: 13px; background: transparent;")
+    return word
+
+
+def _edit_flap(parent, current: FlapSpec | None = None) -> str | None:
+    """Ask how often the line must be crossed. Returns the chip sentence."""
+    spec = current or FlapSpec(times=3, window_min=10, dwell_s=5)
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Is flapping")
+    dlg.setMinimumWidth(640)
+    lay = QVBoxLayout(dlg)
+    hint = _dialog_hint(
+        "The alarm sounds when the line is crossed this often, "
+        "instead of once and then staying there. A crossing only counts "
+        "after it has stayed over the line for the seconds you set, "
+        "and those crossings have to fall inside the minutes window."
+    )
+    lay.addWidget(hint)
+    times = QSpinBox()
+    times.setRange(1, 99)
+    times.setValue(spec.times)
+    apply_spin_field_motif(times, width=72)
+    minutes = QSpinBox()
+    minutes.setRange(1, 1440)
+    minutes.setValue(spec.window_min)
+    apply_spin_field_motif(minutes, width=72)
+    seconds = QSpinBox()
+    seconds.setRange(1, 3600)
+    seconds.setValue(max(1, spec.dwell_s))
+    apply_spin_field_motif(seconds, width=72)
+    times_word = _sentence_word("times")
+    minutes_word = _sentence_word("minutes")
+    seconds_word = _sentence_word("seconds")
+
+    def _plurals() -> None:
+        times_word.setText("time" if times.value() == 1 else "times")
+        minutes_word.setText("minute" if minutes.value() == 1 else "minutes")
+        seconds_word.setText("second" if seconds.value() == 1 else "seconds")
+
+    times.valueChanged.connect(lambda _v: _plurals())
+    minutes.valueChanged.connect(lambda _v: _plurals())
+    seconds.valueChanged.connect(lambda _v: _plurals())
+    _plurals()
+    seen = QHBoxLayout()
+    seen.setSpacing(6)
+    seen.addWidget(_sentence_word("Seen"))
+    seen.addWidget(times)
+    seen.addWidget(times_word)
+    seen.addWidget(_sentence_word("in"))
+    seen.addWidget(minutes)
+    seen.addWidget(minutes_word)
+    seen.addStretch(1)
+    lay.addLayout(seen)
+    crossed = QHBoxLayout()
+    crossed.setSpacing(6)
+    crossed.addWidget(_sentence_word("where the trigger threshold is exceeded for"))
+    crossed.addWidget(seconds)
+    crossed.addWidget(seconds_word)
+    crossed.addStretch(1)
+    lay.addLayout(crossed)
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+    )
+    ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    if ok is not None:
+        ok.setText("Save")
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    lay.addWidget(buttons)
+    _prepare_dialog_buttons(dlg)
+    _fit_dialog_to_hint(dlg, hint)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+    return FlapSpec(
+        times=int(times.value()),
+        window_min=int(minutes.value()),
+        dwell_s=int(seconds.value()),
+    ).phrase()
+
+
 def _edit_param(parent, spec: _Param, dash) -> bool:
     dlg = QDialog(parent)
     dlg.setWindowTitle(spec.title)
@@ -644,6 +741,12 @@ class _PaletteList(QListWidget):
                 tip = "As soon as it is seen. No wait."
             elif kind == "duration" and text == "custom value":
                 tip = "Type your own length of time."
+            elif kind == "duration" and text == FLAP_CHOICE:
+                tip = (
+                    "The line is crossed several times, instead of staying true. "
+                    "Drop it to say how many times, in how many minutes, "
+                    "and for how many seconds."
+                )
             elif kind == "duration":
                 tip = f"The condition must stay true for {text}."
             else:
@@ -908,7 +1011,7 @@ class _Slot(QFrame):
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             self._paint_caption()
             lines = [self.caption()]
-            if self._text in _PARAM_FOR or self._text == _TASMOTA_SIGNAL or self._text == "custom value":
+            if _opens_editor(self._text):
                 lines.append("Click to change this.")
             lines.append("Double-click to remove it.")
             lines.append("Drag onto the bin to remove it.")
@@ -1040,8 +1143,27 @@ class _Slot(QFrame):
                 self.set_piece(phrase)
                 self.changed.emit()
             return
+        elif tab is not None and (
+            self._text == FLAP_CHOICE or parse_flap(self._text) is not None
+        ):
+            phrase = _edit_flap(tab, parse_flap(self._text))
+            if phrase:
+                self.set_piece(phrase)
+                self.changed.emit()
+            return
         if edited and tab is not None:
             tab.refresh_param_chips()
+
+    def _apply_flap_drop(self) -> None:
+        """Dropping Is flapping asks for the three numbers before the chip changes."""
+        tab = self._tab()
+        if tab is None:
+            return
+        phrase = _edit_flap(tab, None)
+        if not phrase:
+            return
+        self.set_piece(phrase)
+        self.changed.emit()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.RightButton and self._text:
@@ -1083,7 +1205,7 @@ class _Slot(QFrame):
     def mouseReleaseEvent(self, event):
         if self._armed and event.button() == Qt.MouseButton.LeftButton and self._text:
             self._armed = False
-            if self._text in _PARAM_FOR or self._text == _TASMOTA_SIGNAL or self._text == "custom value":
+            if _opens_editor(self._text):
                 self._click_timer.start(QApplication.doubleClickInterval())
             return
         self._armed = False
@@ -1123,10 +1245,13 @@ class _Slot(QFrame):
                 self.set_piece(joiner.join(self._parts + [text]))
                 self.changed.emit()
         else:
-            self.set_piece(text)
-            self.changed.emit()
-            if text == "custom value":
-                QTimer.singleShot(0, self._open_editor)
+            if text == FLAP_CHOICE:
+                QTimer.singleShot(0, self._apply_flap_drop)
+            else:
+                self.set_piece(text)
+                self.changed.emit()
+                if text == "custom value":
+                    QTimer.singleShot(0, self._open_editor)
         event.setDropAction(Qt.DropAction.CopyAction)
         event.accept()
 
@@ -1720,13 +1845,22 @@ class AlarmDefsTab(QWidget):
         if monitor is None or not hasattr(monitor, "set_rule_holds"):
             return
         holds: dict[str, float] = {}
+        flaps: dict[str, FlapSpec] = {}
         for card in self._cards:
             pieces = card.values()
             key = alarm_blocks_key(pieces)
+            if not key:
+                continue
+            flap = parse_flap(pieces.get("duration", ""))
+            if flap is not None:
+                flaps[key] = flap
+                continue
             seconds = duration_seconds(pieces.get("duration", ""))
-            if key and seconds is not None:
+            if seconds is not None:
                 holds[key] = seconds
         monitor.set_rule_holds(holds)
+        if hasattr(monitor, "set_rule_flaps"):
+            monitor.set_rule_flaps(flaps)
 
     def _reset(self) -> None:
         QSettings("PowerModel", "EnergyDashboard2").remove(_QS_RULES)

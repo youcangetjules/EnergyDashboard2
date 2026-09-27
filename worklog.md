@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 12:26
+
+- How long on Alarm defs now has Is flapping. Dropping it opens a box that reads “Seen this many times in this many minutes, where the trigger threshold is exceeded for this many seconds.” You can change the three numbers, and click the block later to change them again.
+- On one of the built-in alarms, that replaces the usual “it has to stay true for this long.” The alarm sounds when the line has been crossed that many times inside the window. A single long stretch counts as once. It stays sounding until those crossings are no longer inside the window, so a brief recovery does not clear it by itself.
+
 ### 12:12
 
 - The While slot on Alarm defs is now called With additional Conditions. Its list has grown: it is daytime, it is night-time, the battery is charging, the battery is discharging, the grid is importing, the inverter is online, and Agile is in a cheap slot. These are palette blocks for writing rules; only the built-in alarms fire.

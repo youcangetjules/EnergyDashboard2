@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-27 — Is flapping is a count of crossings, not a longer wait
+
+- **Context:** How long on Alarm defs was a single wait: the condition stays true for that long, then the alarm sounds, and it clears the moment the condition goes false.
+- **Decision:** **Is flapping** stores a sentence: seen N times in M minutes, where each crossing has stayed over the line for S seconds. On a built-in alarm that sentence replaces the plain wait. One stretch that never lets go counts once. The alarm stays up while enough of those crossings are still inside the window, including after the line has recovered.
+- **Consequence:** Do not turn a flapping sentence back into a single hold time. A plain duration still clears as soon as the condition is false.
+
 ### 2026-09-26 — Telemetry source is a priority, not a single choice
 
 - **Context:** Live Status, Setup, and Grott Setup offered exclusive radios (cloud, Grott, Hybrid, Modbus) plus “Fill missing Grott data with API”, which patched individual Grott registers from the cloud.

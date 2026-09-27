@@ -27,9 +27,14 @@ low-battery line or the spare-solar minimum. Some alarms have nothing to
 compare against, so this box can stay empty.</li>
 <li><b>For how long</b> (purple) — how long it must hold before the alarm
 sounds. Choose <b>is seen</b> for no wait, a fixed time from 10 seconds up
-to 30 minutes, or <b>custom value</b> to type your own. A built-in alarm
-uses that wait. The older phrases, such as “the hold time”, still mean the
-figure in Setup &amp; Info.</li>
+to 30 minutes, or <b>custom value</b> to type your own. <b>Is flapping</b>
+is for a line that is crossed over and over rather than staying true. Dropping
+it opens a box: Seen how many times in how many minutes, where the trigger
+threshold is exceeded for how many seconds. On a built-in alarm that count
+replaces the plain wait. The alarm sounds once it has been crossed that often
+inside the window, and it clears once those crossings fall outside the window.
+The older phrases, such as “the hold time”, still mean the figure in Setup
+&amp; Info.</li>
 <li><b>With additional Conditions</b> (orange) — an extra condition that also
 has to be true, for example “logging is switched on”, “it is daytime”, “the
 battery is charging”, “the grid is importing”, or “Agile is in a cheap slot”.
@@ -63,9 +68,9 @@ many volts that block means. Click <b>Tasmota device</b> and enter that
 plug’s IP address. With an address set, that alarm watches only that device.</p>
 <p>
 Click a block that has a number — a length of time, the hold time, the
-low-battery line, the spare-solar minimum, or Volts — and a box opens so you
-can change that figure. Where the sentence is one of the built-in alarms, the
-alarm uses the new number.</p>
+low-battery line, the spare-solar minimum, Volts, or an Is flapping sentence —
+and a box opens so you can change that figure. Where the sentence is one of
+the built-in alarms, the alarm uses the new number.</p>
 <p>
 The line itself is the syntax, in the form
 <b>WHEN</b> signal comparison threshold <b>FOR</b> how long

@@ -409,7 +409,8 @@ _COMPARISON_ORDER = (
 
 # How long a condition must stay true. The palette offers these, in this order.
 # "is seen" means no wait. "custom value" is the list entry; a typed time is
-# stored as "45 seconds" or "7 minutes".
+# stored as "45 seconds" or "7 minutes". "is flapping" is the list entry; the
+# rule stores the sentence from the dialogue (see FlapSpec).
 DURATION_CHOICES: tuple[str, ...] = (
     "is seen",
     "10 seconds",
@@ -420,7 +421,30 @@ DURATION_CHOICES: tuple[str, ...] = (
     "10 minutes",
     "30 minutes",
     "custom value",
+    "is flapping",
 )
+FLAP_CHOICE = "is flapping"
+
+
+@dataclass(frozen=True)
+class FlapSpec:
+    """How often a line must be crossed before the alarm sounds.
+
+    ``times`` crossings inside ``window_min`` minutes. A crossing counts only
+    after the condition has stayed true for ``dwell_s`` seconds.
+    """
+
+    times: int
+    window_min: int
+    dwell_s: int
+
+    def phrase(self) -> str:
+        return (
+            f"Seen {_count_word(self.times, 'time', 'times')} in "
+            f"{_count_word(self.window_min, 'minute', 'minutes')} where the "
+            "trigger threshold is exceeded for "
+            f"{_count_word(self.dwell_s, 'second', 'seconds')}"
+        )
 _DURATION_SECONDS = {
     "is seen": 0.0,
     "10 seconds": 10.0,
@@ -450,6 +474,27 @@ def duration_seconds(text: str) -> float | None:
     if minutes:
         return float(minutes.group(1)) * 60.0
     return None
+
+
+def _count_word(n: int, one: str, many: str) -> str:
+    return f"{int(n)} {one if int(n) == 1 else many}"
+
+
+def parse_flap(text: str) -> FlapSpec | None:
+    """The Is flapping sentence, or None when this How long is a plain wait."""
+    import re
+    match = re.fullmatch(
+        r"seen (\d+) times? in (\d+) minutes? where the trigger threshold "
+        r"is exceeded for (\d+) seconds?",
+        (text or "").strip(),
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    times, window, dwell = (int(match.group(i)) for i in (1, 2, 3))
+    if times < 1 or window < 1 or dwell < 0:
+        return None
+    return FlapSpec(times=times, window_min=window, dwell_s=dwell)
 
 
 def format_duration(seconds: float) -> str:
@@ -728,7 +773,11 @@ def alarm_blocks_key(pieces: dict[str, str]) -> str | None:
             continue
         if severity_outcome(canon["outcome"]) != p["outcome"]:
             continue
-        if p["duration"] == canon["duration"] or duration_seconds(p["duration"]) is not None:
+        if (
+            p["duration"] == canon["duration"]
+            or duration_seconds(p["duration"]) is not None
+            or parse_flap(p["duration"]) is not None
+        ):
             return row.key
     return None
 
@@ -797,6 +846,10 @@ class AlarmMonitor:
     history: list[dict[str, Any]] = field(default_factory=list, init=False)
     _history_cap: int = field(default=40, init=False)
     _rule_hold_s: dict[str, float] = field(default_factory=dict, init=False)
+    _rule_flap: dict[str, FlapSpec] = field(default_factory=dict, init=False)
+    _flap_on: dict[str, float] = field(default_factory=dict, init=False)
+    _flap_counted: dict[str, bool] = field(default_factory=dict, init=False)
+    _flap_hits: dict[str, list[float]] = field(default_factory=dict, init=False)
 
     def set_rule_holds(self, holds: dict[str, float] | None) -> None:
         """Waits chosen on Alarm defs. Missing keys keep the Setup wait."""
@@ -807,6 +860,67 @@ class AlarmMonitor:
             except (TypeError, ValueError):
                 continue
         self._rule_hold_s = cleaned
+
+    def set_rule_flaps(self, flaps: dict[str, FlapSpec] | None) -> None:
+        """Is flapping on a built-in rule replaces that alarm's plain wait."""
+        cleaned: dict[str, FlapSpec] = {}
+        for key, spec in (flaps or {}).items():
+            if isinstance(spec, FlapSpec):
+                cleaned[str(key)] = spec
+        removed = set(self._rule_flap) - set(cleaned)
+        self._rule_flap = cleaned
+        for key in removed:
+            self._flap_on.pop(key, None)
+            self._flap_counted.pop(key, None)
+            self._flap_hits.pop(key, None)
+
+    def _end_stretch(self, key: str) -> None:
+        """The condition just went false. A flap keeps its recent crossings."""
+        if key not in self._rule_flap:
+            self._drop_alarm(key)
+
+    def _note_flap(self, key: str, cond: bool, now: float) -> None:
+        """Count one crossing once it has stayed over the line long enough."""
+        spec = self._rule_flap.get(key)
+        if spec is None:
+            self._flap_on.pop(key, None)
+            self._flap_counted.pop(key, None)
+            self._flap_hits.pop(key, None)
+            return
+        if cond:
+            started = self._flap_on.get(key)
+            if started is None:
+                self._flap_on[key] = now
+                self._flap_counted[key] = False
+                started = now
+            if (
+                not self._flap_counted.get(key)
+                and (now - started) >= float(spec.dwell_s)
+            ):
+                self._flap_hits.setdefault(key, []).append(now)
+                self._flap_counted[key] = True
+        else:
+            self._flap_on.pop(key, None)
+            self._flap_counted[key] = False
+        window = float(spec.window_min) * 60.0
+        hits = [t for t in self._flap_hits.get(key, []) if (now - t) <= window]
+        if hits:
+            self._flap_hits[key] = hits
+        else:
+            self._flap_hits.pop(key, None)
+
+    def _fires(self, key: str, since: float | None, now: float, hold_s: float) -> bool:
+        spec = self._rule_flap.get(key)
+        if spec is not None:
+            return len(self._flap_hits.get(key, ())) >= spec.times
+        return since is not None and (now - float(since)) >= float(hold_s)
+
+    def _mark_since(self, key: str, since: float | None) -> float:
+        if key in self._rule_flap:
+            hits = self._flap_hits.get(key) or []
+            if hits:
+                return float(hits[0])
+        return float(since if since is not None else 0.0)
 
     def _wait_s(self, key: str, default: float) -> float:
         if key in self._rule_hold_s:
@@ -867,6 +981,9 @@ class AlarmMonitor:
         self._tasmota_off_since = None
         self._ingest_seen_ok = False
         self._tasmota_offline_labels = ()
+        self._flap_on.clear()
+        self._flap_counted.clear()
+        self._flap_hits.clear()
         self._active.clear()
         self._last_notify_wall.clear()
         self._notify_count.clear()
@@ -962,9 +1079,10 @@ class AlarmMonitor:
         grott_ok = (not grott_expected) or (bool(grott_connected) and bool(grott_fresh))
         if grott_ok:
             self._grott_lost_since = None
-            self._drop_alarm("grott_lost")
+            self._end_stretch("grott_lost")
         elif self._grott_lost_since is None:
             self._grott_lost_since = now
+        self._note_flap("grott_lost", not grott_ok, now)
 
         if soc is None:
             hits: list[AlarmHit] = []
@@ -995,12 +1113,14 @@ class AlarmMonitor:
             return hits
 
         # ── Low SOC timer ──────────────────────────────────────────────
-        if soc < thr:
+        low = soc < thr
+        if low:
             if self._below_since is None:
                 self._below_since = now
         else:
             self._below_since = None
-            self._drop_alarm("low_soc")
+            self._end_stretch("low_soc")
+        self._note_flap("low_soc", low, now)
 
         # ── Sun wasted: real PV *surplus* exists but nothing is charging ──
         # Surplus (PV minus house load) is what can actually reach the
@@ -1016,7 +1136,8 @@ class AlarmMonitor:
                 self._sun_waste_since = now
         else:
             self._sun_waste_since = None
-            self._drop_alarm("sun_wasted")
+            self._end_stretch("sun_wasted")
+        self._note_flap("sun_wasted", sun_waste_cond, now)
 
         # ── Load is eating all the PV: nothing left to charge with ───────
         # Distinct from the above — here the inverter is behaving, the house
@@ -1031,25 +1152,26 @@ class AlarmMonitor:
                 self._load_eats_pv_since = now
         else:
             self._load_eats_pv_since = None
-            self._drop_alarm("load_eats_pv")
+            self._end_stretch("load_eats_pv")
+        self._note_flap("load_eats_pv", load_eats_cond, now)
 
         hits: list[AlarmHit] = []
 
-        if self._below_since is not None and (now - self._below_since) >= low_hold:
-            dur_m = (now - self._below_since) / 60.0
+        if self._fires("low_soc", self._below_since, now, low_hold):
+            dur_m = (now - self._mark_since("low_soc", self._below_since)) / 60.0
             why = _why_low_with_context(soc, thr, pv, chg, dsch, load, gimp, self.pv_min_kw)
             hit = self._raise(
                 key="low_soc",
                 severity="critical" if soc < max(5.0, thr * 0.5) else "warn",
                 title=f"SOC {soc:.0f}% below {thr:.0f}% for {dur_m:.0f} min",
                 detail=why,
-                since_wall=self._below_since,
+                since_wall=self._mark_since("low_soc", self._below_since),
                 now_wall=now,
             )
             hits.append(hit)
 
-        if self._sun_waste_since is not None and (now - self._sun_waste_since) >= sun_hold:
-            dur_m = (now - self._sun_waste_since) / 60.0
+        if self._fires("sun_wasted", self._sun_waste_since, now, sun_hold):
+            dur_m = (now - self._mark_since("sun_wasted", self._sun_waste_since)) / 60.0
             detail = (
                 f"SOC {soc:.0f}% for {dur_m:.0f} min with ~{surplus:.1f} kW spare PV "
                 f"(PV {pv:.2f} kW, load {load:.2f} kW) but charge only {chg:.2f} kW. "
@@ -1061,13 +1183,13 @@ class AlarmMonitor:
                 severity="critical",
                 title=f"Spare PV {surplus:.1f} kW not charging (SOC {soc:.0f}%)",
                 detail=detail,
-                since_wall=self._sun_waste_since,
+                since_wall=self._mark_since("sun_wasted", self._sun_waste_since),
                 now_wall=now,
             )
             hits.append(hit)
 
-        if self._load_eats_pv_since is not None and (now - self._load_eats_pv_since) >= load_hold:
-            dur_m = (now - self._load_eats_pv_since) / 60.0
+        if self._fires("load_eats_pv", self._load_eats_pv_since, now, load_hold):
+            dur_m = (now - self._mark_since("load_eats_pv", self._load_eats_pv_since)) / 60.0
             detail = (
                 f"PV {pv:.2f} kW but house load {load:.2f} kW for {dur_m:.0f} min — "
                 f"no surplus left to charge (grid import {gimp:.2f} kW, SOC {soc:.0f}%). "
@@ -1080,7 +1202,7 @@ class AlarmMonitor:
                 severity="warn",
                 title=f"Load {load:.1f} kW consuming all PV {pv:.1f} kW",
                 detail=detail,
-                since_wall=self._load_eats_pv_since,
+                since_wall=self._mark_since("load_eats_pv", self._load_eats_pv_since),
                 now_wall=now,
             )
             hits.append(hit)
@@ -1122,9 +1244,8 @@ class AlarmMonitor:
         age_s: float | None,
         fresh_s: float,
     ) -> AlarmHit | None:
-        if self._grott_lost_since is None:
-            return None
         # A duration chosen on Alarm defs replaces the usual Grott wait.
+        # Is flapping replaces that wait with a count of crossings.
         chosen = self._rule_hold_s.get("grott_lost")
         if chosen is not None:
             hold_s = chosen
@@ -1134,9 +1255,9 @@ class AlarmMonitor:
             hold_s = max(self.grott_lost_hold_s, float(fresh_s))
         else:
             hold_s = self.grott_lost_hold_s
-        if (now - self._grott_lost_since) < hold_s:
+        if not self._fires("grott_lost", self._grott_lost_since, now, hold_s):
             return None
-        dur_s = now - self._grott_lost_since
+        dur_s = now - self._mark_since("grott_lost", self._grott_lost_since)
         if not connected:
             title = "Grott feed lost — MQTT disconnected"
             detail = (
@@ -1161,7 +1282,7 @@ class AlarmMonitor:
             severity="critical",
             title=title,
             detail=detail,
-            since_wall=self._grott_lost_since,
+            since_wall=self._mark_since("grott_lost", self._grott_lost_since),
             now_wall=now,
         )
 
@@ -1187,19 +1308,21 @@ class AlarmMonitor:
         eng = (db_engine or "database").strip() or "database"
 
         # ── Logging enabled but we cannot reach the database ────────────
-        if db_logging_enabled and db_connected is False:
+        db_down = bool(db_logging_enabled and db_connected is False)
+        if db_down:
             if self._db_disc_since is None:
                 self._db_disc_since = now
         else:
             self._db_disc_since = None
-            self._drop_alarm("db_disconnected")
-        if (
-            self._db_disc_since is not None
-            and (now - self._db_disc_since) >= self._wait_s(
-                "db_disconnected", self.db_disconnect_hold_s,
-            )
+            self._end_stretch("db_disconnected")
+        self._note_flap("db_disconnected", db_down, now)
+        if self._fires(
+            "db_disconnected",
+            self._db_disc_since,
+            now,
+            self._wait_s("db_disconnected", self.db_disconnect_hold_s),
         ):
-            dur_s = now - self._db_disc_since
+            dur_s = now - self._mark_since("db_disconnected", self._db_disc_since)
             err = (db_error or "connection failed").strip()
             hits.append(self._raise(
                 key="db_disconnected",
@@ -1210,7 +1333,7 @@ class AlarmMonitor:
                     f"({err}). Live readings are not being stored. Check host, "
                     "credentials, and that the database is ticked in Setup & Info."
                 ),
-                since_wall=self._db_disc_since,
+                since_wall=self._mark_since("db_disconnected", self._db_disc_since),
                 now_wall=now,
             ))
 
@@ -1227,17 +1350,19 @@ class AlarmMonitor:
         )
         uptime = now - float(self._started_wall or now)
         past_grace = self._ingest_seen_ok or uptime >= DEFAULT_INGEST_STARTUP_GRACE_S
-        if ingest_dry and past_grace:
+        ingest_bad = bool(ingest_dry and past_grace)
+        if ingest_bad:
             if self._db_ingest_since is None:
                 self._db_ingest_since = now
         else:
             self._db_ingest_since = None
-            self._drop_alarm("db_ingest_stale")
-        if (
-            self._db_ingest_since is not None
-            and (now - self._db_ingest_since) >= self._wait_s(
-                "db_ingest_stale", self.db_ingest_hold_s,
-            )
+            self._end_stretch("db_ingest_stale")
+        self._note_flap("db_ingest_stale", ingest_bad, now)
+        if self._fires(
+            "db_ingest_stale",
+            self._db_ingest_since,
+            now,
+            self._wait_s("db_ingest_stale", self.db_ingest_hold_s),
         ):
             who = []
             if growatt_writing:
@@ -1264,25 +1389,27 @@ class AlarmMonitor:
                         "and the Console for write errors."
                     )
                 ),
-                since_wall=self._db_ingest_since,
+                since_wall=self._mark_since("db_ingest_stale", self._db_ingest_since),
                 now_wall=now,
             ))
 
         # ── Inverter reported offline by Growatt cloud ──────────────────
-        if inverter_comms_lost:
+        inv_bad = bool(inverter_comms_lost)
+        if inv_bad:
             if self._inv_lost_since is None:
                 self._inv_lost_since = now
         else:
             self._inv_lost_since = None
-            self._drop_alarm("inverter_comms_lost")
-        if (
-            self._inv_lost_since is not None
-            and (now - self._inv_lost_since) >= self._wait_s(
-                "inverter_comms_lost", self.inverter_lost_hold_s,
-            )
+            self._end_stretch("inverter_comms_lost")
+        self._note_flap("inverter_comms_lost", inv_bad, now)
+        if self._fires(
+            "inverter_comms_lost",
+            self._inv_lost_since,
+            now,
+            self._wait_s("inverter_comms_lost", self.inverter_lost_hold_s),
         ):
             reason = (inverter_comms_reason or "offline").strip()
-            dur_m = (now - self._inv_lost_since) / 60.0
+            dur_m = (now - self._mark_since("inverter_comms_lost", self._inv_lost_since)) / 60.0
             hits.append(self._raise(
                 key="inverter_comms_lost",
                 severity="critical",
@@ -1293,24 +1420,26 @@ class AlarmMonitor:
                     "not this app. Check the Shine stick, inverter display, and "
                     "LAN. Grott will also go quiet until the stick publishes again."
                 ),
-                since_wall=self._inv_lost_since,
+                since_wall=self._mark_since("inverter_comms_lost", self._inv_lost_since),
                 now_wall=now,
             ))
 
         # ── Tasmota MQTT broker down ────────────────────────────────────
-        if tasmota_mqtt_expected and not tasmota_mqtt_connected:
+        mqtt_bad = bool(tasmota_mqtt_expected and not tasmota_mqtt_connected)
+        if mqtt_bad:
             if self._tasmota_mqtt_since is None:
                 self._tasmota_mqtt_since = now
         else:
             self._tasmota_mqtt_since = None
-            self._drop_alarm("tasmota_mqtt_lost")
-        if (
-            self._tasmota_mqtt_since is not None
-            and (now - self._tasmota_mqtt_since) >= self._wait_s(
-                "tasmota_mqtt_lost", self.tasmota_mqtt_hold_s,
-            )
+            self._end_stretch("tasmota_mqtt_lost")
+        self._note_flap("tasmota_mqtt_lost", mqtt_bad, now)
+        if self._fires(
+            "tasmota_mqtt_lost",
+            self._tasmota_mqtt_since,
+            now,
+            self._wait_s("tasmota_mqtt_lost", self.tasmota_mqtt_hold_s),
         ):
-            dur_s = now - self._tasmota_mqtt_since
+            dur_s = now - self._mark_since("tasmota_mqtt_lost", self._tasmota_mqtt_since)
             hits.append(self._raise(
                 key="tasmota_mqtt_lost",
                 severity="critical",
@@ -1321,7 +1450,7 @@ class AlarmMonitor:
                     "Check EMQX host, credentials, and that the devices still "
                     "publish tele/."
                 ),
-                since_wall=self._tasmota_mqtt_since,
+                since_wall=self._mark_since("tasmota_mqtt_lost", self._tasmota_mqtt_since),
                 now_wall=now,
             ))
 
@@ -1330,19 +1459,22 @@ class AlarmMonitor:
         # If the whole MQTT pipe is down, don't also list every plug.
         if tasmota_mqtt_expected and not tasmota_mqtt_connected:
             offline = []
-        if offline:
+        plugs_bad = bool(offline)
+        if plugs_bad:
             self._tasmota_offline_labels = tuple(offline)
             if self._tasmota_off_since is None:
                 self._tasmota_off_since = now
         else:
             self._tasmota_off_since = None
-            self._tasmota_offline_labels = ()
-            self._drop_alarm("tasmota_offline")
-        if (
-            self._tasmota_off_since is not None
-            and (now - self._tasmota_off_since) >= self._wait_s(
-                "tasmota_offline", self.tasmota_stale_s,
-            )
+            if "tasmota_offline" not in self._rule_flap:
+                self._tasmota_offline_labels = ()
+            self._end_stretch("tasmota_offline")
+        self._note_flap("tasmota_offline", plugs_bad, now)
+        if self._fires(
+            "tasmota_offline",
+            self._tasmota_off_since,
+            now,
+            self._wait_s("tasmota_offline", self.tasmota_stale_s),
         ):
             labels = ", ".join(self._tasmota_offline_labels[:6])
             extra = (
@@ -1363,7 +1495,7 @@ class AlarmMonitor:
                     "Wi-Fi drop, a powered-off plug, or a stuck Tasmota firmware "
                     "are the usual causes — not a chart bug."
                 ),
-                since_wall=self._tasmota_off_since,
+                since_wall=self._mark_since("tasmota_offline", self._tasmota_off_since),
                 now_wall=now,
             ))
 
@@ -1391,6 +1523,10 @@ class AlarmMonitor:
                 should_notify = True
                 self._last_notify_wall[key] = now_wall
                 self._notify_count[key] = sent + 1
+        spec = self._rule_flap.get(key)
+        if spec is not None:
+            n = len(self._flap_hits.get(key, ()))
+            detail = f"{spec.phrase()} — {n} in the window so far. " + detail
         hit = AlarmHit(
             key=key,
             severity=severity,
@@ -1569,6 +1705,9 @@ __all__ = [
     "alarm_band",
     "duration_seconds",
     "format_duration",
+    "parse_flap",
+    "FlapSpec",
+    "FLAP_CHOICE",
     "DURATION_CHOICES",
     "SIGNAL_ALARM_TYPE",
     "CONTEXT_SIGNALS",
