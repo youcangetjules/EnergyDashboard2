@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.482", "2026-09-27", [
+        "Each alarm rule has an Inspect button. It shows which parts are triggering on the last live check, and which are not, and whether the alarm is sounding.",
+    ]),
     ("2.9.481", "2026-09-27", [
         "How long on Alarm defs can be Is flapping. A box asks how many times the line is crossed, in how many minutes, and for how many seconds each crossing must last. On a built-in alarm that count replaces the plain wait.",
     ]),

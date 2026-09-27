@@ -87,6 +87,13 @@ lists and the rules to give either side more room. A complete sentence that is
 not one of the built-in alarms still does not fire — the hover says so.
 The thing that actually raises alarms is still the built-in rule in the code.</p>
 <p>
+<b>Inspect</b>, on the right of each rule, opens the parts of that rule and
+marks each one <b>Triggering</b> or <b>Not triggering</b> from the last live
+check. How long is triggering only once the wait, or the flapping count, has
+been met. The last line says whether the alarm is sounding. A sentence that
+is not a built-in alarm is marked <b>Not watched</b>, because it does not
+fire.</p>
+<p>
 The outcome slot takes two blocks as well: keep the warning or critical
 wording and drop <b>send SMS</b> or <b>create a desktop alert</b> beside it.
 On a rule that matches a built-in alarm, that is what the alarm then does —

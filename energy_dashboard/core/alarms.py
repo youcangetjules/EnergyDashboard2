@@ -37,6 +37,19 @@ NOTIFY_BACKOFF_STAGES: tuple[tuple[int, float], ...] = (
 NOTIFY_BACKOFF_FINAL_S = 60 * 60
 
 
+def _span_words(seconds: float) -> str:
+    """A short length of time for the Inspect window."""
+    seconds = max(0.0, float(seconds))
+    if seconds < 90:
+        n = int(round(seconds))
+        return "1 second" if n == 1 else f"{n} seconds"
+    minutes = seconds / 60.0
+    n = int(round(minutes))
+    if abs(minutes - n) < 0.05:
+        return "1 minute" if n == 1 else f"{n} minutes"
+    return f"{minutes:.0f} minutes"
+
+
 def notify_backoff_interval_s(notifies_already_sent: int) -> float:
     """Seconds to wait before the next tray notify given how many were already sent."""
     sent = max(0, int(notifies_already_sent))
@@ -809,6 +822,20 @@ class AlarmHit:
     should_notify: bool = False
 
 
+@dataclass(frozen=True)
+class AlarmPart:
+    """One clause of a built-in alarm, as the last live check saw it.
+
+    ``on`` is whether that clause is true. ``result`` marks the whole alarm
+    (sounding or not) rather than a single clause.
+    """
+
+    label: str
+    on: bool
+    detail: str
+    result: bool = False
+
+
 @dataclass
 class AlarmMonitor:
     """Track rising/falling edges for low-SOC and sun-wasted conditions."""
@@ -850,6 +877,8 @@ class AlarmMonitor:
     _flap_on: dict[str, float] = field(default_factory=dict, init=False)
     _flap_counted: dict[str, bool] = field(default_factory=dict, init=False)
     _flap_hits: dict[str, list[float]] = field(default_factory=dict, init=False)
+    _inspection: dict[str, tuple[AlarmPart, ...]] = field(default_factory=dict, init=False)
+    _inspection_at: float | None = field(default=None, init=False)
 
     def set_rule_holds(self, holds: dict[str, float] | None) -> None:
         """Waits chosen on Alarm defs. Missing keys keep the Setup wait."""
@@ -984,6 +1013,8 @@ class AlarmMonitor:
         self._flap_on.clear()
         self._flap_counted.clear()
         self._flap_hits.clear()
+        self._inspection = {}
+        self._inspection_at = None
         self._active.clear()
         self._last_notify_wall.clear()
         self._notify_count.clear()
@@ -1110,6 +1141,20 @@ class AlarmMonitor:
             for k in list(self._active.keys()):
                 if k not in keep:
                     self._drop_alarm(k)
+            self._remember_inspection(
+                now, soc=soc, thr=thr, pv=pv, chg=chg, load=load, gimp=gimp,
+                grott_expected=grott_expected, grott_ok=grott_ok,
+                grott_connected=grott_connected, grott_age_s=grott_age_s,
+                grott_fresh_s=grott_fresh_s,
+                db_logging_enabled=db_logging_enabled, db_connected=db_connected,
+                db_rows_15m=db_rows_15m, growatt_writing=growatt_writing,
+                tasmota_writing=tasmota_writing,
+                inverter_comms_lost=inverter_comms_lost,
+                inverter_comms_reason=inverter_comms_reason,
+                tasmota_mqtt_expected=tasmota_mqtt_expected,
+                tasmota_mqtt_connected=tasmota_mqtt_connected,
+                tasmota_offline=tasmota_offline,
+            )
             return hits
 
         # ── Low SOC timer ──────────────────────────────────────────────
@@ -1234,8 +1279,370 @@ class AlarmMonitor:
         for k in list(self._active.keys()):
             if k not in keep:
                 self._drop_alarm(k)
-
+        self._remember_inspection(
+            now, soc=soc, thr=thr, pv=pv, chg=chg, load=load, gimp=gimp,
+            grott_expected=grott_expected, grott_ok=grott_ok,
+            grott_connected=grott_connected, grott_age_s=grott_age_s,
+            grott_fresh_s=grott_fresh_s,
+            db_logging_enabled=db_logging_enabled, db_connected=db_connected,
+            db_rows_15m=db_rows_15m, growatt_writing=growatt_writing,
+            tasmota_writing=tasmota_writing,
+            inverter_comms_lost=inverter_comms_lost,
+            inverter_comms_reason=inverter_comms_reason,
+            tasmota_mqtt_expected=tasmota_mqtt_expected,
+            tasmota_mqtt_connected=tasmota_mqtt_connected,
+            tasmota_offline=tasmota_offline,
+        )
         return hits
+
+    def rule_inspection(self, key: str) -> tuple[AlarmPart, ...] | None:
+        """Clauses from the last live check.
+
+        None until ``evaluate`` has run. An empty tuple means that check did
+        not cover this alarm.
+        """
+        if self._inspection_at is None:
+            return None
+        return self._inspection.get(str(key), ())
+
+    def inspection_at(self) -> float | None:
+        """Wall clock of the last live check, or None if it has not run."""
+        return self._inspection_at
+
+    def _grott_hold_s(self, connected: bool, age_s: float | None, fresh_s: float) -> float:
+        chosen = self._rule_hold_s.get("grott_lost")
+        if chosen is not None:
+            return chosen
+        if not connected:
+            return self.grott_lost_hold_s
+        if age_s is None:
+            return max(self.grott_lost_hold_s, float(fresh_s))
+        return self.grott_lost_hold_s
+
+    def _duration_part(
+        self,
+        key: str,
+        cond: bool,
+        since: float | None,
+        now: float,
+        hold_s: float,
+    ) -> AlarmPart:
+        """Whether the wait, or the flapping count, has been met."""
+        spec = self._rule_flap.get(key)
+        if spec is not None:
+            n = len(self._flap_hits.get(key, ()))
+            detail = (
+                f"{n} of {spec.times} crossings in the last "
+                f"{spec.window_min:g} minutes. A crossing counts after "
+                f"{spec.dwell_s:g} seconds."
+            )
+            started = self._flap_on.get(key)
+            if cond and started is not None and not self._flap_counted.get(key):
+                detail += f" The latest one has lasted {_span_words(now - started)}."
+            return AlarmPart("How long", n >= int(spec.times), detail)
+        if not cond or since is None:
+            return AlarmPart(
+                "How long",
+                False,
+                "Not every condition is true, so the wait has not started.",
+            )
+        held = max(0.0, now - float(since))
+        need = max(0.0, float(hold_s))
+        if need <= 0:
+            return AlarmPart("How long", True, "No wait. It counts as soon as it is seen.")
+        if held >= need:
+            detail = f"True for {_span_words(held)}. The wait is {_span_words(need)}."
+        else:
+            detail = f"True for {_span_words(held)} of {_span_words(need)}."
+        return AlarmPart("How long", held >= need, detail)
+
+    def _remember_inspection(self, now: float, **fact: Any) -> None:
+        """Store each built-in alarm's clauses from the check that just ran.
+
+        The comparisons are the same ones ``evaluate`` uses to start a wait
+        and to sound the alarm. Inspect reads this; it does not guess.
+        """
+        soc = fact["soc"]
+        thr = float(fact["thr"])
+        pv = float(fact["pv"])
+        chg = float(fact["chg"])
+        load = float(fact["load"])
+        surplus = pv - load
+        idle = float(self.charge_idle_kw)
+        pv_min = float(self.pv_min_kw)
+        known = soc is not None
+        low = bool(known and float(soc) < thr)
+        low_hold = self._wait_s("low_soc", self.hold_minutes * 60.0)
+        sun = bool(known and low and surplus >= pv_min and chg < idle)
+        sun_hold = self._wait_s("sun_wasted", self.hold_minutes * 60.0)
+        eats = bool(known and pv >= pv_min and surplus < 0.2 and chg < idle)
+        load_hold = self._wait_s("load_eats_pv", self.hold_minutes * 60.0)
+
+        def result(key: str, on: bool) -> AlarmPart:
+            if on:
+                return AlarmPart("The alarm", True, "It is sounding.", result=True)
+            return AlarmPart("The alarm", False, "It is not sounding.", result=True)
+
+        parts: dict[str, tuple[AlarmPart, ...]] = {}
+        if not known:
+            quiet = "No state of charge on the last check, so this is not being judged."
+            for key, label in (
+                ("low_soc", "Battery state of charge stays below the low-battery line"),
+                ("sun_wasted", "Spare solar is at least the spare-solar minimum"),
+                ("load_eats_pv", "House load uses almost all of the solar coming in"),
+            ):
+                parts[key] = (
+                    AlarmPart(label, False, quiet),
+                    AlarmPart("How long", False, quiet),
+                    result(key, False),
+                )
+        else:
+            soc_f = float(soc)
+            parts["low_soc"] = (
+                AlarmPart(
+                    "Battery state of charge stays below the low-battery line",
+                    low,
+                    f"State of charge is {soc_f:.0f}%. The line is {thr:.0f}%.",
+                ),
+                self._duration_part("low_soc", low, self._below_since, now, low_hold),
+                result("low_soc", self._fires("low_soc", self._below_since, now, low_hold)),
+            )
+            spare_on = surplus >= pv_min
+            battery_low = soc_f < thr
+            barely = chg < idle
+            parts["sun_wasted"] = (
+                AlarmPart(
+                    "Spare solar is at least the spare-solar minimum",
+                    spare_on,
+                    (
+                        f"Spare solar is {surplus:.2f} kW "
+                        f"(solar {pv:.2f} kW, house {load:.2f} kW). "
+                        f"The minimum is {pv_min:.2f} kW."
+                    ),
+                ),
+                AlarmPart(
+                    "The battery is low",
+                    battery_low,
+                    f"State of charge is {soc_f:.0f}%. The line is {thr:.0f}%.",
+                ),
+                AlarmPart(
+                    "The battery is barely charging",
+                    barely,
+                    f"Charge is {chg:.2f} kW. Barely charging means under {idle:.2f} kW.",
+                ),
+                self._duration_part("sun_wasted", sun, self._sun_waste_since, now, sun_hold),
+                result("sun_wasted", self._fires("sun_wasted", self._sun_waste_since, now, sun_hold)),
+            )
+            house_on = pv >= pv_min and surplus < 0.2
+            parts["load_eats_pv"] = (
+                AlarmPart(
+                    "House load uses almost all of the solar coming in",
+                    house_on,
+                    (
+                        f"Solar is {pv:.2f} kW and the house is {load:.2f} kW, "
+                        f"leaving {surplus:.2f} kW. Almost all means under 0.2 kW left, "
+                        f"with solar at least {pv_min:.2f} kW."
+                    ),
+                ),
+                AlarmPart(
+                    "The battery is barely charging",
+                    barely,
+                    f"Charge is {chg:.2f} kW. Barely charging means under {idle:.2f} kW.",
+                ),
+                self._duration_part(
+                    "load_eats_pv", eats, self._load_eats_pv_since, now, load_hold,
+                ),
+                result(
+                    "load_eats_pv",
+                    self._fires("load_eats_pv", self._load_eats_pv_since, now, load_hold),
+                ),
+            )
+
+        grott_expected = bool(fact["grott_expected"])
+        grott_bad = bool(grott_expected and not fact["grott_ok"])
+        if not grott_expected:
+            grott_detail = "Grott is not in the telemetry priority, so this feed is not being watched."
+        elif fact["grott_connected"] and fact["grott_ok"]:
+            grott_detail = "The Grott feed is connected and fresh."
+        elif not fact["grott_connected"]:
+            grott_detail = "MQTT to Grott is not connected."
+        else:
+            age = fact["grott_age_s"]
+            age_bit = f"{float(age):.0f} seconds" if age is not None else "an unknown time"
+            grott_detail = (
+                f"MQTT is up, but the last inverter frame was {age_bit} ago. "
+                f"Fresh means within {float(fact['grott_fresh_s']):.0f} seconds."
+            )
+        grott_hold = self._grott_hold_s(
+            bool(fact["grott_connected"]), fact["grott_age_s"], float(fact["grott_fresh_s"]),
+        )
+        parts["grott_lost"] = (
+            AlarmPart("Grott feed stops arriving", grott_bad, grott_detail),
+            self._duration_part(
+                "grott_lost", grott_bad, self._grott_lost_since, now, grott_hold,
+            ),
+            result(
+                "grott_lost",
+                self._fires("grott_lost", self._grott_lost_since, now, grott_hold),
+            ),
+        )
+
+        logging_on = bool(fact["db_logging_enabled"])
+        connected = fact["db_connected"]
+        db_down = bool(logging_on and connected is False)
+        if not logging_on:
+            reach = "Logging is switched off, so a closed database is not an alarm."
+        elif connected is True:
+            reach = "The database can be reached."
+        elif connected is False:
+            reach = "The database cannot be reached."
+        else:
+            reach = "The database has not reported on the last check."
+        disc_hold = self._wait_s("db_disconnected", self.db_disconnect_hold_s)
+        parts["db_disconnected"] = (
+            AlarmPart(
+                "Logging is switched on",
+                logging_on,
+                "Logging is on." if logging_on else "Logging is switched off.",
+            ),
+            AlarmPart("Logging database cannot be reached", db_down, reach),
+            self._duration_part(
+                "db_disconnected", db_down, self._db_disc_since, now, disc_hold,
+            ),
+            result(
+                "db_disconnected",
+                self._fires("db_disconnected", self._db_disc_since, now, disc_hold),
+            ),
+        )
+
+        expect_write = bool(fact["growatt_writing"] or fact["tasmota_writing"])
+        who = []
+        if fact["growatt_writing"]:
+            who.append("Growatt")
+        if fact["tasmota_writing"]:
+            who.append("Tasmota")
+        live_detail = (
+            f"{' and '.join(who)} look live."
+            if who
+            else "Neither Growatt nor Tasmota is set to write."
+        )
+        rows = fact["db_rows_15m"]
+        uptime = now - float(self._started_wall or now)
+        past_grace = self._ingest_seen_ok or uptime >= DEFAULT_INGEST_STARTUP_GRACE_S
+        ingest_dry = (
+            logging_on
+            and connected is True
+            and expect_write
+            and rows is not None
+            and int(rows) <= 0
+        )
+        ingest_bad = bool(ingest_dry and past_grace)
+        if not logging_on:
+            write_detail = "Logging is switched off."
+        elif connected is not True:
+            write_detail = "The database is not connected. That is the other alarm."
+        elif not expect_write:
+            write_detail = "Nothing is set to write, so a quiet table is not this alarm."
+        elif rows is None:
+            write_detail = "No row count on the last check."
+        elif int(rows) > 0:
+            write_detail = f"{int(rows)} new rows in the last 15 minutes."
+        elif not past_grace:
+            write_detail = (
+                "No new rows yet. The logger is still inside its startup grace "
+                "of about 16 minutes, or it has not seen a successful write."
+            )
+        else:
+            write_detail = "No new rows in growatt_readings or tasmota_readings for 15 minutes."
+        ingest_hold = self._wait_s("db_ingest_stale", self.db_ingest_hold_s)
+        parts["db_ingest_stale"] = (
+            AlarmPart("Growatt or Tasmota looks live", expect_write, live_detail),
+            AlarmPart("Database writing stops", ingest_bad, write_detail),
+            self._duration_part(
+                "db_ingest_stale", ingest_bad, self._db_ingest_since, now, ingest_hold,
+            ),
+            result(
+                "db_ingest_stale",
+                self._fires("db_ingest_stale", self._db_ingest_since, now, ingest_hold),
+            ),
+        )
+
+        inv_bad = bool(fact["inverter_comms_lost"])
+        reason = str(fact["inverter_comms_reason"] or "").strip()
+        if inv_bad:
+            inv_detail = f"Growatt reports the inverter as {reason or 'offline'}."
+        else:
+            inv_detail = "Growatt has not reported the inverter offline."
+        inv_hold = self._wait_s("inverter_comms_lost", self.inverter_lost_hold_s)
+        parts["inverter_comms_lost"] = (
+            AlarmPart("Inverter is reported offline", inv_bad, inv_detail),
+            self._duration_part(
+                "inverter_comms_lost", inv_bad, self._inv_lost_since, now, inv_hold,
+            ),
+            result(
+                "inverter_comms_lost",
+                self._fires("inverter_comms_lost", self._inv_lost_since, now, inv_hold),
+            ),
+        )
+
+        mqtt_expected = bool(fact["tasmota_mqtt_expected"])
+        mqtt_up = bool(fact["tasmota_mqtt_connected"])
+        mqtt_bad = bool(mqtt_expected and not mqtt_up)
+        if not mqtt_expected:
+            mqtt_detail = "The Tasmota page is not in MQTT mode, so this is not being watched."
+        elif mqtt_up:
+            mqtt_detail = "The Tasmota MQTT connection is up."
+        else:
+            mqtt_detail = "The Tasmota page is in MQTT mode and the broker connection is down."
+        mqtt_hold = self._wait_s("tasmota_mqtt_lost", self.tasmota_mqtt_hold_s)
+        parts["tasmota_mqtt_lost"] = (
+            AlarmPart("Tasmota MQTT drops", mqtt_bad, mqtt_detail),
+            self._duration_part(
+                "tasmota_mqtt_lost", mqtt_bad, self._tasmota_mqtt_since, now, mqtt_hold,
+            ),
+            result(
+                "tasmota_mqtt_lost",
+                self._fires("tasmota_mqtt_lost", self._tasmota_mqtt_since, now, mqtt_hold),
+            ),
+        )
+
+        offline = [str(x).strip() for x in (fact["tasmota_offline"] or []) if str(x).strip()]
+        if mqtt_expected and not mqtt_up:
+            offline = []
+        plugs_bad = bool(offline)
+        if not mqtt_expected:
+            mqtt_ctx = "Tasmota is not using MQTT, so this condition is not being watched."
+            mqtt_ctx_on = False
+        elif not mqtt_up:
+            mqtt_ctx = "MQTT is down, so silent plugs are not listed on their own."
+            mqtt_ctx_on = False
+        else:
+            mqtt_ctx = "MQTT is connected."
+            mqtt_ctx_on = True
+        if plugs_bad:
+            plug_detail = "Silent: " + ", ".join(offline[:6])
+            if len(offline) > 6:
+                plug_detail += f" (+{len(offline) - 6} more)"
+            plug_detail += "."
+        elif mqtt_expected and not mqtt_up:
+            plug_detail = "Not judged while MQTT itself is down."
+        else:
+            plug_detail = "Every named device is reporting."
+        plug_hold = self._wait_s("tasmota_offline", self.tasmota_stale_s)
+        parts["tasmota_offline"] = (
+            AlarmPart("MQTT is still up", mqtt_ctx_on, mqtt_ctx),
+            AlarmPart("Tasmota device goes silent", plugs_bad, plug_detail),
+            self._duration_part(
+                "tasmota_offline", plugs_bad, self._tasmota_off_since, now, plug_hold,
+            ),
+            result(
+                "tasmota_offline",
+                self._fires("tasmota_offline", self._tasmota_off_since, now, plug_hold),
+            ),
+        )
+
+        self._inspection = parts
+        self._inspection_at = float(now)
 
     def _grott_lost_hit(
         self,
@@ -1246,15 +1653,7 @@ class AlarmMonitor:
     ) -> AlarmHit | None:
         # A duration chosen on Alarm defs replaces the usual Grott wait.
         # Is flapping replaces that wait with a count of crossings.
-        chosen = self._rule_hold_s.get("grott_lost")
-        if chosen is not None:
-            hold_s = chosen
-        elif not connected:
-            hold_s = self.grott_lost_hold_s
-        elif age_s is None:
-            hold_s = max(self.grott_lost_hold_s, float(fresh_s))
-        else:
-            hold_s = self.grott_lost_hold_s
+        hold_s = self._grott_hold_s(connected, age_s, fresh_s)
         if not self._fires("grott_lost", self._grott_lost_since, now, hold_s):
             return None
         dur_s = now - self._mark_since("grott_lost", self._grott_lost_since)
@@ -1691,6 +2090,7 @@ def _close_hist_event(events, start, rows, min_minutes: float) -> None:
 
 __all__ = [
     "AlarmHit",
+    "AlarmPart",
     "AlarmMonitor",
     "AlarmSpec",
     "AlarmBlocks",

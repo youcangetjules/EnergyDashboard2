@@ -1378,6 +1378,131 @@ class _Bin(QWidget):
         event.ignore()
 
 
+def _inspect_chip(text: str, fill: str, ink: str = "#1e1e2e") -> QLabel:
+    chip = QLabel(text)
+    chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    chip.setFixedWidth(118)
+    chip.setStyleSheet(
+        "QLabel {"
+        f"  background-color: {fill};"
+        f"  color: {ink};"
+        "  font-size: 11px;"
+        "  font-weight: bold;"
+        "  padding: 2px 6px;"
+        "  border-radius: 3px;"
+        "}"
+    )
+    return chip
+
+
+def _show_rule_inspection(parent, number: int, pieces: dict, captions: dict, monitor) -> None:
+    """Which clauses of this rule are true on the last live check."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(f"Inspect rule {number}")
+    dlg.setMinimumWidth(520)
+    lay = QVBoxLayout(dlg)
+    lay.setContentsMargins(16, 14, 16, 12)
+    lay.setSpacing(8)
+    heading = QLabel(f"Rule {number}")
+    heading.setStyleSheet("font-size: 15px; font-weight: bold; color: #cdd6f4;")
+    lay.addWidget(heading)
+    sentence = alarm_rule_syntax(captions or pieces)
+    if sentence:
+        line = QLabel(sentence)
+        line.setWordWrap(True)
+        line.setStyleSheet("color: #cdd6f4; font-size: 12px;")
+        lay.addWidget(line)
+
+    missing = [k for k in ALARM_PIECE_REQUIRED if not str((pieces or {}).get(k) or "").strip()]
+    key = None if missing else alarm_blocks_key(pieces)
+    enabled = True if monitor is None else bool(getattr(monitor, "enabled", True))
+    checked = None
+    parts = None
+    if key and monitor is not None and enabled and hasattr(monitor, "rule_inspection"):
+        parts = monitor.rule_inspection(key)
+        checked = monitor.inspection_at() if hasattr(monitor, "inspection_at") else None
+
+    note = QLabel("")
+    note.setWordWrap(True)
+    note.setStyleSheet("color: #a6adc8; font-size: 12px;")
+    lay.addWidget(note)
+
+    rows = QVBoxLayout()
+    rows.setSpacing(8)
+    lay.addLayout(rows)
+
+    def add_row(chip: QLabel, label: str, detail: str) -> None:
+        block = QVBoxLayout()
+        block.setSpacing(2)
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        top.addWidget(chip, 0, Qt.AlignmentFlag.AlignTop)
+        name = QLabel(label)
+        name.setWordWrap(True)
+        name.setStyleSheet("color: #cdd6f4; font-size: 12px; font-weight: bold;")
+        top.addWidget(name, 1)
+        block.addLayout(top)
+        if detail:
+            body = QLabel(detail)
+            body.setWordWrap(True)
+            body.setStyleSheet("color: #a6adc8; font-size: 11px;")
+            body.setContentsMargins(126, 0, 0, 0)
+            block.addWidget(body)
+        rows.addLayout(block)
+
+    if missing:
+        note.setText(_needs_text(missing) + " Nothing is being checked until the sentence is complete.")
+    elif monitor is not None and not enabled:
+        note.setText("Alarms are switched off, so nothing is being checked.")
+    elif key and parts:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        when = ""
+        if checked:
+            clock = datetime.fromtimestamp(float(checked), ZoneInfo("Europe/London"))
+            when = f" Last check at {clock.strftime('%H:%M:%S')}."
+        note.setText("Triggering means that part is true right now." + when)
+        for part in parts:
+            if part.result:
+                chip = _inspect_chip(
+                    "Sounding" if part.on else "Not sounding",
+                    "#f38ba8" if part.on else "#a6e3a1",
+                )
+            elif part.on:
+                chip = _inspect_chip("Triggering", "#f38ba8")
+            else:
+                chip = _inspect_chip("Not triggering", "#313244", "#cdd6f4")
+            add_row(chip, part.label, part.detail)
+    elif key:
+        note.setText(
+            "This is one of the built-in alarms, but it has not been checked yet. "
+            "A check runs when a live reading arrives, and about every 15 seconds."
+        )
+    else:
+        note.setText(
+            "This sentence is not one of the built-in alarms, so none of these "
+            "parts is watched and the rule does not fire."
+        )
+        for kind in ("signal", "comparison", "threshold", "duration", "context"):
+            text = str((captions or pieces or {}).get(kind) or "").strip()
+            if not text:
+                continue
+            add_row(
+                _inspect_chip("Not watched", "#45475a", "#cdd6f4"),
+                f"{_KIND_SHORT[kind]}: {text}",
+                "",
+            )
+
+    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+    buttons.rejected.connect(dlg.reject)
+    close = buttons.button(QDialogButtonBox.StandardButton.Close)
+    if close is not None:
+        close.clicked.connect(dlg.accept)
+    lay.addWidget(buttons)
+    _prepare_dialog_buttons(dlg)
+    dlg.exec()
+
+
 class _RuleLine(QFrame):
     """One numbered alarm: a line of slots, and a halo when the sentence is whole."""
 
@@ -1421,6 +1546,13 @@ class _RuleLine(QFrame):
             slot.changed.connect(self._on_changed)
             self.slots[kind] = slot
             row.addWidget(slot, 3 if kind in ("signal", "context", "outcome") else 2)
+        inspect = QPushButton("Inspect")
+        inspect.setFixedSize(100, 26)
+        inspect.setToolTip(
+            "Show which parts of this rule are true on the last check, and which are not."
+        )
+        inspect.clicked.connect(self._inspect)
+        row.addWidget(inspect)
         outer.addLayout(row)
         note_row = QHBoxLayout()
         note_row.setContentsMargins(20, 0, 4, 0)
@@ -1445,6 +1577,20 @@ class _RuleLine(QFrame):
 
     def set_number(self, number: int) -> None:
         self._number.setText(str(number))
+
+    def _inspect(self) -> None:
+        tab = self._tab()
+        monitor = None
+        if tab is not None:
+            monitor = getattr(getattr(tab, "dash", None), "alarm_monitor", None)
+        captions = {kind: slot.caption() for kind, slot in self.slots.items()}
+        _show_rule_inspection(
+            self.window(),
+            int(self._number.text() or 0),
+            self.values(),
+            captions,
+            monitor,
+        )
 
     def refresh_chips(self) -> None:
         for slot in self.slots.values():

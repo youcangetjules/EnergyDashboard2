@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 12:31
+
+- Each rule on Alarm defs now has an Inspect button on the right. It opens that rule and marks every part Triggering or Not triggering from the last live check: the reading against its line, any extra condition, and whether the wait or the flapping count has been met. The last line says if the alarm is actually sounding.
+- A rule that is not one of the built-in alarms is marked Not watched, because those sentences do not fire. The numbers are the same ones the alarm itself uses.
+
 ### 12:26
 
 - How long on Alarm defs now has Is flapping. Dropping it opens a box that reads “Seen this many times in this many minutes, where the trigger threshold is exceeded for this many seconds.” You can change the three numbers, and click the block later to change them again.
