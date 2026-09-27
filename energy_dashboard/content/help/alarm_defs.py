@@ -66,8 +66,10 @@ The lists also include <b>string A voltage</b>, <b>string B voltage</b>,
 <b>has a differential of</b>, and <b>Volts</b>. Click <b>Volts</b> to set how
 many volts that block means. Click <b>Tasmota device</b> and enter that
 plug’s IP address. With an address set, that alarm watches only that device.
-Click any other signal and choose the logging <b>table</b> and <b>field</b>
-that hold it. String volts are on <b>pv_string_voltage</b>:
+Right-click a signal in the <b>signal list</b> and choose <b>Define</b> to pick
+the logging <b>table</b> and <b>field</b> that hold it. <b>Delete</b> on that
+menu clears the choice. A signal already on a rule does not open this box.
+String volts are on <b>pv_string_voltage</b>:
 <b>v_string1</b> is string A, <b>v_string2</b> is string B. The alarm reads
 the latest number in that field. The chip shows the table and field once
 they are set.</p>

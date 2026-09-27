@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 13:42
+
+- Right-click a signal in the Alarm defs signal list for Define or Delete. Define asks which logging table and field hold that reading. Delete clears the choice. Clicking a signal that is already on a rule no longer opens that box.
+
 ### 13:37
 
 - The alarm type on the right of each Alarm defs signal is now dark grey. The pale grey was hard to read on the blue pill.

@@ -303,8 +303,9 @@ ALARM_BLOCKS: tuple[AlarmBlocks, ...] = (
 )
 
 # Blocks worth offering that no built-in alarm uses on its own. They let a
-# householder write a sentence of their own. Click the signal and choose the
-# table and field; that column is what the alarm reads.
+# householder write a sentence of their own. Right-click the signal in the
+# signal list and choose Define to pick the table and field; that column
+# is what the alarm reads.
 ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
     "signal": (
         "string A voltage",
@@ -1075,14 +1076,15 @@ def _signal_measure(signal: str, facts: dict[str, Any]) -> tuple[float | None, s
         if value is None:
             return None, spec[1], (
                 f"{spec[2]} has no reading on the last check. "
-                "Click the signal to use a table and field instead."
+                "Right-click the signal in the signal list and choose Define "
+                "to use a table and field instead."
             )
         return value, spec[1], ""
     if _SIGNAL_UNIT.get(signal) == "status":
         return None, "", ""
     return None, symbol, (
-        f"{signal} has no table and field. Click the signal and choose "
-        "where it is stored."
+        f"{signal} has no table and field. Right-click it in the signal list "
+        "and choose Define."
     )
 
 

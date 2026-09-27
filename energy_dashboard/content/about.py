@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.488", "2026-09-27", [
+        "Alarm defs: right-click a signal in the signal list for Define or Delete. Define asks for the logging table and field. A signal on a rule does not open that box.",
+    ]),
     ("2.9.487", "2026-09-27", [
         "Alarm defs: the alarm type on the right of each signal is dark grey, so it can be read on the blue pill.",
     ]),

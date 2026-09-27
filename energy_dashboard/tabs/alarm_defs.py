@@ -171,10 +171,14 @@ def _is_signal_piece(text: str) -> bool:
 
 
 def _opens_editor(text: str) -> bool:
-    """Click opens a box: a limit, a typed time, a signal's column, or Is flapping."""
+    """Click opens a box: a limit, a typed time, a plug address, or Is flapping.
+
+    Choosing a signal's table and field is a right-click on the signal list,
+    not a click on a rule.
+    """
     return (
         text in _PARAM_FOR
-        or _is_signal_piece(text)
+        or text == _TASMOTA_SIGNAL
         or text == "custom value"
         or text == FLAP_CHOICE
         or parse_flap(text) is not None
@@ -558,11 +562,12 @@ def _edit_signal_source(parent, signal: str, dash) -> bool:
     columns = logger_table_columns()
     current = _read_sources().get(signal) or {}
     dlg = QDialog(parent)
-    dlg.setWindowTitle(signal)
+    dlg.setWindowTitle(f"Define {signal}")
     dlg.setMinimumWidth(560)
     lay = QVBoxLayout(dlg)
     hint_text = (
-        f"Where {signal} is stored. The alarm reads the latest number in that field."
+        f"Choose where {signal} is stored. Pick the logging table, then the field. "
+        "The alarm reads the latest number in that field."
     )
     if signal in ("string A voltage", "string B voltage"):
         hint_text += (
@@ -634,6 +639,77 @@ def _edit_signal_source(parent, signal: str, dash) -> bool:
         settings.sync()
         _push_sources(dash)
         return True
+
+
+def _clear_signal_source(signal: str, dash) -> bool:
+    """Drop the table and field chosen for this signal."""
+    sources = _read_sources()
+    if signal not in sources:
+        return False
+    sources.pop(signal, None)
+    settings = _alarm_settings()
+    settings.setValue(_QS_SOURCES, json.dumps(sources))
+    settings.sync()
+    _push_sources(dash)
+    return True
+
+
+_SIGNAL_MENU_QSS = (
+    "QMenu { background: #313244; color: #cdd6f4; border: 1px solid #45475a; "
+    "padding: 4px 0; }"
+    "QMenu::item { padding: 6px 28px 6px 16px; }"
+    "QMenu::item:selected { background: #45475a; color: #cdd6f4; }"
+    "QMenu::item:disabled { color: #6c7086; }"
+)
+
+
+def _signal_choice_menu(parent, *, delete_enabled: bool) -> QMenu:
+    """Define and Delete for one signal pill."""
+    menu = QMenu(parent)
+    menu.setStyleSheet(_SIGNAL_MENU_QSS)
+    menu.addAction("Define")
+    delete = menu.addAction("Delete")
+    delete.setEnabled(delete_enabled)
+    return menu
+
+
+def _popup_signal_choice(parent, *, delete_enabled: bool) -> str:
+    menu = _signal_choice_menu(parent, delete_enabled=delete_enabled)
+    chosen = menu.exec(QCursor.pos())
+    if chosen is None:
+        return ""
+    return str(chosen.text() or "")
+
+
+def _owning_tab(widget):
+    while widget is not None and not isinstance(widget, AlarmDefsTab):
+        widget = widget.parent()
+    return widget
+
+
+def _define_signal(widget, signal: str) -> None:
+    """Open the table and field box, then refresh any chips that show it."""
+    tab = _owning_tab(widget)
+    parent = tab if tab is not None else widget
+    dash = getattr(tab, "dash", None)
+    if not _edit_signal_source(parent, signal, dash):
+        return
+    if tab is not None:
+        tab.refresh_param_chips()
+
+
+def _signal_palette_tip(text: str) -> str:
+    lines = [text]
+    kind = signal_alarm_type(text)
+    if kind:
+        lines.append(f"Alarm type: {kind}")
+    where = signal_source_label(text)
+    if where:
+        lines.append(f"Read from {where}.")
+    lines.append(
+        "Right-click: Define chooses the table and field. Delete clears that choice."
+    )
+    return "\n".join(lines)
 
 
 def _edit_custom_duration(parent) -> str | None:
@@ -884,14 +960,14 @@ class _PaletteList(QListWidget):
         self.setToolTip(
             f"Drag a {_KIND_WORD[kind]} into a slot of the same colour"
         )
+        if kind == "signal":
+            self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.customContextMenuRequested.connect(self._on_signal_menu)
         for text in alarm_palette(kind):
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, text)
-            if kind == "signal" and signal_alarm_type(text):
-                tip = (
-                    f"{text}\nAlarm type: {signal_alarm_type(text)}\n"
-                    "On a rule, click it to choose the table and field."
-                )
+            if kind == "signal":
+                tip = _signal_palette_tip(text)
             elif kind == "duration" and text == "is seen":
                 tip = "As soon as it is seen. No wait."
             elif kind == "duration" and text == "custom value":
@@ -952,6 +1028,31 @@ class _PaletteList(QListWidget):
         drag.setHotSpot(chip.rect().center())
         drag.exec(Qt.DropAction.CopyAction)
 
+    def refresh_tips(self) -> None:
+        if self.kind != "signal":
+            return
+        for row in range(self.count()):
+            item = self.item(row)
+            text = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "")
+            item.setToolTip(_signal_palette_tip(text))
+
+    def _on_signal_menu(self, pos) -> None:
+        item = self.itemAt(pos)
+        if item is None:
+            return
+        text = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "")
+        if not text:
+            return
+        choice = _popup_signal_choice(
+            self, delete_enabled=bool(signal_source_label(text)),
+        )
+        if choice == "Define":
+            _define_signal(self, text)
+        elif choice == "Delete":
+            tab = _owning_tab(self)
+            if _clear_signal_source(text, getattr(tab, "dash", None)) and tab is not None:
+                tab.refresh_param_chips()
+
 
 class _JoinChip(QFrame):
     """The AND / OR between two signals. Click it to swap.
@@ -1010,7 +1111,11 @@ class _SignalChip(QFrame):
         self.setAcceptDrops(True)
         self.setFixedHeight(_ROW_H - 4)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setCursor(
+            Qt.CursorShape.PointingHandCursor
+            if text == _TASMOTA_SIGNAL
+            else Qt.CursorShape.ArrowCursor
+        )
         lay = QHBoxLayout(self)
         lay.setContentsMargins(6, 0, 6, 0)
         label = QLabel(_piece_caption(text))
@@ -1020,8 +1125,10 @@ class _SignalChip(QFrame):
         self.setStyleSheet(
             f"_SignalChip {{ background: {colour}; border-radius: 3px; }}"
         )
-        tip = "Click to choose the table and field.\nDouble-click to remove this one."
         where = signal_source_label(text)
+        tip = "Double-click to remove this one."
+        if text == _TASMOTA_SIGNAL:
+            tip = "Click to set this plug’s IP address.\n" + tip
         if where:
             tip = f"Read from {where}.\n" + tip
         self.setToolTip(tip)
@@ -1066,7 +1173,8 @@ class _SignalChip(QFrame):
     def mouseReleaseEvent(self, event):
         if self._armed and event.button() == Qt.MouseButton.LeftButton:
             self._armed = False
-            self._click_timer.start(QApplication.doubleClickInterval())
+            if self._text == _TASMOTA_SIGNAL:
+                self._click_timer.start(QApplication.doubleClickInterval())
             return
         self._armed = False
         super().mouseReleaseEvent(event)
@@ -1091,14 +1199,12 @@ class _SignalChip(QFrame):
         self._slot.dropEvent(event)
 
     def _open_editor(self) -> None:
+        if self._text != _TASMOTA_SIGNAL:
+            return
         tab = self._slot._tab()
         if tab is None:
             return
-        if self._text == _TASMOTA_SIGNAL:
-            edited = _edit_tasmota_ip(tab)
-        else:
-            edited = _edit_signal_source(tab, self._text, tab.dash)
-        if edited:
+        if _edit_tasmota_ip(tab):
             tab.refresh_param_chips()
 
 
@@ -1175,7 +1281,11 @@ class _Slot(QFrame):
             self.setStyleSheet(
                 f"_Slot {{ background: {colour}; border-radius: 3px; }}"
             )
-            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setCursor(
+                Qt.CursorShape.ArrowCursor
+                if self.kind == "signal" and not _opens_editor(self._text)
+                else Qt.CursorShape.PointingHandCursor
+            )
             self._paint_caption()
             lines = [self.caption()]
             if _opens_editor(self._text):
@@ -1301,8 +1411,6 @@ class _Slot(QFrame):
         edited = False
         if self._text == _TASMOTA_SIGNAL and tab is not None:
             edited = _edit_tasmota_ip(tab)
-        elif _is_signal_piece(self._text) and tab is not None:
-            edited = _edit_signal_source(tab, self._text, tab.dash)
         elif spec is not None and tab is not None:
             edited = _edit_param(tab, spec, tab.dash)
         elif self._text == "custom value" and tab is not None:
@@ -1655,7 +1763,8 @@ def _show_rule_inspection(parent, number: int, pieces: dict, captions: dict, mon
     elif key and not watched:
         note.setText(
             "Press Commit and this rule will be watched. "
-            "Click each signal and choose the table and field it is stored in."
+            "Right-click each signal in the signal list and choose Define "
+            "to pick the table and field."
         )
     elif key:
         note.setText(
@@ -1902,7 +2011,7 @@ class _RuleLine(QFrame):
             if unbound:
                 listed = ", ".join(unbound)
                 tip = (
-                    sentence + f"\nClick {listed} and choose the table and field. "
+                    sentence + f"\nRight-click {listed} in the signal list and choose Define. "
                     "Until then this rule does not fire."
                 )
             else:
@@ -2082,6 +2191,9 @@ class AlarmDefsTab(QWidget):
     def refresh_param_chips(self) -> None:
         for card in self._cards:
             card.refresh_chips()
+        signal_list = getattr(self, "_signal_list", None)
+        if signal_list is not None:
+            signal_list.refresh_tips()
 
     def _card(self, token: str) -> _RuleLine | None:
         for card in self._cards:
@@ -2134,7 +2246,10 @@ class AlarmDefsTab(QWidget):
             f"color: {_KIND_COLOR[kind]}; font-size: 11px; font-weight: bold;"
         )
         col.addWidget(label)
-        col.addWidget(_PaletteList(kind), 1)
+        palette = _PaletteList(kind)
+        if kind == "signal":
+            self._signal_list = palette
+        col.addWidget(palette, 1)
         return box
 
     def _show_live(self) -> None:
