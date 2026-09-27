@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 12:51
+
+- On Alarm defs, two or more signals in one rule now stretch across the whole signal slot. AND or OR stays a small button between them. Before, the coloured pills only covered the words and left the rest of the slot empty.
+
 ### 12:35
 
 - Adds, edits, and removals on Alarm defs now wait for Commit. Until then the alarms that are running are unchanged. A rule you added or edited gets an amber outline. Commit flashes while anything is waiting, and Cancel puts every rule back.

@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.484", "2026-09-27", [
+        "Alarm defs: two or more signals widen so they fill the signal slot, with AND or OR still sitting between them.",
+    ]),
     ("2.9.483", "2026-09-27", [
         "Alarm defs edits wait for Commit. Added or changed rules get an amber outline, Commit flashes while anything is waiting, and Cancel puts the rules back. The rubbish bin is on the left.",
     ]),

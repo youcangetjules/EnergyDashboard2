@@ -46,6 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
+| 2026-09-27 | 1 | 1 | 4 |
 | 2026-09-26 | 14 | 14 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
@@ -133,6 +134,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-077-20260927-01 — Two signals only fill half the slot</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-27 12:51 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Alarm defs |
+| **Version found** | 2.9.483 |
+| **Version fixed** | 2.9.484 |
+
+**Symptom:** A rule with one signal filled the blue slot. With two or more, the coloured pills only covered the words and left about half the dashed slot empty.
+
+**Cause:** Extra signals were packed to the width of their labels, and a stretch ate the rest of the slot.
+
+**Resolution:** Each signal pill grows by the same amount so together they fill the slot. AND or OR stays a small button between them.
 
 ### <span style="color:green">BUG-076-20260926-14 — Syntax Correct is an empty green box</span>
 

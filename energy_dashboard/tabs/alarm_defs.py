@@ -819,6 +819,7 @@ class _JoinChip(QFrame):
         super().__init__(slot)
         self._slot = slot
         self.setFixedHeight(_ROW_H - 8)
+        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(5, 0, 5, 0)
@@ -863,6 +864,7 @@ class _SignalChip(QFrame):
         self._armed = False
         self.setAcceptDrops(True)
         self.setFixedHeight(_ROW_H - 4)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(6, 0, 6, 0)
@@ -976,11 +978,14 @@ class _Slot(QFrame):
         self._body.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         lay.addWidget(self._body)
         self._chip_host = QWidget()
+        self._chip_host.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred,
+        )
         self._chip_row = QHBoxLayout(self._chip_host)
         self._chip_row.setContentsMargins(0, 0, 0, 0)
         self._chip_row.setSpacing(3)
         self._chip_host.hide()
-        lay.addWidget(self._chip_host)
+        lay.addWidget(self._chip_host, 1)
         self.set_piece("")
 
     def resizeEvent(self, event):
@@ -1096,8 +1101,7 @@ class _Slot(QFrame):
                         "color: #6c7086; font-size: 10px; background: transparent;"
                     )
                     self._chip_row.addWidget(word)
-            self._chip_row.addWidget(_SignalChip(self, index, part, colour))
-        self._chip_row.addStretch(1)
+            self._chip_row.addWidget(_SignalChip(self, index, part, colour), 1)
         self._body.hide()
         self._chip_host.show()
         self.setStyleSheet(
