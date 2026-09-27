@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.487", "2026-09-27", [
+        "Alarm defs: the alarm type on the right of each signal is dark grey, so it can be read on the blue pill.",
+    ]),
     ("2.9.486", "2026-09-27", [
         "Click a signal on Alarm defs and choose the logging table and field. A finished rule that is not built in is watched from those columns, and Inspect shows whether each part is triggering.",
     ]),

@@ -329,7 +329,7 @@ ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
     "outcome": ("send SMS", "create a desktop alert", "Warning", "Critical"),
 }
 
-# What kind of thing each signal is about. Shown in 80% grey on the right of
+# What kind of thing each signal is about. Shown in dark grey on the right of
 # the signal pill, and used to judge whether an extra condition has any
 # bearing on the signal.
 SIGNAL_ALARM_TYPE: dict[str, str] = {

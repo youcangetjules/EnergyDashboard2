@@ -16,7 +16,7 @@ Every alarm is built from its smallest pieces, one colour each:</p>
 <ul>
 <li><b>Signal</b> (blue) — the thing being watched, such as battery state of
 charge, spare solar, or the Grott feed. On the right of each signal, in
-80% grey, is its <b>alarm type</b>: Hardware (the inverter, a plug, a string voltage),
+dark grey, is its <b>alarm type</b>: Hardware (the inverter, a plug, a string voltage),
 Data flow (the Grott and Tasmota MQTT feeds), Data ingestion (the logging
 database), Energy (battery, spare solar, house load), Forecast, or
 External service (PVOutput.org, Octopus).</li>

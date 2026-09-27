@@ -83,8 +83,9 @@ _KIND_WORD = {
     "context": "condition",
     "outcome": "outcome",
 }
-# 80% grey (80% of white) for the alarm type on the right of each signal pill.
-_ALARM_TYPE_INK = "#cccccc"
+# Dark grey for the alarm type on the right of each signal pill.
+# Light grey disappears on the blue fill.
+_ALARM_TYPE_INK = "#3a3d4e"
 # Little words between the slots, so the line still reads as a sentence.
 _BEFORE = {
     "signal": "when",

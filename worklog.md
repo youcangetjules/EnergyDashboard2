@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 13:37
+
+- The alarm type on the right of each Alarm defs signal is now dark grey. The pale grey was hard to read on the blue pill.
+
 ### 13:22
 
 - A rule you write on Alarm defs now fires, once you commit it. Click a signal and choose the logging table and the field that hold that reading. The alarm uses the latest number in that column. Inspect shows which parts are true, instead of saying the rule is ignored because it is not one of the built-in alarms.
