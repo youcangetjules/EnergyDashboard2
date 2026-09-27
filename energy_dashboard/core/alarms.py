@@ -98,7 +98,7 @@ class AlarmBlocks:
 def alarm_rule_syntax(pieces: dict[str, str]) -> str:
     """Plain-English syntax built from the blocks in one row.
 
-    ``WHEN signal comparison [threshold] FOR duration [WHILE context]
+    ``WHEN signal comparison [threshold] FOR duration [WITH context]
     THEN outcome``. Empty until every required block is in place.
     """
     p = {k: str((pieces or {}).get(k) or "").strip() for k in ALARM_PIECE_KINDS}
@@ -109,7 +109,7 @@ def alarm_rule_syntax(pieces: dict[str, str]) -> str:
         head += f" {p['threshold']}"
     head += f" FOR {p['duration']}"
     if p["context"]:
-        head += f" WHILE {p['context']}"
+        head += f" WITH {p['context']}"
     return f"{head} THEN {p['outcome']}"
 
 
@@ -299,8 +299,91 @@ ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
     "comparison": ("has a differential of", "stays above", "stops"),
     "threshold": ("Volts",),
     "duration": (),
+    "context": (
+        "it is daytime",
+        "it is night-time",
+        "the battery is charging",
+        "the battery is discharging",
+        "the grid is importing",
+        "the inverter is online",
+        "Agile is in a cheap slot",
+    ),
     "outcome": ("send SMS", "create a desktop alert", "Warning", "Critical"),
 }
+
+# What kind of thing each signal is about. Shown in faint grey under the
+# signal on the palette, and used to judge whether an extra condition has any
+# bearing on the signal.
+SIGNAL_ALARM_TYPE: dict[str, str] = {
+    "Inverter": "Hardware",
+    "Tasmota device": "Hardware",
+    "string A voltage": "Hardware",
+    "string B voltage": "Hardware",
+    "Grott feed": "Data flow",
+    "Tasmota MQTT": "Data flow",
+    "Logging database": "Data ingestion",
+    "Database writing": "Data ingestion",
+    "Battery state of charge": "Energy",
+    "Spare solar": "Energy",
+    "House load": "Energy",
+    "PV forecast": "Forecast",
+    "Wonderwatt": "Forecast",
+    "PVOutput.org": "External service",
+    "Octopus": "External service",
+}
+
+_ENERGY = ("Battery state of charge", "Spare solar", "House load")
+_STRINGS = ("string A voltage", "string B voltage")
+# Signals each extra condition can sensibly qualify. "MQTT is still up" says
+# something about a feed or a plug; it says nothing about a string voltage.
+CONTEXT_SIGNALS: dict[str, tuple[str, ...]] = {
+    "the battery is low and barely charging": _ENERGY,
+    "the battery is barely charging": _ENERGY,
+    "logging is switched on": ("Logging database", "Database writing"),
+    "Growatt or Tasmota looks live": ("Logging database", "Database writing"),
+    "MQTT is still up": ("Grott feed", "Tasmota MQTT", "Tasmota device"),
+    "it is daytime": _ENERGY + _STRINGS + ("PV forecast", "Wonderwatt", "PVOutput.org"),
+    "it is night-time": ("Battery state of charge", "House load", "Octopus"),
+    "the battery is charging": _ENERGY + _STRINGS,
+    "the battery is discharging": ("Battery state of charge", "House load"),
+    "the grid is importing": _ENERGY + ("Octopus",),
+    "the inverter is online": _ENERGY + _STRINGS + ("Grott feed", "Database writing"),
+    "Agile is in a cheap slot": ("Battery state of charge", "House load", "Octopus"),
+}
+
+
+def signal_alarm_type(text: str) -> str:
+    return SIGNAL_ALARM_TYPE.get(str(text or "").strip(), "")
+
+
+def alarm_logic_note(pieces: dict[str, str]) -> str:
+    """Why a complete, unit-correct sentence still looks like odd logic.
+
+    Empty when the extra condition bears on at least one of the signals, or
+    there is no extra condition. A built-in rule never gets a note.
+    """
+    if alarm_blocks_key(pieces):
+        return ""
+    context = str((pieces or {}).get("context") or "").strip()
+    if not context:
+        return ""
+    allowed = CONTEXT_SIGNALS.get(context)
+    if allowed is None:
+        return ""
+    signals, _join = split_joined_pieces(
+        str((pieces or {}).get("signal") or ""), set(alarm_palette("signal")),
+    )
+    signals = [s for s in signals if s]
+    if not signals or any(s in allowed for s in signals):
+        return ""
+    if len(signals) == 1:
+        about = signals[0]
+    else:
+        about = ", ".join(signals[:-1]) + " or " + signals[-1]
+    return (
+        f"“{context}” has no bearing on {about}, so that condition adds "
+        "nothing to the alarm. Please check the logic."
+    )
 
 # These choose how a rule tells you. They are not a severity, so a built-in
 # rule can keep its warning or critical wording and still name a channel.
@@ -1487,6 +1570,10 @@ __all__ = [
     "duration_seconds",
     "format_duration",
     "DURATION_CHOICES",
+    "SIGNAL_ALARM_TYPE",
+    "CONTEXT_SIGNALS",
+    "signal_alarm_type",
+    "alarm_logic_note",
     "alarm_blocks_key",
     "alarm_unit_problem",
     "split_joined_pieces",

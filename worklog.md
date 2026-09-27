@@ -14,6 +14,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 12:12
+
+- The While slot on Alarm defs is now called With additional Conditions. Its list has grown: it is daytime, it is night-time, the battery is charging, the battery is discharging, the grid is importing, the inverter is online, and Agile is in a cheap slot. These are palette blocks for writing rules; only the built-in alarms fire.
+- An extra condition only means something against certain signals. "MQTT is still up" tells you about a feed or a plug, not about a string voltage. When a rule pairs a condition with a signal it has no bearing on, the sentence is still well formed, so the chip now says Syntax Correct/Non-Standard Logic - please check, on amber, and hovering it explains which condition adds nothing.
+- Every signal on the palette now shows its alarm type in faint grey underneath: Hardware, Data flow, Data ingestion, Energy, Forecast, or External service.
+
 ### 12:04
 
 - How long on Alarm defs is now a fixed list: is seen (no wait), 10 seconds, 30 seconds, 1 minute, 2 minutes, 5 minutes, 10 minutes, 30 minutes, and custom value. Custom value opens a box so you can type seconds or minutes. On a built-in alarm, that choice is how long the condition must stay true before it fires.

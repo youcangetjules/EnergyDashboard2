@@ -15,7 +15,11 @@ Dashboards.</p>
 Every alarm is built from its smallest pieces, one colour each:</p>
 <ul>
 <li><b>Signal</b> (blue) — the thing being watched, such as battery state of
-charge, spare solar, or the Grott feed.</li>
+charge, spare solar, or the Grott feed. Under each signal, in faint grey, is
+its <b>alarm type</b>: Hardware (the inverter, a plug, a string voltage),
+Data flow (the Grott and Tasmota MQTT feeds), Data ingestion (the logging
+database), Energy (battery, spare solar, house load), Forecast, or
+External service (PVOutput.org, Octopus).</li>
 <li><b>Comparison</b> (green) — what it does: stays below, is at least, drops,
 goes silent.</li>
 <li><b>Threshold</b> (amber) — what it is compared against, such as the
@@ -26,8 +30,14 @@ sounds. Choose <b>is seen</b> for no wait, a fixed time from 10 seconds up
 to 30 minutes, or <b>custom value</b> to type your own. A built-in alarm
 uses that wait. The older phrases, such as “the hold time”, still mean the
 figure in Setup &amp; Info.</li>
-<li><b>While</b> (orange) — an extra condition that also has to be true, for
-example “logging is switched on”. Optional.</li>
+<li><b>With additional Conditions</b> (orange) — an extra condition that also
+has to be true, for example “logging is switched on”, “it is daytime”, “the
+battery is charging”, “the grid is importing”, or “Agile is in a cheap slot”.
+Optional. A condition only makes sense against some signals: “MQTT is still
+up” says something about a feed or a plug, nothing about a string voltage. Put
+a condition on a signal it has no bearing on and the rule still reads as a
+sentence, so the chip says <b>Syntax Correct/Non-Standard Logic - please
+check</b> on amber instead of plain green. Hover the chip to see why.</li>
 <li><b>Outcome</b> (red) — warning or critical, and how you are told:
 <b>send SMS</b> or <b>create a desktop alert</b>.</li>
 </ul>
@@ -59,7 +69,7 @@ alarm uses the new number.</p>
 <p>
 The line itself is the syntax, in the form
 <b>WHEN</b> signal comparison threshold <b>FOR</b> how long
-<b>WHILE</b> extra condition <b>THEN</b> outcome.
+<b>WITH</b> additional condition <b>THEN</b> outcome.
 When that sentence is complete, and the pieces share a unit, the rule gets
 a green fill and <b>Syntax Correct</b> on a green background under the
 right-hand end. Battery charge is a percentage, spare solar, house load,

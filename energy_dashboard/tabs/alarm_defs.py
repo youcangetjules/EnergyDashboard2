@@ -31,9 +31,11 @@ from energy_dashboard.core.alarms import (
     ALARM_PIECE_KINDS,
     ALARM_PIECE_REQUIRED,
     alarm_blocks_key,
+    alarm_logic_note,
     alarm_palette,
     duration_seconds,
     format_duration,
+    signal_alarm_type,
     alarm_unit_problem,
     split_joined_pieces,
     alarm_piece_accepted,
@@ -61,15 +63,28 @@ _KIND_LABEL = {
     "comparison": "Comparison",
     "threshold": "Threshold",
     "duration": "For how long",
-    "context": "While (optional)",
+    "context": "With additional Conditions (optional)",
     "outcome": "Outcome",
 }
-_KIND_SHORT = dict(_KIND_LABEL, duration="How long", context="While")
+_KIND_SHORT = dict(
+    _KIND_LABEL, duration="How long", context="With additional Conditions",
+)
+# One or two words for hover text: "Drop a condition here."
+_KIND_WORD = {
+    "signal": "signal",
+    "comparison": "comparison",
+    "threshold": "threshold",
+    "duration": "how long",
+    "context": "condition",
+    "outcome": "outcome",
+}
+# Faint grey for the alarm type under each signal on the palette.
+_ALARM_TYPE_INK = "#e6e6e6"
 # Little words between the slots, so the line still reads as a sentence.
 _BEFORE = {
     "signal": "when",
     "duration": "for",
-    "context": "while",
+    "context": "with",
     "outcome": "then",
 }
 # Reads properly in "Still needs a signal and an outcome."
@@ -555,8 +570,10 @@ class _PaletteDelegate(QStyledItemDelegate):
 
     def __init__(self, kind: str, parent=None):
         super().__init__(parent)
+        self._kind = kind
         self._fill = QColor(_KIND_COLOR[kind])
         self._ink = QColor("#1e1e2e")
+        self._type_ink = QColor(_ALARM_TYPE_INK)
 
     def paint(self, painter, option, index):
         painter.save()
@@ -569,16 +586,34 @@ class _PaletteDelegate(QStyledItemDelegate):
         shown = option.fontMetrics.elidedText(
             text, Qt.TextElideMode.ElideRight, max(24, rect.width() - 12),
         )
+        alarm_type = signal_alarm_type(text) if self._kind == "signal" else ""
         painter.setPen(self._ink)
-        painter.drawText(
-            rect.adjusted(6, 0, -4, 0),
-            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-            shown,
-        )
+        if alarm_type:
+            name_rect = rect.adjusted(6, 1, -4, -(rect.height() // 2) + 1)
+            painter.drawText(
+                name_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                shown,
+            )
+            small = QFont(option.font)
+            small.setPointSizeF(max(6.0, option.font.pointSizeF() - 2.0))
+            painter.setFont(small)
+            painter.setPen(self._type_ink)
+            painter.drawText(
+                rect.adjusted(6, rect.height() // 2 - 1, -4, -1),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                alarm_type,
+            )
+        else:
+            painter.drawText(
+                rect.adjusted(6, 0, -4, 0),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                shown,
+            )
         painter.restore()
 
     def sizeHint(self, _option, _index):
-        return QSize(80, 20)
+        return QSize(80, 32 if self._kind == "signal" else 20)
 
 
 class _PaletteList(QListWidget):
@@ -598,12 +633,14 @@ class _PaletteList(QListWidget):
         self.setMinimumHeight(72)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setToolTip(
-            f"Drag a {_KIND_SHORT[kind].lower()} into a slot of the same colour"
+            f"Drag a {_KIND_WORD[kind]} into a slot of the same colour"
         )
         for text in alarm_palette(kind):
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, text)
-            if kind == "duration" and text == "is seen":
+            if kind == "signal" and signal_alarm_type(text):
+                tip = f"{text}\nAlarm type: {signal_alarm_type(text)}"
+            elif kind == "duration" and text == "is seen":
                 tip = "As soon as it is seen. No wait."
             elif kind == "duration" and text == "custom value":
                 tip = "Type your own length of time."
@@ -878,14 +915,14 @@ class _Slot(QFrame):
             lines.append("Right-click to empty this slot.")
             if self._multi:
                 lines.append(
-                    f"Drop another {_KIND_SHORT[self.kind].lower()} here to add it."
+                    f"Drop another {_KIND_WORD[self.kind]} here to add it."
                 )
                 if self.kind == "signal" and len(self._parts) > 1:
                     lines.append("Click the joining word to swap and for or.")
             self.setToolTip("\n".join(lines))
         else:
             optional = self.kind not in ALARM_PIECE_REQUIRED
-            self._body.setText("—" if optional else _KIND_SHORT[self.kind].lower())
+            self._body.setText("—" if optional else _KIND_WORD[self.kind])
             self._body.setStyleSheet(
                 "color: #6c7086; font-size: 11px; background: transparent;"
             )
@@ -898,7 +935,7 @@ class _Slot(QFrame):
             )
             self.setCursor(Qt.CursorShape.ArrowCursor)
             self.setToolTip(
-                f"Drop a {_KIND_SHORT[self.kind].lower()} here."
+                f"Drop a {_KIND_WORD[self.kind]} here."
                 + (" Drop more than one." if self.kind == "signal" else "")
                 + (" Optional." if optional else "")
             )
@@ -957,7 +994,7 @@ class _Slot(QFrame):
             "  border-radius: 3px;"
             "}"
         )
-        short = _KIND_SHORT[self.kind].lower()
+        short = _KIND_WORD[self.kind]
         lines = []
         if self.kind == "signal":
             lines.append(
@@ -1384,44 +1421,42 @@ class _RuleLine(QFrame):
             self._set_halo(False, bad=problem)
             self.setToolTip("Syntax incorrect. " + problem)
             return
-        self._set_halo(True)
+        note = alarm_logic_note(pieces)
+        self._set_halo(True, note=note)
         if alarm_blocks_key(pieces):
             self.setToolTip(sentence)
         else:
-            self.setToolTip(
+            tip = (
                 sentence + "\nThe sentence is complete, but it is not one of the "
                 "built-in alarms, so it does not fire."
             )
+            if note:
+                tip += "\nNon-standard logic: " + note
+            self.setToolTip(tip)
 
-    def _set_halo(self, on: bool, *, bad: str = "") -> None:
+    def _set_halo(self, on: bool, *, bad: str = "", note: str = "") -> None:
         self._unit_bad = bool(bad)
         self._complete = bool(on) and not bad
         self._syntax_note.setVisible(bool(on) or bool(bad))
         if bad:
-            self._syntax_note.setText("Syntax incorrect")
-            self._syntax_note.setStyleSheet(
-                "QLabel {"
-                "  color: #1e1e2e;"
-                "  background-color: #f38ba8;"
-                "  font-size: 10px;"
-                "  font-weight: bold;"
-                "  padding: 1px 8px;"
-                "  border-radius: 3px;"
-                "}"
-            )
+            text, fill = "Syntax incorrect", "#f38ba8"
             self.setGraphicsEffect(None)
+        elif note:
+            text, fill = "Syntax Correct/Non-Standard Logic - please check", "#f9e2af"
         else:
-            self._syntax_note.setText("Syntax Correct")
-            self._syntax_note.setStyleSheet(
-                "QLabel {"
-                "  color: #1e1e2e;"
-                "  background-color: #a6e3a1;"
-                "  font-size: 10px;"
-                "  font-weight: bold;"
-                "  padding: 1px 8px;"
-                "  border-radius: 3px;"
-                "}"
-            )
+            text, fill = "Syntax Correct", "#a6e3a1"
+        self._syntax_note.setText(text)
+        self._syntax_note.setToolTip(note)
+        self._syntax_note.setStyleSheet(
+            "QLabel {"
+            "  color: #1e1e2e;"
+            f"  background-color: {fill};"
+            "  font-size: 10px;"
+            "  font-weight: bold;"
+            "  padding: 1px 8px;"
+            "  border-radius: 3px;"
+            "}"
+        )
         if on:
             glow = QGraphicsDropShadowEffect(self)
             glow.setBlurRadius(16)
