@@ -576,6 +576,22 @@ def alarm_blocks_key(pieces: dict[str, str]) -> str | None:
     return None
 
 
+def alarm_band(key: str, severity: str) -> str:
+    """Tray band for an alarm that is already sounding.
+
+    Critical is the monitor's critical grade: the pack is very low, the
+    inverter is offline, a feed has died, or three or more plugs are silent.
+    Major is a warning that still needs a look (the pack is under the low
+    line, or one or two plugs have gone quiet). Minor is the house using
+    almost all the solar — the inverter is behaving, so it is a note.
+    """
+    if str(severity or "").strip() == "critical":
+        return "critical"
+    if str(key or "").strip() == "load_eats_pv":
+        return "minor"
+    return "major"
+
+
 @dataclass
 class AlarmHit:
     key: str
@@ -1364,6 +1380,7 @@ __all__ = [
     "alarm_palette",
     "alarm_rule_syntax",
     "alarm_piece_accepted",
+    "alarm_band",
     "alarm_blocks_key",
     "alarm_unit_problem",
     "split_joined_pieces",

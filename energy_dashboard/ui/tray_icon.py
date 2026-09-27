@@ -26,6 +26,50 @@ def powermon_tray_icon() -> QIcon:
     return icon
 
 
+# Tray rows at the top of the menu. Backgrounds are solid so they read at a glance.
+TRAY_ALARM_BANDS = (
+    ("critical", "Critical Alarms", "#c23b4a", "#ffe8ea"),
+    ("major", "Major Alarms", "#fab387", "#1e1e2e"),
+    ("minor", "Minor Alarms", "#f9e2af", "#1e1e2e"),
+)
+
+
+class PowerMonTrayMenu(QMenu):
+    """Tray menu that paints the three alarm rows in their own colours.
+
+    Ordinary menu items stay on the stylesheet. A widget inside the menu
+    does not paint on this desktop, so the colour is drawn on the menu itself.
+    """
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        if not painter.isActive():
+            return
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            for action in self.actions():
+                bg = action.property("pm_band_bg")
+                if not bg:
+                    continue
+                rect = self.actionGeometry(action)
+                if not rect.isValid():
+                    continue
+                colour = QColor(str(bg))
+                if action == self.activeAction():
+                    colour = colour.lighter(112)
+                painter.fillRect(rect.adjusted(6, 1, -6, -1), colour)
+                painter.setPen(QColor(str(action.property("pm_band_fg") or "#1e1e2e")))
+                painter.setFont(self.font())
+                painter.drawText(
+                    rect.adjusted(16, 0, -12, 0),
+                    int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                    action.text(),
+                )
+        finally:
+            painter.end()
+
+
 def style_tray_info(menu, _labels=None) -> None:
     """Paint the tray menu like the rest of the app.
 

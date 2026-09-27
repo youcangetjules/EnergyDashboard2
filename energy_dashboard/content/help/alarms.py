@@ -12,7 +12,11 @@ This page is in <b>Dashboards</b> and answers one question: is anything wrong
 right now? The red <b>Alarms (n)</b> tab and the matching button on the bottom
 bar show how many are sounding, with a space before the number. The red banner
 at the top of the window, and <b>Alarms</b> in the system-tray menu, open this
-page too.</p>
+page too. The tray menu opens with three rows: <b>Critical Alarms</b> on red,
+<b>Major Alarms</b> on amber, and <b>Minor Alarms</b> on yellow. The number is
+how many of that grade are sounding. Critical is a feed that has died, the
+inverter offline, or the pack very low. Major is a warning that still needs a
+look. Minor is the house using almost all the solar, which is not a fault.</p>
 <p>
 <b>Sounding now</b> lists every alarm that is currently raised, worst first.
 Each card gives the plain-English reason, and how long the condition has been

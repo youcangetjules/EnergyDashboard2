@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 11:57
+
+- The PowerMon tray menu now starts with three rows: Critical Alarms on red, Major Alarms on amber, and Minor Alarms on yellow. Each shows how many of that grade are sounding. Critical is a dead feed, the inverter offline, or the battery very low. Major is a warning that still needs a look. Minor is the house using almost all the solar, which is not a fault.
+
 ### 11:50
 
 - The Alarms tab in Dashboards is red, and both that tab and the bottom-bar Alarms button show how many alarms are sounding, written as Alarms (n) with a space before the number.

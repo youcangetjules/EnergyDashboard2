@@ -7,6 +7,7 @@ from energy_dashboard.common import *
 from energy_dashboard.core.invoker import Invoker
 from energy_dashboard.core.alarms import (
     AlarmMonitor,
+    alarm_band,
     DEFAULT_HOLD_MINUTES,
     DEFAULT_PV_MIN_KW,
     DEFAULT_NOTIFY_COOLDOWN_S,
@@ -52,7 +53,12 @@ from energy_dashboard.tabs.parameters import ParametersTab
 from energy_dashboard.tabs.shadow_trial import ShadowTrialTab
 from energy_dashboard.tabs.sms_gateway import SmsGatewayTab
 from energy_dashboard.ui.system_status_bar import tray_database_lines
-from energy_dashboard.ui.tray_icon import powermon_tray_icon, style_tray_info
+from energy_dashboard.ui.tray_icon import (
+    TRAY_ALARM_BANDS,
+    PowerMonTrayMenu,
+    powermon_tray_icon,
+    style_tray_info,
+)
 from energy_dashboard.ui.work_area import client_cap, fit_window_to_work_area
 from energy_dashboard.tabs.smart_advisor import SmartAdvisorTab
 from energy_dashboard.tabs.tasmota import TasmotaTab
@@ -1329,9 +1335,22 @@ class EnergyDashboard(QMainWindow):
             tray = QSystemTrayIcon(self)
             tray.setIcon(powermon_tray_icon())
             tray.setToolTip("PowerMon — right-click for broker, health, and alarms")
-            menu = QMenu(self)
+            menu = PowerMonTrayMenu(self)
             # Ordinary menu entries, not embedded widgets: a widget dropped into
             # a tray menu rendered as a blank strip on this desktop (BUG-074).
+            # The three alarm rows are still QActions; the menu paints their fill.
+            self._tray_band_actions = {}
+            for key, label, bg, fg in TRAY_ALARM_BANDS:
+                act = menu.addAction(f"{label} (0)")
+                act.setProperty("pm_band_bg", bg)
+                act.setProperty("pm_band_fg", fg)
+                act.setToolTip(
+                    "How many alarms of this grade are sounding now. "
+                    "Opens the Alarms page."
+                )
+                act.triggered.connect(self._tray_show_alarms)
+                self._tray_band_actions[key] = act
+            menu.addSeparator()
             self._tray_stat_actions = []
             for text in tray_database_lines(None):
                 act = menu.addAction(text)
@@ -1399,8 +1418,28 @@ class EnergyDashboard(QMainWindow):
             for act in getattr(self, "_tray_stat_actions", []):
                 if not act.text().strip():
                     act.setText("Database figures unavailable")
+        self._tray_refresh_alarm_bands()
         self._tray_apply_broker_label()
         self._tray_probe_broker()
+
+    def _tray_refresh_alarm_bands(self) -> None:
+        """Critical / Major / Minor counts for the three coloured tray rows."""
+        actions = getattr(self, "_tray_band_actions", None) or {}
+        if not actions:
+            return
+        counts = {"critical": 0, "major": 0, "minor": 0}
+        mon = getattr(self, "alarm_monitor", None)
+        if mon is not None and getattr(mon, "enabled", True):
+            for hit in getattr(mon, "_active", {}).values():
+                band = alarm_band(
+                    str(getattr(hit, "key", "") or ""),
+                    str(getattr(hit, "severity", "") or ""),
+                )
+                if band in counts:
+                    counts[band] += 1
+        labels = {key: label for key, label, _bg, _fg in TRAY_ALARM_BANDS}
+        for key, act in actions.items():
+            act.setText(f"{labels.get(key, key)} ({counts.get(key, 0)})")
 
     def _tray_apply_broker_label(self):
         act = getattr(self, "_tray_act_broker", None)
