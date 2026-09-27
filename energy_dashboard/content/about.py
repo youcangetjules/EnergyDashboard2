@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.479", "2026-09-27", [
+        "How long on Alarm defs is: is seen, 10 seconds, 30 seconds, 1 minute, 2 minutes, 5 minutes, 10 minutes, 30 minutes, or a custom value.",
+    ]),
     ("2.9.478", "2026-09-27", [
         "The number box on Alarm defs is tall enough for its explanation, so the sentence is no longer cut off.",
     ]),

@@ -22,7 +22,10 @@ goes silent.</li>
 low-battery line or the spare-solar minimum. Some alarms have nothing to
 compare against, so this box can stay empty.</li>
 <li><b>For how long</b> (purple) — how long it must hold before the alarm
-sounds. “The hold time” is the figure in Setup &amp; Info.</li>
+sounds. Choose <b>is seen</b> for no wait, a fixed time from 10 seconds up
+to 30 minutes, or <b>custom value</b> to type your own. A built-in alarm
+uses that wait. The older phrases, such as “the hold time”, still mean the
+figure in Setup &amp; Info.</li>
 <li><b>While</b> (orange) — an extra condition that also has to be true, for
 example “logging is switched on”. Optional.</li>
 <li><b>Outcome</b> (red) — warning or critical, and how you are told:

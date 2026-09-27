@@ -298,7 +298,7 @@ ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
     ),
     "comparison": ("has a differential of", "stays above", "stops"),
     "threshold": ("Volts",),
-    "duration": ("about 5 minutes", "an hour"),
+    "duration": (),
     "outcome": ("send SMS", "create a desktop alert", "Warning", "Critical"),
 }
 
@@ -324,6 +324,65 @@ _COMPARISON_ORDER = (
 )
 
 
+# How long a condition must stay true. The palette offers these, in this order.
+# "is seen" means no wait. "custom value" is the list entry; a typed time is
+# stored as "45 seconds" or "7 minutes".
+DURATION_CHOICES: tuple[str, ...] = (
+    "is seen",
+    "10 seconds",
+    "30 seconds",
+    "1 minute",
+    "2 minutes",
+    "5 minutes",
+    "10 minutes",
+    "30 minutes",
+    "custom value",
+)
+_DURATION_SECONDS = {
+    "is seen": 0.0,
+    "10 seconds": 10.0,
+    "30 seconds": 30.0,
+    "1 minute": 60.0,
+    "2 minutes": 120.0,
+    "5 minutes": 300.0,
+    "10 minutes": 600.0,
+    "30 minutes": 1800.0,
+}
+
+
+def duration_seconds(text: str) -> float | None:
+    """Seconds a How long block stands for, or None if it is not a length of time.
+
+    The old catalogue phrases ("the hold time", "about 20 seconds") are not
+    lengths here — those alarms keep the wait set in Setup.
+    """
+    raw = (text or "").strip().lower()
+    if raw in _DURATION_SECONDS:
+        return _DURATION_SECONDS[raw]
+    import re
+    seconds = re.fullmatch(r"(\d+)\s+seconds?", raw)
+    if seconds:
+        return float(seconds.group(1))
+    minutes = re.fullmatch(r"(\d+)\s+minutes?", raw)
+    if minutes:
+        return float(minutes.group(1)) * 60.0
+    return None
+
+
+def format_duration(seconds: float) -> str:
+    """Chip text for a typed length of time. Zero is "is seen"."""
+    try:
+        whole = int(round(float(seconds)))
+    except (TypeError, ValueError):
+        return "is seen"
+    if whole <= 0:
+        return "is seen"
+    if whole % 60 == 0:
+        minutes = whole // 60
+        return "1 minute" if minutes == 1 else f"{minutes} minutes"
+    return "1 second" if whole == 1 else f"{whole} seconds"
+
+
 def alarm_palette(kind: str) -> tuple[str, ...]:
     """Every block of one kind, without repeats.
 
@@ -332,6 +391,8 @@ def alarm_palette(kind: str) -> tuple[str, ...]:
     """
     if kind not in ALARM_PIECE_KINDS:
         return ()
+    if kind == "duration":
+        return DURATION_CHOICES
     out: list[str] = []
     for row in ALARM_BLOCKS:
         text = getattr(row, kind)
@@ -567,11 +628,24 @@ def alarm_unit_problem(pieces: dict[str, str]) -> str:
 
 
 def alarm_blocks_key(pieces: dict[str, str]) -> str | None:
-    """Key of the built-in alarm these blocks match, or None for a draft."""
+    """Key of the built-in alarm these blocks match, or None for a draft.
+
+    How long may be the original phrase, or one of the duration choices
+    (including a typed time). The rest of the sentence still has to match.
+    """
     p = {k: str((pieces or {}).get(k) or "").strip() for k in ALARM_PIECE_KINDS}
     p["outcome"] = severity_outcome(p["outcome"])
     for row in ALARM_BLOCKS:
-        if row.pieces() == p:
+        canon = row.pieces()
+        if any(
+            p[k] != canon[k]
+            for k in ALARM_PIECE_KINDS
+            if k not in ("duration", "outcome")
+        ):
+            continue
+        if severity_outcome(canon["outcome"]) != p["outcome"]:
+            continue
+        if p["duration"] == canon["duration"] or duration_seconds(p["duration"]) is not None:
             return row.key
     return None
 
@@ -639,6 +713,22 @@ class AlarmMonitor:
     _notify_count: dict[str, int] = field(default_factory=dict, init=False)
     history: list[dict[str, Any]] = field(default_factory=list, init=False)
     _history_cap: int = field(default=40, init=False)
+    _rule_hold_s: dict[str, float] = field(default_factory=dict, init=False)
+
+    def set_rule_holds(self, holds: dict[str, float] | None) -> None:
+        """Waits chosen on Alarm defs. Missing keys keep the Setup wait."""
+        cleaned: dict[str, float] = {}
+        for key, seconds in (holds or {}).items():
+            try:
+                cleaned[str(key)] = max(0.0, float(seconds))
+            except (TypeError, ValueError):
+                continue
+        self._rule_hold_s = cleaned
+
+    def _wait_s(self, key: str, default: float) -> float:
+        if key in self._rule_hold_s:
+            return self._rule_hold_s[key]
+        return float(default)
 
     def configure(
         self,
@@ -754,7 +844,9 @@ class AlarmMonitor:
             return []
 
         now = float(now_wall if now_wall is not None else time.time())
-        hold_s = self.hold_minutes * 60.0
+        low_hold = self._wait_s("low_soc", self.hold_minutes * 60.0)
+        sun_hold = self._wait_s("sun_wasted", self.hold_minutes * 60.0)
+        load_hold = self._wait_s("load_eats_pv", self.hold_minutes * 60.0)
         thr = float(soc_threshold_pct)
 
         try:
@@ -860,7 +952,7 @@ class AlarmMonitor:
 
         hits: list[AlarmHit] = []
 
-        if self._below_since is not None and (now - self._below_since) >= hold_s:
+        if self._below_since is not None and (now - self._below_since) >= low_hold:
             dur_m = (now - self._below_since) / 60.0
             why = _why_low_with_context(soc, thr, pv, chg, dsch, load, gimp, self.pv_min_kw)
             hit = self._raise(
@@ -873,7 +965,7 @@ class AlarmMonitor:
             )
             hits.append(hit)
 
-        if self._sun_waste_since is not None and (now - self._sun_waste_since) >= hold_s:
+        if self._sun_waste_since is not None and (now - self._sun_waste_since) >= sun_hold:
             dur_m = (now - self._sun_waste_since) / 60.0
             detail = (
                 f"SOC {soc:.0f}% for {dur_m:.0f} min with ~{surplus:.1f} kW spare PV "
@@ -891,7 +983,7 @@ class AlarmMonitor:
             )
             hits.append(hit)
 
-        if self._load_eats_pv_since is not None and (now - self._load_eats_pv_since) >= hold_s:
+        if self._load_eats_pv_since is not None and (now - self._load_eats_pv_since) >= load_hold:
             dur_m = (now - self._load_eats_pv_since) / 60.0
             detail = (
                 f"PV {pv:.2f} kW but house load {load:.2f} kW for {dur_m:.0f} min — "
@@ -949,10 +1041,11 @@ class AlarmMonitor:
     ) -> AlarmHit | None:
         if self._grott_lost_since is None:
             return None
-        # MQTT drop: fire quickly. Never-received payload: wait the Grott
-        # fresh window so startup / first heartbeat is not a false alarm.
-        # Already-stale snapshot: age has already exceeded fresh_s.
-        if not connected:
+        # A duration chosen on Alarm defs replaces the usual Grott wait.
+        chosen = self._rule_hold_s.get("grott_lost")
+        if chosen is not None:
+            hold_s = chosen
+        elif not connected:
             hold_s = self.grott_lost_hold_s
         elif age_s is None:
             hold_s = max(self.grott_lost_hold_s, float(fresh_s))
@@ -1019,7 +1112,9 @@ class AlarmMonitor:
             self._drop_alarm("db_disconnected")
         if (
             self._db_disc_since is not None
-            and (now - self._db_disc_since) >= self.db_disconnect_hold_s
+            and (now - self._db_disc_since) >= self._wait_s(
+                "db_disconnected", self.db_disconnect_hold_s,
+            )
         ):
             dur_s = now - self._db_disc_since
             err = (db_error or "connection failed").strip()
@@ -1057,7 +1152,9 @@ class AlarmMonitor:
             self._drop_alarm("db_ingest_stale")
         if (
             self._db_ingest_since is not None
-            and (now - self._db_ingest_since) >= self.db_ingest_hold_s
+            and (now - self._db_ingest_since) >= self._wait_s(
+                "db_ingest_stale", self.db_ingest_hold_s,
+            )
         ):
             who = []
             if growatt_writing:
@@ -1097,7 +1194,9 @@ class AlarmMonitor:
             self._drop_alarm("inverter_comms_lost")
         if (
             self._inv_lost_since is not None
-            and (now - self._inv_lost_since) >= self.inverter_lost_hold_s
+            and (now - self._inv_lost_since) >= self._wait_s(
+                "inverter_comms_lost", self.inverter_lost_hold_s,
+            )
         ):
             reason = (inverter_comms_reason or "offline").strip()
             dur_m = (now - self._inv_lost_since) / 60.0
@@ -1124,7 +1223,9 @@ class AlarmMonitor:
             self._drop_alarm("tasmota_mqtt_lost")
         if (
             self._tasmota_mqtt_since is not None
-            and (now - self._tasmota_mqtt_since) >= self.tasmota_mqtt_hold_s
+            and (now - self._tasmota_mqtt_since) >= self._wait_s(
+                "tasmota_mqtt_lost", self.tasmota_mqtt_hold_s,
+            )
         ):
             dur_s = now - self._tasmota_mqtt_since
             hits.append(self._raise(
@@ -1156,7 +1257,9 @@ class AlarmMonitor:
             self._drop_alarm("tasmota_offline")
         if (
             self._tasmota_off_since is not None
-            and (now - self._tasmota_off_since) >= self.tasmota_stale_s
+            and (now - self._tasmota_off_since) >= self._wait_s(
+                "tasmota_offline", self.tasmota_stale_s,
+            )
         ):
             labels = ", ".join(self._tasmota_offline_labels[:6])
             extra = (
@@ -1381,6 +1484,9 @@ __all__ = [
     "alarm_rule_syntax",
     "alarm_piece_accepted",
     "alarm_band",
+    "duration_seconds",
+    "format_duration",
+    "DURATION_CHOICES",
     "alarm_blocks_key",
     "alarm_unit_problem",
     "split_joined_pieces",

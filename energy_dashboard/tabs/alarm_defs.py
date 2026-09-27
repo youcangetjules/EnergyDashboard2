@@ -32,6 +32,8 @@ from energy_dashboard.core.alarms import (
     ALARM_PIECE_REQUIRED,
     alarm_blocks_key,
     alarm_palette,
+    duration_seconds,
+    format_duration,
     alarm_unit_problem,
     split_joined_pieces,
     alarm_piece_accepted,
@@ -455,6 +457,56 @@ def _edit_tasmota_ip(parent) -> bool:
         return True
 
 
+def _edit_custom_duration(parent) -> str | None:
+    """Ask for a length of time. Returns the chip phrase, or None if cancelled."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Custom value")
+    dlg.setMinimumWidth(420)
+    lay = QVBoxLayout(dlg)
+    hint = _dialog_hint(
+        "How long the condition must stay true before the alarm fires. "
+        "Zero means it fires as soon as it is seen."
+    )
+    lay.addWidget(hint)
+    spin = QSpinBox()
+    spin.setRange(0, 1440)
+    spin.setValue(1)
+    apply_spin_field_motif(spin, width=120)
+    unit = QComboBox()
+    unit.addItem("minutes", 60)
+    unit.addItem("seconds", 1)
+
+    def _limit_custom_spin():
+        if int(unit.currentData() or 1) == 60:
+            spin.setRange(0, 1440)
+        else:
+            spin.setRange(0, 86400)
+
+    unit.currentIndexChanged.connect(lambda _i: _limit_custom_spin())
+    apply_combo_field_motif(unit, width=120)
+    _limit_custom_spin()
+    row = QHBoxLayout()
+    row.addWidget(spin)
+    row.addWidget(unit)
+    row.addStretch(1)
+    lay.addLayout(row)
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+    )
+    ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    if ok is not None:
+        ok.setText("Save")
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    lay.addWidget(buttons)
+    _prepare_dialog_buttons(dlg)
+    _fit_dialog_to_hint(dlg, hint)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+    scale = int(unit.currentData() or 1)
+    return format_duration(float(spin.value()) * scale)
+
+
 def _edit_param(parent, spec: _Param, dash) -> bool:
     dlg = QDialog(parent)
     dlg.setWindowTitle(spec.title)
@@ -551,7 +603,15 @@ class _PaletteList(QListWidget):
         for text in alarm_palette(kind):
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, text)
-            item.setToolTip(text)
+            if kind == "duration" and text == "is seen":
+                tip = "As soon as it is seen. No wait."
+            elif kind == "duration" and text == "custom value":
+                tip = "Type your own length of time."
+            elif kind == "duration":
+                tip = f"The condition must stay true for {text}."
+            else:
+                tip = text
+            item.setToolTip(tip)
             self.addItem(item)
         # No QListWidget::item rule. That replaces the delegate and the
         # rows vanish on this desktop.
@@ -811,7 +871,7 @@ class _Slot(QFrame):
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             self._paint_caption()
             lines = [self.caption()]
-            if self._text in _PARAM_FOR or self._text == _TASMOTA_SIGNAL:
+            if self._text in _PARAM_FOR or self._text == _TASMOTA_SIGNAL or self._text == "custom value":
                 lines.append("Click to change this.")
             lines.append("Double-click to remove it.")
             lines.append("Drag onto the bin to remove it.")
@@ -937,6 +997,12 @@ class _Slot(QFrame):
             edited = _edit_tasmota_ip(tab)
         elif spec is not None and tab is not None:
             edited = _edit_param(tab, spec, tab.dash)
+        elif self._text == "custom value" and tab is not None:
+            phrase = _edit_custom_duration(tab)
+            if phrase:
+                self.set_piece(phrase)
+                self.changed.emit()
+            return
         if edited and tab is not None:
             tab.refresh_param_chips()
 
@@ -980,7 +1046,7 @@ class _Slot(QFrame):
     def mouseReleaseEvent(self, event):
         if self._armed and event.button() == Qt.MouseButton.LeftButton and self._text:
             self._armed = False
-            if self._text in _PARAM_FOR or self._text == _TASMOTA_SIGNAL:
+            if self._text in _PARAM_FOR or self._text == _TASMOTA_SIGNAL or self._text == "custom value":
                 self._click_timer.start(QApplication.doubleClickInterval())
             return
         self._armed = False
@@ -1022,6 +1088,8 @@ class _Slot(QFrame):
         else:
             self.set_piece(text)
             self.changed.emit()
+            if text == "custom value":
+                QTimer.singleShot(0, self._open_editor)
         event.setDropAction(Qt.DropAction.CopyAction)
         event.accept()
 
@@ -1582,6 +1650,7 @@ class AlarmDefsTab(QWidget):
         rows = self._read_saved() or self._builtin_rows()
         for pieces in rows:
             self._add_card(pieces, save=False)
+        self._apply_rule_holds()
 
     def _read_saved(self) -> list[dict[str, str]]:
         raw = QSettings("PowerModel", "EnergyDashboard2").value(_QS_RULES, "")
@@ -1607,6 +1676,22 @@ class AlarmDefsTab(QWidget):
         QSettings("PowerModel", "EnergyDashboard2").setValue(
             _QS_RULES, json.dumps(payload),
         )
+        self._apply_rule_holds()
+
+    def _apply_rule_holds(self) -> None:
+        """A How long choice on a built-in rule is how long that alarm waits."""
+        dash = getattr(self, "dash", None)
+        monitor = getattr(dash, "alarm_monitor", None) if dash is not None else None
+        if monitor is None or not hasattr(monitor, "set_rule_holds"):
+            return
+        holds: dict[str, float] = {}
+        for card in self._cards:
+            pieces = card.values()
+            key = alarm_blocks_key(pieces)
+            seconds = duration_seconds(pieces.get("duration", ""))
+            if key and seconds is not None:
+                holds[key] = seconds
+        monitor.set_rule_holds(holds)
 
     def _reset(self) -> None:
         QSettings("PowerModel", "EnergyDashboard2").remove(_QS_RULES)

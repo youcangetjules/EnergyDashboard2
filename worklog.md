@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 12:04
+
+- How long on Alarm defs is now a fixed list: is seen (no wait), 10 seconds, 30 seconds, 1 minute, 2 minutes, 5 minutes, 10 minutes, 30 minutes, and custom value. Custom value opens a box so you can type seconds or minutes. On a built-in alarm, that choice is how long the condition must stay true before it fires.
+
 ### 12:01
 
 - The box that opens when you click a number on Alarm defs, including Volts, is taller so the explanation above the field is no longer cut off.
