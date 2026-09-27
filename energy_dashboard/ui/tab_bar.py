@@ -137,7 +137,22 @@ class FreshnessTabBar(QTabBar):
         self._updateable = {int(idx): bool(v) for idx, v in mapping.items()}
         self.update()
 
+    def _page_at(self, tab_index):
+        parent = self.parent()
+        if parent is None or not hasattr(parent, "widget"):
+            return None
+        try:
+            return parent.widget(int(tab_index))
+        except Exception:
+            return None
+
+    def _is_alarm_tab(self, tab_index) -> bool:
+        page = self._page_at(tab_index)
+        return page is not None and bool(page.property("_pm_tab_alarm"))
+
     def _bg_for(self, tab_index):
+        if self._is_alarm_tab(tab_index):
+            return QColor(_BTN_ALARM_BG)
         if tab_index in self._fresh_bg:
             return self._fresh_bg[tab_index]
         if self._updateable.get(tab_index, True):
@@ -182,9 +197,11 @@ class FreshnessTabBar(QTabBar):
                 self.initStyleOption(option, i)
                 selected = bool(option.state & QStyle.StateFlag.State_Selected)
                 shape = self._tab_shape_path(rect)
+                alarm_tab = self._is_alarm_tab(i)
                 bg = self._bg_for(i)
                 stale = (
-                    not selected
+                    not alarm_tab
+                    and not selected
                     and bg.name(QColor.NameFormat.HexRgb).lower()
                     == _TAB_PAGE_NOT_UPDATED.lower()
                 )
@@ -216,7 +233,7 @@ class FreshnessTabBar(QTabBar):
                         int(body.right()), int(body.bottom()),
                     )
                 bg_hex = bg.name(QColor.NameFormat.HexRgb)
-                fg = QColor(_contrasting_tab_text(bg_hex))
+                fg = QColor("#ffe8ea" if alarm_tab else _contrasting_tab_text(bg_hex))
                 option.font = (
                     self._label_font_bold if selected else self._label_font
                 )

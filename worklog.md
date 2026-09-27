@@ -12,6 +12,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-09-27
+
+### 11:50
+
+- The Alarms tab in Dashboards is red, and both that tab and the bottom-bar Alarms button show how many alarms are sounding, written as Alarms (n) with a space before the number.
+
 ## 2026-09-26
 
 ### 21:48

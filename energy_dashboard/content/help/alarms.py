@@ -9,8 +9,10 @@ HELP_TEXT = """\
 <h2>Alarms</h2>
 <p>
 This page is in <b>Dashboards</b> and answers one question: is anything wrong
-right now? The <b>Alarms</b> button on the bottom bar, the red banner at the
-top of the window, and <b>Alarms</b> in the system-tray menu all open it.</p>
+right now? The red <b>Alarms (n)</b> tab and the matching button on the bottom
+bar show how many are sounding, with a space before the number. The red banner
+at the top of the window, and <b>Alarms</b> in the system-tray menu, open this
+page too.</p>
 <p>
 <b>Sounding now</b> lists every alarm that is currently raised, worst first.
 Each card gives the plain-English reason, and how long the condition has been

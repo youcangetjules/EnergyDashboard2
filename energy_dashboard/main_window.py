@@ -447,6 +447,7 @@ class EnergyDashboard(QMainWindow):
             bar.setCurrentWidget(prev)
         elif bar.count() > 0:
             bar.setCurrentIndex(0)
+        self._sync_alarms_caption()
         if getattr(self, "_tab_last_update", None) is not None:
             self._refresh_tab_freshness()
 
@@ -625,15 +626,16 @@ class EnergyDashboard(QMainWindow):
         refresh_page_btn.setFixedWidth(_ACTION_BTN_WIDTH)
         refresh_page_btn.clicked.connect(self._refresh_current_tab)
 
-        alarms_btn = QPushButton("Alarms")
+        alarms_btn = QPushButton("Alarms (0)")
         alarms_btn.setToolTip(
             "Open the Alarms page: what is sounding now, and what has fired "
-            "since the app started."
+            "since the app started. The number is how many are sounding now."
         )
         alarms_btn.setFixedWidth(_ACTION_BTN_WIDTH)
         alarms_btn.setProperty(PRIMARY_BUTTON_EXEMPT, True)
         alarms_btn.setStyleSheet(_ALARMS_BTN_QSS)
         alarms_btn.clicked.connect(self._show_alarms_page)
+        self._alarms_btn = alarms_btn
 
         refresh_pair = QWidget()
         refresh_pair_row = QHBoxLayout(refresh_pair)
@@ -812,6 +814,8 @@ class EnergyDashboard(QMainWindow):
         self.sms_gateway_tab = SmsGatewayTab(self)
 
         self.alarms_tab = AlarmsTab(self)
+        self.alarms_tab.setProperty("_pm_tab_alarm", True)
+        self._active_alarm_count = 0
 
         self.parameters_tab = ParametersTab(self)
 
@@ -1709,7 +1713,30 @@ class EnergyDashboard(QMainWindow):
         except Exception:
             pass
 
+    def _sync_alarms_caption(self) -> None:
+        """Red Alarms tab and button read ``Alarms (n)`` — space before the count."""
+        n = int(getattr(self, "_active_alarm_count", 0) or 0)
+        title = f"  Alarms ({n})  "
+        page = getattr(self, "alarms_tab", None)
+        bar = getattr(self, "tabs", None)
+        if page is not None:
+            page.setProperty("_pm_tab_alarm", True)
+            if bar is not None:
+                idx = bar.indexOf(page)
+                if idx >= 0 and bar.tabText(idx) != title:
+                    bar.setTabText(idx, title)
+        btn = getattr(self, "_alarms_btn", None)
+        if btn is not None:
+            label = f"Alarms ({n})"
+            if btn.text() != label:
+                btn.setText(label)
+            width = max(110, btn.fontMetrics().horizontalAdvance(label) + 36)
+            if btn.width() != width:
+                btn.setFixedWidth(width)
+
     def _apply_alarm_banner(self, hits):
+        self._active_alarm_count = len(hits or [])
+        self._sync_alarms_caption()
         if not hasattr(self, "_alarm_banner"):
             return
         if not hits:

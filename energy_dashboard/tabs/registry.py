@@ -28,7 +28,7 @@ _MAIN_TAB_BAR_REGISTRY = (
     (None, "growatt_tab", "  Growatt Live Status  ", "usage", True),
     ("tasmota", "tasmota_tab", "  Tasmota Devices  ", "usage", True),
     ("combined", "combined_tab", "  Combined Dashboard  ", "usage", True),
-    ("alarms", "alarms_tab", "  Alarms  ", "usage", True),
+    ("alarms", "alarms_tab", "  Alarms (0)  ", "usage", True),
     ("battery", "battery_tab", "  Battery Analysis  ", "physical_plant", True),
     ("pv_string_charge", "pv_string_charge_tab", "  PV String Charge  ", "physical_plant", True),
     ("pv_string_voltage", "pv_string_voltage_tab", "  String voltage  ", "physical_plant", True),

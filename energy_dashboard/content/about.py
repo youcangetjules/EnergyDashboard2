@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.476", "2026-09-27", [
+        "The Alarms tab and the bottom-bar button are red and read Alarms (n), with a space before how many are sounding.",
+    ]),
     ("2.9.475", "2026-09-26", [
         "Telemetry Source ranks Growatt cloud, GROTT MQTT, and Modbus as 1st, 2nd, and 3rd. Hybrid and “fill missing Grott data with API” are gone.",
     ]),
