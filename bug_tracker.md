@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-27 | 3 | 3 | 4 |
+| 2026-09-27 | 4 | 4 | 4 |
 | 2026-09-26 | 14 | 14 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
@@ -134,6 +134,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-080-20260927-04 — Dashboard feels slow after the Tasmota layout flush</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-27 22:15 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Tasmota table / whole window |
+| **Version found** | 2.9.489 |
+| **Version fixed** | 2.9.490 |
+
+**Symptom:** After the crash fix, the dashboard felt very slow.
+
+**Cause:** Each Tasmota table update flushed every waiting layout in the whole window, including the main window resizing itself. The same update also drew the power charts twice: once to measure the labels, and once to show them.
+
+**Resolution:** Row heights are left alone when the pane and the device count have not changed. The label measurement is kept until the chart changes size, and the visible draw is a single idle paint. Fixed 2026-09-27 22:15 in 2.9.490. File: `tabs/tasmota.py`.
 
 ### <span style="color:green">BUG-079-20260927-03 — Dashboard killed while drawing the Octopus chart</span>
 

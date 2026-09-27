@@ -21,6 +21,7 @@ _ctypes_ready = False
 _is_tracked = None
 _untrack_c = None
 _wrapped: set[type] = set()
+_pyside_modules_seen: tuple[str, ...] | None = None
 
 
 def _bind_ctypes() -> None:
@@ -77,11 +78,19 @@ def _wrap_type(cls: type) -> None:
 
 
 def wrap_loaded_pyside_types() -> None:
-    """Wrap PySide classes already imported so new instances are untracked."""
-    modules = [
-        mod for name, mod in list(sys.modules.items())
+    """Wrap PySide classes already imported so new instances are untracked.
+
+    Scanning every PySide module is expensive. Skip it when the set of
+    imported modules has not changed since the last sweep.
+    """
+    global _pyside_modules_seen
+    names = tuple(
+        name for name, mod in sys.modules.items()
         if name.startswith("PySide6") and mod is not None
-    ]
+    )
+    if names == _pyside_modules_seen:
+        return
+    modules = [sys.modules[name] for name in names]
     for mod in modules:
         for name in dir(mod):
             try:
@@ -90,6 +99,7 @@ def wrap_loaded_pyside_types() -> None:
                 continue
             if isinstance(cls, type):
                 _wrap_type(cls)
+    _pyside_modules_seen = names
 
 
 def untrack_existing_wrappers() -> None:

@@ -3211,7 +3211,7 @@ class TasmotaTab(QWidget):
         )
         self._hide_tasmota_chart_cursor()
         self._finalize_tasmota_charts_layout()
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def _on_tasmota_canvas_resize(self, _event):
         if not getattr(self, 'ax_hist', None) or not getattr(self, 'ax_bar', None):
@@ -3250,22 +3250,40 @@ class TasmotaTab(QWidget):
             self.canvas.draw_idle()
             return
 
-        self.fig.canvas.draw()
-        renderer = self.fig.canvas.get_renderer()
-        tbb = self.ax_bar.get_tightbbox(renderer).transformed(
-            self.fig.transFigure.inverted()
-        )
-        if tbb.x0 < label_pad:
-            shift = label_pad - tbb.x0
-            pos = self.ax_bar.get_position()
-            new_w = pos.width - shift
-            # Keep bar chart right edge at bar_right; only shrink if still usable
-            if new_w >= 0.04:
-                self.ax_bar.set_position([pos.x0 + shift, pos.y0, new_w, pos.height])
-
-        # Shift bar chart 30px left (normalized: 30.0 / figure width in pixels).
+        # The label inset only changes when the figure size changes. Measuring
+        # it draws the whole chart, so a live MQTT update must not do that
+        # every second.
         fw = self.fig.get_figwidth()
         dpi = self.fig.dpi
+        size_key = (
+            round(float(fw), 3),
+            round(float(self.fig.get_figheight()), 3),
+            round(float(dpi), 2),
+        )
+        label_shift = getattr(self, "_tasmota_bar_label_shift", None)
+        if size_key != getattr(self, "_tasmota_chart_layout_key", None) or label_shift is None:
+            self.fig.canvas.draw()
+            renderer = self.fig.canvas.get_renderer()
+            tbb = self.ax_bar.get_tightbbox(renderer).transformed(
+                self.fig.transFigure.inverted()
+            )
+            label_shift = 0.0
+            if tbb.x0 < label_pad:
+                shift = label_pad - tbb.x0
+                pos = self.ax_bar.get_position()
+                new_w = pos.width - shift
+                if new_w >= 0.04:
+                    label_shift = shift
+            self._tasmota_bar_label_shift = label_shift
+            self._tasmota_chart_layout_key = size_key
+
+        if label_shift:
+            pos = self.ax_bar.get_position()
+            self.ax_bar.set_position(
+                [pos.x0 + label_shift, pos.y0, pos.width - label_shift, pos.height]
+            )
+
+        # Shift bar chart 30px left (normalized: 30.0 / figure width in pixels).
         dx_fig = 30.0 / max(fw * dpi, 1.0)
         pos = self.ax_bar.get_position()
         self.ax_bar.set_position([max(0.0, pos.x0 - dx_fig), pos.y0, pos.width, pos.height])
@@ -3277,36 +3295,47 @@ class TasmotaTab(QWidget):
         if not hasattr(self, "tree_left") or not hasattr(self, "tree_right"):
             return
         min_row = self._tasmota_min_row_h()
+        plans = []
+        for tr in (self.tree_left, self.tree_right):
+            header_h = tr.header().height() if tr.header() is not None else 0
+            frame = tr.frameWidth() * 2
+            hsb = 0
+            if tr.horizontalScrollBar().isVisible():
+                hsb = tr.horizontalScrollBar().sizeHint().height()
+            body = tr.viewport().height()
+            computed_body = max(0, tr.height() - header_h - frame - hsb)
+            if computed_body > 0:
+                body = computed_body
+            if body <= 0:
+                plans = None
+                break
+            tree_rows = max(tr.topLevelItemCount(), 1)
+            row_h = max(min_row, body // tree_rows)
+            if row_h * tree_rows > body:
+                row_h = min_row
+                policy = Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            else:
+                policy = Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            plans.append((tr, row_h, policy, tree_rows, int(tr.height())))
+        if not plans:
+            # The trees have no height yet. Ask again on the next turn.
+            # Do not flush the whole window's layout: that stalls every page.
+            if not getattr(self, "_tasmota_row_fit_defer", False):
+                self._tasmota_row_fit_defer = True
+                QTimer.singleShot(0, self._apply_tasmota_tree_heights)
+            return
+        signature = tuple(
+            (id(tr), height, rows, row_h, policy == Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            for tr, row_h, policy, rows, height in plans
+        )
+        if signature == getattr(self, "_tasmota_row_fit_sig", None):
+            return
         self._tasmota_row_fit_lock = True
+        self._tasmota_row_fit_defer = False
         try:
-            # Layout only. Pumping the whole queue here ran a queued chart
-            # draw inside this call, and matplotlib's font code then aborted
-            # the app (the shell reports that as "Killed").
-            QApplication.sendPostedEvents(None, QEvent.Type.LayoutRequest)
-            for tr in (self.tree_left, self.tree_right):
+            for tr, row_h, policy, _rows, _height in plans:
                 tr.setMaximumHeight(16777215)
-                header_h = tr.header().height() if tr.header() is not None else 0
-                frame = tr.frameWidth() * 2
-                hsb = 0
-                if tr.horizontalScrollBar().isVisible():
-                    hsb = tr.horizontalScrollBar().sizeHint().height()
-                body = tr.viewport().height()
-                computed_body = max(0, tr.height() - header_h - frame - hsb)
-                if computed_body > 0:
-                    body = computed_body
-                if body <= 0:
-                    continue
-                tree_rows = max(tr.topLevelItemCount(), 1)
-                row_h = max(min_row, body // tree_rows)
-                if row_h * tree_rows > body:
-                    row_h = min_row
-                    tr.setVerticalScrollBarPolicy(
-                        Qt.ScrollBarPolicy.ScrollBarAsNeeded
-                    )
-                else:
-                    tr.setVerticalScrollBarPolicy(
-                        Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-                    )
+                tr.setVerticalScrollBarPolicy(policy)
                 hint = QSize(0, row_h)
                 self._tasmota_last_row_h = row_h
                 for i in range(tr.topLevelItemCount()):
@@ -3322,8 +3351,11 @@ class TasmotaTab(QWidget):
                 + min_row * _TASMOTA_VISIBLE_ROWS
                 + 8
             )
-            self.tree_left.setMinimumHeight(floor)
-            self.tree_right.setMinimumHeight(floor)
+            if self.tree_left.minimumHeight() != floor:
+                self.tree_left.setMinimumHeight(floor)
+            if self.tree_right.minimumHeight() != floor:
+                self.tree_right.setMinimumHeight(floor)
+            self._tasmota_row_fit_sig = signature
         finally:
             self._tasmota_row_fit_lock = False
 
