@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-27 | 1 | 1 | 4 |
+| 2026-09-27 | 2 | 2 | 4 |
 | 2026-09-26 | 14 | 14 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
 | 2026-09-24 | 1 | 1 | 4 |
@@ -134,6 +134,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-078-20260927-02 — A written alarm is not watched</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-27 13:11 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Alarm defs / Inspect |
+| **Version found** | 2.9.485 |
+| **Version fixed** | 2.9.486 |
+
+**Symptom:** Inspect on a finished rule (string A voltage and string B voltage, a differential of 20 V, for about 8 minutes, then Warning) said the sentence was not a built-in alarm, so none of the parts was watched and the rule would not fire.
+
+**Cause:** Only the nine built-in alarms were judged. A sentence the householder wrote was stored, but nothing read a number for those signals, and Inspect stopped there.
+
+**Resolution:** Click a signal and choose the logging table and field. After Commit, the alarm reads the latest number in that column. Inspect marks each part Triggering or Not triggering from that check. String volts are the measured DC volts on `pv_string_voltage` (`v_string1`, `v_string2`).
 
 ### <span style="color:green">BUG-077-20260927-01 — Two signals only fill half the slot</span>
 

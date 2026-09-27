@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-27
 
+### 13:22
+
+- A rule you write on Alarm defs now fires, once you commit it. Click a signal and choose the logging table and the field that hold that reading. The alarm uses the latest number in that column. Inspect shows which parts are true, instead of saying the rule is ignored because it is not one of the built-in alarms.
+- For the two string voltages, that column is the measured DC volts on each run of panels. They are stored as pv_string_voltage, v_string1 and v_string2.
+
 ### 13:13
 
 - On the Alarm defs signal list, the alarm type (Hardware, Energy, and the rest) now sits on the right of the blue pill in 80% grey, on the same line as the name. The extra line under the name is gone, so each signal takes the same height as the other blocks.

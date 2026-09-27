@@ -14,6 +14,24 @@ _ENGINE_TITLE = {
     "pg": "PostgreSQL",
 }
 
+# Newest row for "the latest number in this field". Tables without an entry
+# are ordered by id.
+TABLE_ORDER_COL: dict[str, str] = {
+    "growatt_readings": "timestamp",
+    "tasmota_readings": "timestamp",
+    "tasmota_devices": "last_seen",
+    "octopus_readings": "interval_start",
+    "solar_forecast_snapshots": "fetched_at",
+    "agile_price_snapshots": "valid_from",
+    "agile_year_daily": "day_date",
+    "growatt_mix_chart": "timestamp",
+    "optimiser_shadow_plans": "day_date",
+    "optimiser_shadow_scores": "day_date",
+    "connectivity_events": "timestamp",
+    "pv_string_charge": "time",
+    "pv_string_voltage": "time",
+}
+
 # Shown beside the CREATE script. Keep in sync with dialect_statements().
 TABLE_SUMMARIES: tuple[tuple[str, str], ...] = (
     ("growatt_readings", "inverter SOC and power (kW / today kWh)"),
@@ -115,6 +133,36 @@ def _table_create_statements(dialect: str) -> tuple[str, ...]:
             if f"CREATE TABLE IF NOT EXISTS {name} " in f"{stmt} ":
                 by_name[name] = stmt
     return tuple(by_name.get(n, "") for n, _b in TABLE_SUMMARIES)
+
+
+def _columns_from_ddl(ddl: str) -> tuple[str, ...]:
+    """Column names from one CREATE TABLE statement, in declared order."""
+    start = ddl.find("(")
+    end = ddl.rfind(")")
+    if start < 0 or end <= start:
+        return ()
+    names: list[str] = []
+    skip = {"PRIMARY", "UNIQUE", "CONSTRAINT", "FOREIGN", "CHECK", "KEY", "INDEX"}
+    for raw in ddl[start + 1:end].split(","):
+        part = " ".join(raw.split())
+        if not part:
+            continue
+        head = part.split(" ", 1)[0].strip('"')
+        if not head or head.upper() in skip or head in names:
+            continue
+        names.append(head)
+    return tuple(names)
+
+
+def logger_table_columns() -> dict[str, tuple[str, ...]]:
+    """Columns of each logger table, taken from the SQLite CREATE statements."""
+    out: dict[str, tuple[str, ...]] = {}
+    for name, ddl in zip(
+        (n for n, _b in TABLE_SUMMARIES),
+        _table_create_statements("sqlite"),
+    ):
+        out[name] = _columns_from_ddl(ddl)
+    return out
 
 
 def _ordered_table_names(table_names) -> list[str]:
@@ -302,6 +350,8 @@ def apply_full_schema(conn, dialect: str) -> None:
 __all__ = [
     "DIALECTS",
     "TABLE_SUMMARIES",
+    "TABLE_ORDER_COL",
+    "logger_table_columns",
     "apply_full_schema",
     "dialect_statements",
     "grant_statements",

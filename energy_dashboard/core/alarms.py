@@ -7,8 +7,11 @@ logic — no Qt widgets here so workers and tests can call it without a GUI.
 """
 from __future__ import annotations
 
+import hashlib
+import math
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -93,7 +96,8 @@ class AlarmBlocks:
     """One built-in alarm broken into its constituent blocks.
 
     Dragging those blocks on Alarm defs rebuilds the same sentence. A
-    sentence that does not match one of these is a draft: it does not fire.
+    sentence that does not match one of these still fires, once each signal
+    has a logging table and field (or is already on the live snapshot).
     """
 
     key: str
@@ -299,7 +303,8 @@ ALARM_BLOCKS: tuple[AlarmBlocks, ...] = (
 )
 
 # Blocks worth offering that no built-in alarm uses on its own. They let a
-# householder write a sentence of their own; it stays a draft either way.
+# householder write a sentence of their own. Click the signal and choose the
+# table and field; that column is what the alarm reads.
 ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
     "signal": (
         "string A voltage",
@@ -324,8 +329,8 @@ ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
     "outcome": ("send SMS", "create a desktop alert", "Warning", "Critical"),
 }
 
-# What kind of thing each signal is about. Shown in faint grey under the
-# signal on the palette, and used to judge whether an extra condition has any
+# What kind of thing each signal is about. Shown in 80% grey on the right of
+# the signal pill, and used to judge whether an extra condition has any
 # bearing on the signal.
 SIGNAL_ALARM_TYPE: dict[str, str] = {
     "Inverter": "Hardware",
@@ -598,8 +603,9 @@ def outcome_channels(text: str) -> set[str] | None:
 def rule_channel_overrides(rows: Any) -> dict[str, set[str]]:
     """Per-alarm channels taken from saved Alarm defs rows.
 
-    Only a row that still matches a built-in alarm counts, and only when it
-    names a channel. Anything else leaves the Setup choices alone.
+    A row counts when it is a built-in alarm or any other complete sentence,
+    and only when it names a channel. Anything else leaves the Setup choices
+    alone.
     """
     out: dict[str, set[str]] = {}
     if not isinstance(rows, list):
@@ -608,7 +614,7 @@ def rule_channel_overrides(rows: Any) -> dict[str, set[str]]:
         if not isinstance(row, dict):
             continue
         pieces = {k: str(row.get(k) or "") for k in ALARM_PIECE_KINDS}
-        key = alarm_blocks_key(pieces)
+        key = alarm_blocks_key(pieces) or composed_rule_key(pieces)
         if not key:
             continue
         channels = outcome_channels(pieces["outcome"])
@@ -795,6 +801,488 @@ def alarm_blocks_key(pieces: dict[str, str]) -> str | None:
     return None
 
 
+# Catalogue phrases whose number lives on the monitor, not in the words.
+# "about 8 minutes" is the Tasmota-silent block: editing it changes that wait,
+# and a rule that uses the block waits that long.
+_PHRASE_HOLD_ATTR = {
+    "the hold time": "hold_minutes",
+    "about 20 seconds": "grott_lost_hold_s",
+    "about 60 seconds": "db_disconnect_hold_s",
+    "about 2 minutes": "inverter_lost_hold_s",
+    "about 30 seconds": "tasmota_mqtt_hold_s",
+    "about 8 minutes": "tasmota_stale_s",
+}
+
+# Live numbers a composed sentence can read. The value is (facts key, unit, name).
+_COMPOSED_READING = {
+    "string A voltage": ("string_a_v", "V", "String A"),
+    "string B voltage": ("string_b_v", "V", "String B"),
+    "Battery state of charge": ("soc", "%", "State of charge"),
+    "Spare solar": ("surplus", "kW", "Spare solar"),
+    "House load": ("load", "kW", "House load"),
+}
+
+
+def composed_rule_key(pieces: dict[str, str]) -> str | None:
+    """Stable id for a complete, unit-correct sentence that is not built in.
+
+    Built-in alarms keep their own keys. A sentence that mixes units has no
+    key, because it is not a rule.
+    """
+    p = {k: str((pieces or {}).get(k) or "").strip() for k in ALARM_PIECE_KINDS}
+    if not alarm_rule_syntax(p) or alarm_unit_problem(p) or alarm_blocks_key(p):
+        return None
+    raw = "\n".join(p[k] for k in ALARM_PIECE_KINDS)
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    return f"rule:{digest}"
+
+
+def composed_severity(outcome: str) -> str:
+    """Warning or critical for a sentence the householder wrote."""
+    text = severity_outcome(outcome).strip().lower()
+    if text.startswith("critical"):
+        return "critical"
+    return "warn"
+
+
+def phrase_hold_seconds(monitor: Any, text: str) -> float | None:
+    """Seconds this How long block waits, or None when it is not a wait.
+
+    Is flapping is a count, not a wait, so this returns None for that sentence.
+    """
+    raw = (text or "").strip()
+    if parse_flap(raw) is not None:
+        return None
+    attr = _PHRASE_HOLD_ATTR.get(raw)
+    if attr == "hold_minutes":
+        return float(getattr(monitor, "hold_minutes", DEFAULT_HOLD_MINUTES)) * 60.0
+    if attr:
+        return float(getattr(monitor, attr))
+    return duration_seconds(raw)
+
+
+def sun_is_up(epoch: float, lat_deg: float, lon_deg: float) -> bool:
+    """True when the sun is above the horizon at this site.
+
+    A short NOAA-style approximation, used only for the daytime condition.
+    It is not a measurement from the inverter.
+    """
+    dt = datetime.fromtimestamp(float(epoch), timezone.utc)
+    n = dt.timetuple().tm_yday
+    minutes = dt.hour * 60.0 + dt.minute + dt.second / 60.0
+    gamma = 2.0 * math.pi / 365.0 * (n - 1 + (minutes / 60.0 - 12.0) / 24.0)
+    eqtime = 229.18 * (
+        0.000075
+        + 0.001868 * math.cos(gamma)
+        - 0.032077 * math.sin(gamma)
+        - 0.014615 * math.cos(2.0 * gamma)
+        - 0.040849 * math.sin(2.0 * gamma)
+    )
+    decl = (
+        0.006918
+        - 0.399912 * math.cos(gamma)
+        + 0.070257 * math.sin(gamma)
+        - 0.006758 * math.cos(2.0 * gamma)
+        + 0.000907 * math.sin(2.0 * gamma)
+        - 0.002697 * math.cos(3.0 * gamma)
+        + 0.00148 * math.sin(3.0 * gamma)
+    )
+    tst = minutes + eqtime + 4.0 * float(lon_deg)
+    ha = math.radians(tst / 4.0 - 180.0)
+    lat = math.radians(float(lat_deg))
+    elev = math.degrees(math.asin(
+        math.sin(lat) * math.sin(decl)
+        + math.cos(lat) * math.cos(decl) * math.cos(ha)
+    ))
+    return elev > 0.0
+
+
+def _fmt_measure(value: float, unit: str) -> str:
+    if unit == "V":
+        return f"{float(value):.1f} V"
+    if unit == "%":
+        return f"{float(value):.0f}%"
+    if unit == "kW":
+        return f"{float(value):.2f} kW"
+    if unit == "kWh":
+        return f"{float(value):.2f} kWh"
+    return f"{float(value):.1f}"
+
+
+def _as_float(raw: Any) -> float | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _limit_of(threshold: str, facts: dict[str, Any]) -> tuple[float | None, str]:
+    if threshold == "Volts":
+        volts = _as_float(facts.get("volts"))
+        if volts is None:
+            return None, ""
+        return volts, _fmt_measure(volts, "V")
+    if threshold == "the low-battery line":
+        line = _as_float(facts.get("thr"))
+        if line is None:
+            return None, ""
+        return line, _fmt_measure(line, "%")
+    if threshold == "the spare-solar minimum":
+        line = _as_float(facts.get("pv_min"))
+        if line is None:
+            return None, ""
+        return line, _fmt_measure(line, "kW")
+    if threshold == "the solar coming in":
+        line = _as_float(facts.get("pv"))
+        if line is None:
+            return None, ""
+        return line, _fmt_measure(line, "kW")
+    return None, ""
+
+
+def _level_met(comparison: str, value: float, limit: float) -> bool:
+    if comparison == "stays below":
+        return value < limit
+    if comparison == "stays above":
+        return value > limit
+    if comparison == "is at least":
+        return value >= limit
+    return False
+
+
+def _status_clause(
+    signal: str, comparison: str, facts: dict[str, Any],
+) -> tuple[bool, str] | None:
+    """One feed or device clause, or None when this pair is not judged here."""
+    if signal == "Grott feed" and comparison in ("stops arriving", "stops"):
+        return bool(facts.get("grott_bad")), str(facts.get("grott_detail") or "")
+    if signal == "Logging database" and comparison == "cannot be reached":
+        return bool(facts.get("db_down")), str(facts.get("db_detail") or "")
+    if signal == "Database writing" and comparison == "stops":
+        return bool(facts.get("ingest_bad")), str(facts.get("ingest_detail") or "")
+    if signal == "Inverter" and comparison == "is reported offline":
+        return bool(facts.get("inv_bad")), str(facts.get("inv_detail") or "")
+    if signal == "Tasmota MQTT" and comparison == "drops":
+        return bool(facts.get("mqtt_bad")), str(facts.get("mqtt_detail") or "")
+    if signal == "Tasmota device" and comparison == "goes silent":
+        return bool(facts.get("plugs_bad")), str(facts.get("plugs_detail") or "")
+    return None
+
+
+def _context_clause(context: str, facts: dict[str, Any]) -> tuple[bool, str]:
+    """Whether the extra condition is true, and a sentence that says why."""
+    idle = float(facts.get("idle") or 0.0)
+    chg = float(facts.get("chg") or 0.0)
+    dsch = float(facts.get("dsch") or 0.0)
+    gimp = float(facts.get("gimp") or 0.0)
+    soc = _as_float(facts.get("soc"))
+    thr = float(facts.get("thr") or 0.0)
+    if context == "the battery is charging":
+        on = chg > idle
+        return on, f"Charge is {chg:.2f} kW. Charging means above {idle:.2f} kW."
+    if context == "the battery is discharging":
+        on = dsch > idle
+        return on, f"Discharge is {dsch:.2f} kW. Discharging means above {idle:.2f} kW."
+    if context == "the battery is barely charging":
+        on = chg < idle
+        return on, f"Charge is {chg:.2f} kW. Barely charging means under {idle:.2f} kW."
+    if context == "the battery is low and barely charging":
+        low = soc is not None and soc < thr
+        barely = chg < idle
+        soc_bit = f"{soc:.0f}%" if soc is not None else "missing"
+        return (
+            bool(low and barely),
+            f"State of charge is {soc_bit} (the line is {thr:.0f}%) and charge is {chg:.2f} kW.",
+        )
+    if context == "the grid is importing":
+        on = gimp > 0.05
+        return on, f"Grid import is {gimp:.2f} kW."
+    if context == "the inverter is online":
+        on = not bool(facts.get("inv_bad"))
+        return on, "The inverter is online." if on else "The inverter is reported offline."
+    if context == "logging is switched on":
+        on = bool(facts.get("logging_on"))
+        return on, "Logging is on." if on else "Logging is switched off."
+    if context == "Growatt or Tasmota looks live":
+        on = bool(facts.get("growatt_writing") or facts.get("tasmota_writing"))
+        return on, "A live feed is writing." if on else "Neither Growatt nor Tasmota looks live."
+    if context == "MQTT is still up":
+        if facts.get("mqtt_expected"):
+            on = bool(facts.get("mqtt_connected"))
+            return on, "Tasmota MQTT is up." if on else "Tasmota MQTT is down."
+        if facts.get("grott_expected"):
+            on = bool(facts.get("grott_connected"))
+            return on, "Grott MQTT is up." if on else "Grott MQTT is down."
+        return False, "MQTT is not in use on this check."
+    if context == "it is daytime":
+        day = facts.get("daytime")
+        if day is None:
+            return False, "This check has no sunrise for the site, so daytime is not applied."
+        return bool(day), "The sun is up." if day else "The sun is down."
+    if context == "it is night-time":
+        day = facts.get("daytime")
+        if day is None:
+            return False, "This check has no sunrise for the site, so night-time is not applied."
+        return not bool(day), "The sun is down." if not day else "The sun is up."
+    if context == "Agile is in a cheap slot":
+        cheap = facts.get("agile_cheap")
+        if cheap is None:
+            return False, "This check does not include the current Agile price."
+        return bool(cheap), "Agile is in a cheap slot." if cheap else "Agile is not in a cheap slot."
+    return False, f"“{context}” is not applied on this check."
+
+
+# Live snapshot readings used only when the householder has not chosen a
+# column. String voltage is not on that snapshot — it waits for a table
+# and field.
+_LIVE_WITHOUT_COLUMN = frozenset({
+    "Battery state of charge",
+    "Spare solar",
+    "House load",
+})
+_UNIT_SYMBOL = {
+    "percent": "%",
+    "power": "kW",
+    "volts": "V",
+    "energy": "kWh",
+}
+
+
+def _signal_measure(signal: str, facts: dict[str, Any]) -> tuple[float | None, str, str]:
+    """Number for this signal, its unit, and why it is missing.
+
+    A table and field chosen on Alarm defs is the reading. State of charge,
+    spare solar, and house load can also use the live snapshot when no
+    column is chosen. Anything else is not watched until a column is chosen.
+    """
+    symbol = _UNIT_SYMBOL.get(_SIGNAL_UNIT.get(signal, ""), "")
+    source = str((facts.get("sources") or {}).get(signal) or "").strip()
+    if source:
+        value = _as_float((facts.get("readings") or {}).get(signal))
+        if value is None:
+            if facts.get("readings_pending"):
+                return None, symbol, f"The latest row of {source} is still being read."
+            return None, symbol, (
+                f"{signal} is read from {source}, and that field has no number "
+                "on the latest row."
+            )
+        return value, symbol, ""
+    if signal in _LIVE_WITHOUT_COLUMN:
+        spec = _COMPOSED_READING[signal]
+        value = _as_float(facts.get(spec[0]))
+        if value is None:
+            return None, spec[1], (
+                f"{spec[2]} has no reading on the last check. "
+                "Click the signal to use a table and field instead."
+            )
+        return value, spec[1], ""
+    if _SIGNAL_UNIT.get(signal) == "status":
+        return None, "", ""
+    return None, symbol, (
+        f"{signal} has no table and field. Click the signal and choose "
+        "where it is stored."
+    )
+
+
+def _measured_signal(signal: str) -> bool:
+    return _SIGNAL_UNIT.get(signal, "") not in ("", "status")
+
+
+def signal_needs_column(signal: str) -> bool:
+    """True when this signal is not watched until a table and field are chosen.
+
+    State of charge, spare solar, and house load already have a live reading.
+    A feed or a device (Grott, the inverter, a plug) is not a column.
+    """
+    if signal in _LIVE_WITHOUT_COLUMN:
+        return False
+    return _measured_signal(signal)
+
+
+def judge_composed(
+    pieces: dict[str, str], facts: dict[str, Any],
+) -> tuple[bool, list[AlarmPart], str, str]:
+    """Whether a written sentence is true right now, before the wait.
+
+    Returns the condition, the inspect rows (without How long or the alarm
+    line), a short title, and the detail for the tray.
+    """
+    p = {k: str((pieces or {}).get(k) or "").strip() for k in ALARM_PIECE_KINDS}
+    signals, join = split_joined_pieces(p["signal"], set(alarm_palette("signal")))
+    comparison = p["comparison"]
+    parts: list[AlarmPart] = []
+    status_rows = [
+        _status_clause(signal, comparison, facts) for signal in signals
+    ]
+    numeric = any(_measured_signal(signal) for signal in signals)
+    status = any(row is not None for row in status_rows)
+
+    if status and not numeric:
+        flags = []
+        details = []
+        unknown = False
+        for signal, row in zip(signals, status_rows):
+            if row is None:
+                unknown = True
+                details.append(f"{signal} with “{comparison}” is not judged on this check.")
+                flags.append(False)
+            else:
+                flags.append(bool(row[0]))
+                if row[1]:
+                    details.append(row[1])
+        if join == "or":
+            cond = any(flags)
+        else:
+            cond = all(flags) and bool(flags) and not unknown
+        parts.append(AlarmPart(
+            "Signal",
+            cond if not unknown else False,
+            " ".join(details) or "No reading for this feed.",
+            slot="signal",
+        ))
+        parts.append(AlarmPart(
+            "Comparison",
+            cond,
+            comparison[:1].upper() + comparison[1:] + ".",
+            slot="comparison",
+        ))
+        title = f"{signals[0]} {comparison}" if len(signals) == 1 else p["signal"]
+        detail = " ".join(details)
+    elif comparison == "has a differential of":
+        limit, limit_text = _limit_of(p["threshold"], facts)
+        present = []
+        problems = []
+        unit = "V"
+        for signal in signals:
+            value, unit_s, problem = _signal_measure(signal, facts)
+            if unit_s:
+                unit = unit_s
+            if problem or value is None:
+                problems.append(problem or f"{signal} has no reading on the last check.")
+                continue
+            present.append((signal, value, unit_s or unit))
+        if problems:
+            cond = False
+            signal_detail = " ".join(problems)
+            gap = None
+        elif len(present) < 2:
+            cond = False
+            signal_detail = "A differential needs two readings."
+            gap = None
+            unit = present[0][2] if present else unit
+        else:
+            unit = present[0][2]
+            gap = max(value for _n, value, _u in present) - min(value for _n, value, _u in present)
+            bits = [f"{name} is {_fmt_measure(value, unit)}" for name, value, _u in present]
+            signal_detail = f"{' and '.join(bits)}."
+            cond = limit is not None and gap >= limit
+        gap_text = _fmt_measure(gap, unit) if gap is not None else "unknown"
+        if limit is None:
+            cmp_detail = "The limit is not set, so the gap is not being compared."
+            thr_detail = "No volt line is set."
+            cond = False
+        else:
+            cmp_detail = f"The gap is {gap_text}. A differential of {limit_text} means the gap has reached that line."
+            thr_detail = f"The line is {limit_text}. The gap is {gap_text}."
+        parts.append(AlarmPart("Signal", len(present) >= 2 and not problems, signal_detail, slot="signal"))
+        parts.append(AlarmPart("Comparison", bool(cond), cmp_detail, slot="comparison"))
+        if p["threshold"]:
+            parts.append(AlarmPart("Threshold", bool(cond), thr_detail, slot="threshold"))
+        if gap is not None and limit is not None:
+            title = (
+                f"String voltages differ by {gap:.1f} V"
+                if unit == "V"
+                else f"Readings differ by {gap_text}"
+            )
+            detail = f"{signal_detail} The gap is {gap_text}, against a line of {limit_text}."
+        else:
+            title = "String voltage differential" if unit == "V" else "Differential"
+            detail = signal_detail
+    elif comparison in _MEASURED_COMPARISONS and comparison != "uses almost all of":
+        limit, limit_text = _limit_of(p["threshold"], facts)
+        known = []
+        lines = []
+        flags = []
+        problems = []
+        for signal in signals:
+            value, unit, problem = _signal_measure(signal, facts)
+            if problem or value is None:
+                problems.append(problem or f"{signal} has no reading on the last check.")
+                flags.append(False)
+                lines.append(problems[-1])
+                continue
+            known.append(signal)
+            shown = _fmt_measure(value, unit)
+            if limit is None:
+                flags.append(False)
+                lines.append(f"{signal} is {shown}.")
+            else:
+                met = _level_met(comparison, value, limit)
+                flags.append(met)
+                lines.append(f"{signal} is {shown}. The line is {limit_text}.")
+        if problems or limit is None:
+            cond = False
+        elif join == "or":
+            cond = any(flags)
+        else:
+            cond = all(flags) and bool(flags)
+        signal_on = bool(known) and not problems and (
+            join == "or" or len(known) == len(signals)
+        )
+        parts.append(AlarmPart("Signal", signal_on, " ".join(lines), slot="signal"))
+        parts.append(AlarmPart(
+            "Comparison",
+            bool(cond),
+            f"{comparison[:1].upper() + comparison[1:]} {limit_text}." if limit_text else f"{comparison[:1].upper() + comparison[1:]} needs a limit.",
+            slot="comparison",
+        ))
+        if p["threshold"]:
+            parts.append(AlarmPart(
+                "Threshold",
+                bool(cond),
+                f"The line is {limit_text}." if limit_text else "No limit is set.",
+                slot="threshold",
+            ))
+        title = f"{signals[0]} {comparison}" if signals else "Alarm"
+        detail = " ".join(lines)
+    elif comparison == "uses almost all of" and signals == ["House load"] and p["threshold"] == "the solar coming in":
+        pv = float(facts.get("pv") or 0.0)
+        load = float(facts.get("load") or 0.0)
+        surplus = pv - load
+        pv_min = float(facts.get("pv_min") or 0.0)
+        cond = pv >= pv_min and surplus < 0.2
+        detail = (
+            f"Solar is {pv:.2f} kW and the house is {load:.2f} kW, leaving {surplus:.2f} kW. "
+            f"Almost all means under 0.2 kW left, with solar at least {pv_min:.2f} kW."
+        )
+        parts.append(AlarmPart("Signal", pv >= pv_min, detail, slot="signal"))
+        parts.append(AlarmPart("Comparison", bool(cond), detail, slot="comparison"))
+        parts.append(AlarmPart("Threshold", bool(cond), detail, slot="threshold"))
+        title = f"Load {load:.1f} kW using the solar"
+        # detail already set
+    else:
+        cond = False
+        detail = (
+            f"“{comparison}” on {p['signal'] or 'this signal'} is not judged "
+            "on this check, so the rule is not firing."
+        )
+        parts.append(AlarmPart("Signal", False, detail, slot="signal"))
+        parts.append(AlarmPart("Comparison", False, detail, slot="comparison"))
+        if p["threshold"]:
+            parts.append(AlarmPart("Threshold", False, detail, slot="threshold"))
+        title = p["signal"] or "Alarm"
+
+    context = p["context"]
+    if context:
+        ctx_on, ctx_detail = _context_clause(context, facts)
+        parts.append(AlarmPart("With additional Conditions", ctx_on, ctx_detail, slot="context"))
+        if not ctx_on:
+            cond = False
+    return bool(cond), parts, title, detail
+
+
 def alarm_band(key: str, severity: str) -> str:
     """Tray band for an alarm that is already sounding.
 
@@ -834,6 +1322,7 @@ class AlarmPart:
     on: bool
     detail: str
     result: bool = False
+    slot: str = ""
 
 
 @dataclass
@@ -854,6 +1343,8 @@ class AlarmMonitor:
     inverter_lost_hold_s: float = DEFAULT_INVERTER_LOST_HOLD_S
     tasmota_mqtt_hold_s: float = DEFAULT_TASMOTA_MQTT_HOLD_S
     tasmota_stale_s: float = DEFAULT_TASMOTA_STALE_S
+    # Volts block on Alarm defs. A differential compares against this gap.
+    diff_volts: float = 20.0
 
     _below_since: float | None = field(default=None, init=False)
     _sun_waste_since: float | None = field(default=None, init=False)
@@ -879,6 +1370,11 @@ class AlarmMonitor:
     _flap_hits: dict[str, list[float]] = field(default_factory=dict, init=False)
     _inspection: dict[str, tuple[AlarmPart, ...]] = field(default_factory=dict, init=False)
     _inspection_at: float | None = field(default=None, init=False)
+    _composed: dict[str, dict[str, str]] = field(default_factory=dict, init=False)
+    _composed_since: dict[str, float] = field(default_factory=dict, init=False)
+    _composed_parts: dict[str, tuple[AlarmPart, ...]] = field(default_factory=dict, init=False)
+    # signal name -> (table, field), chosen on Alarm defs.
+    _signal_sources: dict[str, tuple[str, str]] = field(default_factory=dict, init=False)
 
     def set_rule_holds(self, holds: dict[str, float] | None) -> None:
         """Waits chosen on Alarm defs. Missing keys keep the Setup wait."""
@@ -1015,6 +1511,8 @@ class AlarmMonitor:
         self._flap_hits.clear()
         self._inspection = {}
         self._inspection_at = None
+        self._composed_since.clear()
+        self._composed_parts = {}
         self._active.clear()
         self._last_notify_wall.clear()
         self._notify_count.clear()
@@ -1023,6 +1521,242 @@ class AlarmMonitor:
         self._active.pop(key, None)
         self._last_notify_wall.pop(key, None)
         self._notify_count.pop(key, None)
+
+    def set_signal_sources(self, sources: Any) -> None:
+        """Table and field for each signal, from Alarm defs.
+
+        ``sources`` is ``{signal: {"table", "field"}}`` or
+        ``{signal: (table, field)}``. A blank pair is dropped.
+        """
+        cleaned: dict[str, tuple[str, str]] = {}
+        if isinstance(sources, dict):
+            for name, spec in sources.items():
+                table, field = "", ""
+                if isinstance(spec, dict):
+                    table = str(spec.get("table") or "").strip()
+                    field = str(spec.get("field") or "").strip()
+                elif isinstance(spec, (list, tuple)) and len(spec) >= 2:
+                    table = str(spec[0] or "").strip()
+                    field = str(spec[1] or "").strip()
+                if table and field:
+                    cleaned[str(name)] = (table, field)
+        self._signal_sources = cleaned
+
+    def signal_source_pairs(self) -> dict[str, tuple[str, str]]:
+        """Copy of the chosen table and field for each signal."""
+        return dict(self._signal_sources)
+
+    def signal_source_labels(self) -> dict[str, str]:
+        """``table.field`` for each signal that has a column."""
+        return {
+            name: f"{table}.{field}"
+            for name, (table, field) in self._signal_sources.items()
+        }
+
+    def set_composed_rules(self, rows: Any) -> None:
+        """Complete sentences that are not built-in alarms, from Alarm defs.
+
+        Commit is what calls this. A draft on the page is not watched yet.
+        """
+        cleaned: dict[str, dict[str, str]] = {}
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                pieces = {k: str(row.get(k) or "") for k in ALARM_PIECE_KINDS}
+                key = composed_rule_key(pieces)
+                if key:
+                    cleaned[key] = pieces
+        old = set(self._composed)
+        new = set(cleaned)
+        self._composed = cleaned
+        for key in list(self._rule_flap):
+            if str(key).startswith("rule:") and key not in new:
+                self._rule_flap.pop(key, None)
+                self._flap_on.pop(key, None)
+                self._flap_counted.pop(key, None)
+                self._flap_hits.pop(key, None)
+        for key, pieces in cleaned.items():
+            flap = parse_flap(pieces.get("duration", ""))
+            if flap is not None:
+                self._rule_flap[key] = flap
+            elif key in self._rule_flap:
+                self._rule_flap.pop(key, None)
+                self._flap_on.pop(key, None)
+                self._flap_counted.pop(key, None)
+                self._flap_hits.pop(key, None)
+        for key in old - new:
+            self._composed_since.pop(key, None)
+            self._composed_parts.pop(key, None)
+            self._inspection.pop(key, None)
+            self._drop_alarm(key)
+
+    def watches_rule(self, key: str) -> bool:
+        """True when this sentence was committed and is on the live check."""
+        return str(key) in self._composed
+
+    def _ingest_is_bad(
+        self,
+        now: float,
+        *,
+        db_logging_enabled: bool,
+        db_connected: bool | None,
+        db_rows_15m: int | None,
+        growatt_writing: bool,
+        tasmota_writing: bool,
+    ) -> bool:
+        expect_write = bool(growatt_writing or tasmota_writing)
+        ingest_dry = (
+            bool(db_logging_enabled)
+            and db_connected is True
+            and expect_write
+            and db_rows_15m is not None
+            and int(db_rows_15m) <= 0
+        )
+        uptime = now - float(self._started_wall or now)
+        past_grace = self._ingest_seen_ok or uptime >= DEFAULT_INGEST_STARTUP_GRACE_S
+        return bool(ingest_dry and past_grace)
+
+    def _fold_composed(self, hits: list[AlarmHit], now: float, **fact: Any) -> list[AlarmHit]:
+        """Judge every committed sentence and append the ones that are firing."""
+        parts_out: dict[str, tuple[AlarmPart, ...]] = {}
+        active_keys: set[str] = set()
+        pv = float(fact.get("pv") or 0.0)
+        load = float(fact.get("load") or 0.0)
+        offline = [str(x).strip() for x in (fact.get("tasmota_offline") or []) if str(x).strip()]
+        mqtt_bad = bool(fact.get("tasmota_mqtt_expected") and not fact.get("tasmota_mqtt_connected"))
+        if mqtt_bad:
+            offline = []
+        grott_bad = bool(fact.get("grott_expected") and not fact.get("grott_ok"))
+        if not fact.get("grott_expected"):
+            grott_detail = "Grott is not in the telemetry priority, so this feed is not being watched."
+        elif fact.get("grott_ok"):
+            grott_detail = "The Grott feed is connected and fresh."
+        elif not fact.get("grott_connected"):
+            grott_detail = "MQTT to Grott is not connected."
+        else:
+            grott_detail = "MQTT is up, but the inverter frame is stale."
+        if not fact.get("db_logging_enabled"):
+            db_detail = "Logging is switched off, so a closed database is not an alarm."
+        elif fact.get("db_connected") is True:
+            db_detail = "The database can be reached."
+        elif fact.get("db_connected") is False:
+            db_detail = "The database cannot be reached."
+        else:
+            db_detail = "The database has not reported on the last check."
+        inv_reason = str(fact.get("inverter_comms_reason") or "").strip()
+        inv_detail = (
+            f"Growatt reports the inverter as {inv_reason}."
+            if inv_reason
+            else "The inverter is reported offline."
+        )
+        facts = {
+            "string_a_v": fact.get("string_a_v"),
+            "string_b_v": fact.get("string_b_v"),
+            "soc": fact.get("soc"),
+            "pv": pv,
+            "surplus": pv - load,
+            "load": load,
+            "chg": float(fact.get("chg") or 0.0),
+            "dsch": float(fact.get("dsch") or 0.0),
+            "gimp": float(fact.get("gimp") or 0.0),
+            "thr": float(fact.get("thr") or 0.0),
+            "pv_min": float(self.pv_min_kw),
+            "idle": float(self.charge_idle_kw),
+            "volts": fact.get("diff_volts", self.diff_volts),
+            "readings": fact.get("readings") or {},
+            "sources": fact.get("sources") or self.signal_source_labels(),
+            "readings_pending": bool(fact.get("readings_pending")),
+            "grott_bad": grott_bad,
+            "grott_detail": grott_detail,
+            "grott_expected": bool(fact.get("grott_expected")),
+            "grott_connected": bool(fact.get("grott_connected")),
+            "db_down": bool(fact.get("db_logging_enabled") and fact.get("db_connected") is False),
+            "db_detail": db_detail,
+            "ingest_bad": self._ingest_is_bad(
+                now,
+                db_logging_enabled=bool(fact.get("db_logging_enabled")),
+                db_connected=fact.get("db_connected"),
+                db_rows_15m=fact.get("db_rows_15m"),
+                growatt_writing=bool(fact.get("growatt_writing")),
+                tasmota_writing=bool(fact.get("tasmota_writing")),
+            ),
+            "ingest_detail": str(fact.get("ingest_detail") or "Nothing new has been written."),
+            "inv_bad": bool(fact.get("inverter_comms_lost")),
+            "inv_detail": inv_detail,
+            "mqtt_bad": mqtt_bad,
+            "mqtt_detail": (
+                "Tasmota MQTT is down." if mqtt_bad else "Tasmota MQTT is up."
+            ),
+            "mqtt_expected": bool(fact.get("tasmota_mqtt_expected")),
+            "mqtt_connected": bool(fact.get("tasmota_mqtt_connected")),
+            "plugs_bad": bool(offline),
+            "plugs_detail": (
+                "Silent: " + ", ".join(offline[:6]) if offline else "Every named device is reporting."
+            ),
+            "logging_on": bool(fact.get("db_logging_enabled")),
+            "growatt_writing": bool(fact.get("growatt_writing")),
+            "tasmota_writing": bool(fact.get("tasmota_writing")),
+            "daytime": fact.get("daytime"),
+            "agile_cheap": fact.get("agile_cheap"),
+        }
+        for key, pieces in self._composed.items():
+            cond, rows, title, detail = judge_composed(pieces, facts)
+            if cond:
+                if self._composed_since.get(key) is None:
+                    self._composed_since[key] = now
+            else:
+                self._composed_since.pop(key, None)
+                self._end_stretch(key)
+            self._note_flap(key, cond, now)
+            hold = phrase_hold_seconds(self, pieces.get("duration", ""))
+            flap = parse_flap(pieces.get("duration", ""))
+            if flap is not None or hold is not None:
+                firing = self._fires(key, self._composed_since.get(key), now, hold or 0.0)
+            else:
+                firing = False
+            if flap is None and hold is None:
+                how = AlarmPart(
+                    "How long",
+                    False,
+                    "This wait is not a length of time the check can use, so the rule is not firing.",
+                    slot="duration",
+                )
+            else:
+                how = self._duration_part(
+                    key, cond, self._composed_since.get(key), now, float(hold or 0.0),
+                )
+                how = AlarmPart(how.label, how.on, how.detail, slot="duration")
+            if firing:
+                held = 0.0
+                since = self._composed_since.get(key)
+                if since is not None:
+                    held = max(0.0, now - float(since))
+                full = detail
+                if flap is None and hold is not None:
+                    full = f"{detail} True for {_span_words(held)}."
+                hit = self._raise(
+                    key=key,
+                    severity=composed_severity(pieces.get("outcome", "")),
+                    title=title,
+                    detail=full.strip(),
+                    since_wall=self._mark_since(key, since),
+                    now_wall=now,
+                )
+                hits.append(hit)
+                active_keys.add(key)
+            result = AlarmPart(
+                "The alarm",
+                firing,
+                "It is sounding." if firing else "It is not sounding.",
+                result=True,
+            )
+            parts_out[key] = tuple(rows) + (how, result)
+        for key in list(self._active):
+            if str(key).startswith("rule:") and key not in active_keys and key in self._composed:
+                self._drop_alarm(key)
+        self._composed_parts = parts_out
+        return hits
 
     def custom_notify_due(self, key: str, now_wall: float) -> bool:
         """Same repeat spacing as a built-in alarm, for a combined rule."""
@@ -1068,6 +1802,8 @@ class AlarmMonitor:
         tasmota_mqtt_expected: bool = False,
         tasmota_mqtt_connected: bool = False,
         tasmota_offline: list[str] | tuple[str, ...] | None = None,
+        signal_readings: dict[str, float | None] | None = None,
+        signal_readings_pending: bool = False,
     ) -> list[AlarmHit]:
         """Return currently active alarms (empty when healthy or disabled)."""
         if not self.enabled:
@@ -1115,6 +1851,27 @@ class AlarmMonitor:
             self._grott_lost_since = now
         self._note_flap("grott_lost", not grott_ok, now)
 
+        def include(hits: list[AlarmHit]) -> list[AlarmHit]:
+            """Judge committed sentences that are not built-in alarms."""
+            return self._fold_composed(
+                hits, now,
+                soc=soc, pv=pv, load=load, chg=chg, dsch=dsch, gimp=gimp, thr=thr,
+                grott_expected=grott_expected, grott_ok=grott_ok,
+                grott_connected=grott_connected,
+                db_logging_enabled=db_logging_enabled, db_connected=db_connected,
+                db_rows_15m=db_rows_15m, growatt_writing=growatt_writing,
+                tasmota_writing=tasmota_writing,
+                inverter_comms_lost=inverter_comms_lost,
+                inverter_comms_reason=inverter_comms_reason,
+                tasmota_mqtt_expected=tasmota_mqtt_expected,
+                tasmota_mqtt_connected=tasmota_mqtt_connected,
+                tasmota_offline=tasmota_offline,
+                readings=signal_readings or {},
+                sources=self.signal_source_labels(),
+                readings_pending=bool(signal_readings_pending),
+                diff_volts=self.diff_volts,
+            )
+
         if soc is None:
             hits: list[AlarmHit] = []
             grott_hit = self._grott_lost_hit(
@@ -1137,6 +1894,7 @@ class AlarmMonitor:
                 tasmota_mqtt_connected=tasmota_mqtt_connected,
                 tasmota_offline=tasmota_offline,
             ))
+            hits = include(hits)
             keep = {h.key for h in hits}
             for k in list(self._active.keys()):
                 if k not in keep:
@@ -1275,6 +2033,7 @@ class AlarmMonitor:
         ))
 
         # Keep only currently active keys in _active
+        hits = include(hits)
         keep = {h.key for h in hits}
         for k in list(self._active.keys()):
             if k not in keep:
@@ -1641,6 +2400,7 @@ class AlarmMonitor:
             ),
         )
 
+        parts.update(self._composed_parts)
         self._inspection = parts
         self._inspection_at = float(now)
 

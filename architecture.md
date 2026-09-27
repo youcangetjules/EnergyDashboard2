@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-27 — A written alarm reads the column you choose
+
+- **Context:** Inspect told the householder a finished sentence was not watched, because it was not one of the built-in alarms. String A and string B voltage were words with nowhere to read a number from.
+- **Decision:** Click a signal on Alarm defs and choose the logging table and field. That choice is saved as `alarms/signal_sources`. After Commit, `AlarmMonitor` judges the sentence from the latest number in each field (state of charge, spare solar, and house load can still use the live snapshot when no column is set). Inspect shows Triggering or Not triggering from that check.
+- **Consequence:** Do not refuse a complete, unit-correct sentence because it is not in `ALARM_BLOCKS`. Do not invent a string voltage when the column is empty or unread. A rule that is still a draft on the page is not watched until Commit.
+
 ### 2026-09-27 — Is flapping is a count of crossings, not a longer wait
 
 - **Context:** How long on Alarm defs was a single wait: the condition stays true for that long, then the alarm sounds, and it clears the moment the condition goes false.
@@ -135,7 +141,7 @@ Newest first. Keep each entry short: context → decision → consequence.
 
 - **Context:** The compact rule lines had no sign that a sentence was finished, the rules were not numbered, and dragging a block did nothing. The drag had no pixmap, so nothing followed the pointer, and the text label inside each slot was the widget under the cursor, so the drop never reached the slot.
 - **Decision:** Palette drags go through the list’s own drag, with a coloured pixmap of the block. The label inside a slot ignores the mouse, so the slot receives the drop, and a block only lands in a slot of its own kind. Rules are numbered from 1 in display order. A sentence `alarm_rule_syntax` can build gets a `#a6e3a1` border and glow, and the words “Syntax Correct” under the right-hand end. A complete sentence that is not a built-in alarm still does not fire; the hover says so.
-- **Consequence:** Do not put a mouse-catching widget back over a drop slot. Do not treat “Syntax Correct” as permission for a new alarm to fire.
+- **Consequence:** Do not put a mouse-catching widget back over a drop slot. Superseded on 2026-09-27: a complete sentence does fire once each measured signal has a table and field. See “A written alarm reads the column you choose”.
 
 ### 2026-09-26 — Alarm defs is one line per rule
 

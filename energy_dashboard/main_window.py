@@ -1302,6 +1302,11 @@ class EnergyDashboard(QMainWindow):
             ),
             tasmota_stale_s=float(s.value("alarms/tasmota_stale_s", DEFAULT_TASMOTA_STALE_S)),
         )
+        try:
+            self.alarm_monitor.diff_volts = float(s.value("alarms/diff_volts", 20.0))
+        except (TypeError, ValueError):
+            self.alarm_monitor.diff_volts = 20.0
+        self._load_composed_alarms(s)
 
     def apply_alarm_settings_from_ui(
         self,
@@ -1326,6 +1331,80 @@ class EnergyDashboard(QMainWindow):
         if not enabled:
             self.alarm_monitor.clear()
             self._apply_alarm_banner([])
+
+    def _load_composed_alarms(self, settings=None) -> None:
+        """Sentences and signal columns saved on Alarm defs, before that page opens."""
+        import json
+        s = settings or QSettings("PowerModel", "EnergyDashboard2")
+        rows = []
+        raw = s.value("alarms/defs_blocks", "")
+        if raw:
+            try:
+                parsed = json.loads(str(raw))
+                if isinstance(parsed, list):
+                    rows = parsed
+            except (TypeError, ValueError, json.JSONDecodeError):
+                rows = []
+        sources = {}
+        raw_src = s.value("alarms/signal_sources", "")
+        if raw_src:
+            try:
+                parsed = json.loads(str(raw_src))
+                if isinstance(parsed, dict):
+                    sources = parsed
+            except (TypeError, ValueError, json.JSONDecodeError):
+                sources = {}
+        if hasattr(self.alarm_monitor, "set_composed_rules"):
+            self.alarm_monitor.set_composed_rules(rows)
+        if hasattr(self.alarm_monitor, "set_signal_sources"):
+            self.alarm_monitor.set_signal_sources(sources)
+
+    def _alarm_signal_readings(self) -> tuple[dict, bool]:
+        """Latest numbers for signals that have a table and field.
+
+        The read runs off the UI thread. This check uses the previous result,
+        and starts a new read when that result is more than about 12 seconds old.
+        """
+        self._kick_alarm_field_read()
+        values = getattr(self, "_alarm_field_values", None) or {}
+        pending = bool(getattr(self, "_alarm_field_busy", False)) and not values
+        return dict(values), pending
+
+    def _kick_alarm_field_read(self) -> None:
+        pairs = {}
+        if hasattr(self.alarm_monitor, "signal_source_pairs"):
+            pairs = dict(self.alarm_monitor.signal_source_pairs() or {})
+        if not pairs:
+            self._alarm_field_values = {}
+            self._alarm_field_pairs = {}
+            return
+        if getattr(self, "_alarm_field_busy", False):
+            return
+        import time as _time_mod
+        if (
+            getattr(self, "_alarm_field_pairs", None) == pairs
+            and _time_mod.time() - float(getattr(self, "_alarm_field_at", 0.0) or 0.0) < 12.0
+        ):
+            return
+        self._alarm_field_busy = True
+        logger = getattr(self, "data_logger", None)
+
+        def work() -> None:
+            import time as _time_mod
+            from energy_dashboard.db.signal_reading import latest_numeric
+            found: dict[str, float | None] = {}
+            for signal, spec in pairs.items():
+                table, field = spec
+                try:
+                    found[str(signal)] = latest_numeric(logger, table, field)
+                except Exception:
+                    found[str(signal)] = None
+            self._alarm_field_values = found
+            self._alarm_field_pairs = dict(pairs)
+            self._alarm_field_at = _time_mod.time()
+            self._alarm_field_busy = False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _init_alarm_tray(self):
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -1676,6 +1755,7 @@ class EnergyDashboard(QMainWindow):
         tasmota_writing = tas_known > 0 and (
             (tas_mqtt and tas_mqtt_ok) or ((not tas_mqtt) and tas_known > len(tas_offline))
         )
+        signal_readings, signal_pending = self._alarm_signal_readings()
         hits = self.alarm_monitor.evaluate(
             soc_pct=live.get("soc", d.get("SOC")),
             pv_kw=live.get("pv_power", d.get("ppv")),
@@ -1701,6 +1781,8 @@ class EnergyDashboard(QMainWindow):
             tasmota_mqtt_expected=tas_mqtt,
             tasmota_mqtt_connected=tas_mqtt_ok,
             tasmota_offline=tas_offline,
+            signal_readings=signal_readings,
+            signal_readings_pending=signal_pending,
         )
         self._log_grott_lost_edge(hits, grott_connected, grott_age_s)
         self._apply_alarm_banner(hits)

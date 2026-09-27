@@ -65,7 +65,12 @@ The lists also include <b>string A voltage</b>, <b>string B voltage</b>,
 <b>PV forecast</b>, <b>PVOutput.org</b>, <b>Wonderwatt</b>, <b>Octopus</b>,
 <b>has a differential of</b>, and <b>Volts</b>. Click <b>Volts</b> to set how
 many volts that block means. Click <b>Tasmota device</b> and enter that
-plug’s IP address. With an address set, that alarm watches only that device.</p>
+plug’s IP address. With an address set, that alarm watches only that device.
+Click any other signal and choose the logging <b>table</b> and <b>field</b>
+that hold it. String volts are on <b>pv_string_voltage</b>:
+<b>v_string1</b> is string A, <b>v_string2</b> is string B. The alarm reads
+the latest number in that field. The chip shows the table and field once
+they are set.</p>
 <p>
 Click a block that has a number — a length of time, the hold time, the
 low-battery line, the spare-solar minimum, Volts, or an Is flapping sentence —
@@ -84,15 +89,15 @@ comparing one of them to a limit in a different unit — turns the line
 <b>Syntax incorrect</b>. Hover the rule to see which units clashed.
 The block lists fill the space above the rules. Drag the bar between the
 lists and the rules to give either side more room. A complete sentence that is
-not one of the built-in alarms still does not fire — the hover says so.
-The thing that actually raises alarms is still the built-in rule in the code.</p>
+not one of the built-in alarms is watched the same way, once you press
+<b>Commit</b> and each measured signal has a table and field. Hover the rule
+if a signal still needs a column.</p>
 <p>
 <b>Inspect</b>, on the right of each rule, opens the parts of that rule and
 marks each one <b>Triggering</b> or <b>Not triggering</b> from the last live
 check. How long is triggering only once the wait, or the flapping count, has
-been met. The last line says whether the alarm is sounding. A sentence that
-is not a built-in alarm is marked <b>Not watched</b>, because it does not
-fire.</p>
+been met. The last line says whether the alarm is sounding. If a signal has
+no table and field yet, that line says so, and the rule does not fire.</p>
 <p>
 Adds, edits, and removals stay on the page until you press <b>Commit</b>.
 Until then the alarms that are actually running are unchanged. A rule you
@@ -108,7 +113,7 @@ name only the text and it texts you without a pop-up; name only the alert and
 it pops up without a text. Say nothing about channels and the tick on
 <b>Controls → SMS gateway</b>, plus the desktop tick in Setup &amp; Info,
 decide as before. A channel on its own, with no warning or critical
-wording, no longer matches a built-in alarm, so it does not fire.</p>
+wording, is a warning, and only that channel is used.</p>
 <p>
 <b>Add rule</b> gives you an empty line, and <b>Reset</b> puts the built-in
 rules back. <b>Alarms page</b> jumps to the live view in Dashboards.</p>

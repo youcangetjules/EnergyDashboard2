@@ -7,8 +7,8 @@ Dashboards (`tabs/alarms.py`).
 An alarm is one line of small blocks: signal, comparison, threshold, how
 long, an optional extra condition, and the outcome. The palette above is a
 short scrolling list per kind — drag a row from a list into the matching
-slot. A line that matches a built-in alarm is live; anything else is a
-draft and does not fire.
+slot. A line that matches a built-in alarm is live. Any other complete
+sentence is watched too, once each signal has a table and field.
 """
 from __future__ import annotations
 
@@ -43,6 +43,8 @@ from energy_dashboard.core.alarms import (
     split_joined_pieces,
     alarm_piece_accepted,
     alarm_rule_syntax,
+    composed_rule_key,
+    signal_needs_column,
 )
 
 _MIME = "application/x-powermon-alarm-piece"
@@ -163,11 +165,15 @@ def _split_parts(kind: str, text: str) -> tuple[list[str], str]:
     return split_joined_pieces(text, set(alarm_palette(kind)))
 
 
+def _is_signal_piece(text: str) -> bool:
+    return text in set(alarm_palette("signal"))
+
+
 def _opens_editor(text: str) -> bool:
-    """Click opens a box: a limit, a typed time, or Is flapping."""
+    """Click opens a box: a limit, a typed time, a signal's column, or Is flapping."""
     return (
         text in _PARAM_FOR
-        or text == _TASMOTA_SIGNAL
+        or _is_signal_piece(text)
         or text == "custom value"
         or text == FLAP_CHOICE
         or parse_flap(text) is not None
@@ -176,11 +182,14 @@ def _opens_editor(text: str) -> bool:
 
 def _piece_caption(text: str) -> str:
     if text == _TASMOTA_SIGNAL:
-        return _tasmota_caption(text)
-    spec = _PARAM_FOR.get(text)
-    if spec is None:
-        return text
-    return spec.chip(_read_param(spec))
+        base = _tasmota_caption(text)
+    else:
+        spec = _PARAM_FOR.get(text)
+        base = text if spec is None else spec.chip(_read_param(spec))
+    label = signal_source_label(text)
+    if label and _is_signal_piece(text):
+        return f"{base} ({label})"
+    return base
 
 
 def _event_pos(event):
@@ -377,7 +386,10 @@ def _write_param(spec: _Param, spin_value: float, dash) -> None:
         return
     settings.setValue(spec.key, stored)
     settings.sync()
-    if spec.monitor == "volts" or dash is None:
+    if spec.monitor == "volts":
+        monitor = getattr(dash, "alarm_monitor", None) if dash is not None else None
+        if monitor is not None:
+            monitor.diff_volts = float(stored)
         return
     monitor = getattr(dash, "alarm_monitor", None)
     if monitor is not None:
@@ -493,6 +505,133 @@ def _edit_tasmota_ip(parent) -> bool:
         settings = _alarm_settings()
         settings.setValue(_QS_TASMOTA_IP, ip)
         settings.sync()
+        return True
+
+
+_QS_SOURCES = "alarms/signal_sources"
+
+
+def _read_sources() -> dict[str, dict[str, str]]:
+    raw = _alarm_settings().value(_QS_SOURCES, "")
+    if not raw:
+        return {}
+    try:
+        data = json.loads(str(raw))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for name, spec in data.items():
+        if not isinstance(spec, dict):
+            continue
+        table = str(spec.get("table") or "").strip()
+        field = str(spec.get("field") or "").strip()
+        if table and field:
+            out[str(name)] = {"table": table, "field": field}
+    return out
+
+
+def signal_source_label(name: str) -> str:
+    """``table.field`` chosen for this signal, or "" when none is set."""
+    row = _read_sources().get(str(name or "").strip()) or {}
+    table = str(row.get("table") or "").strip()
+    field = str(row.get("field") or "").strip()
+    if table and field:
+        return f"{table}.{field}"
+    return ""
+
+
+def _push_sources(dash) -> None:
+    monitor = getattr(dash, "alarm_monitor", None) if dash is not None else None
+    if monitor is not None and hasattr(monitor, "set_signal_sources"):
+        monitor.set_signal_sources(_read_sources())
+    if dash is not None:
+        dash._alarm_field_at = 0.0
+
+
+def _edit_signal_source(parent, signal: str, dash) -> bool:
+    """Ask which logging table and field hold this signal."""
+    from energy_dashboard.db.full_schema import TABLE_SUMMARIES, logger_table_columns
+
+    columns = logger_table_columns()
+    current = _read_sources().get(signal) or {}
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(signal)
+    dlg.setMinimumWidth(560)
+    lay = QVBoxLayout(dlg)
+    hint_text = (
+        f"Where {signal} is stored. The alarm reads the latest number in that field."
+    )
+    if signal in ("string A voltage", "string B voltage"):
+        hint_text += (
+            " Measured string volts are on pv_string_voltage: "
+            "v_string1 is string A, v_string2 is string B."
+        )
+    hint = _dialog_hint(hint_text)
+    lay.addWidget(hint)
+    table = QComboBox()
+    table.addItem("— choose a table —", "")
+    for name, blurb in TABLE_SUMMARIES:
+        table.addItem(f"{name} — {blurb}", name)
+    field = QComboBox()
+    apply_combo_field_motif(table, width=500)
+    apply_combo_field_motif(field, width=500)
+    for caption, combo in (("Table", table), ("Field", field)):
+        lab = QLabel(caption)
+        lab.setStyleSheet("color: #cdd6f4; font-size: 12px;")
+        lay.addWidget(lab)
+        lay.addWidget(combo)
+
+    def fill_fields() -> None:
+        field.blockSignals(True)
+        field.clear()
+        field.addItem("— choose a field —", "")
+        chosen = str(table.currentData() or "")
+        for col in columns.get(chosen, ()):
+            field.addItem(col, col)
+        want = str(current.get("field") or "") if chosen == str(current.get("table") or "") else ""
+        index = field.findData(want)
+        if index >= 0:
+            field.setCurrentIndex(index)
+        field.blockSignals(False)
+
+    saved = table.findData(str(current.get("table") or ""))
+    if saved >= 0:
+        table.setCurrentIndex(saved)
+    table.currentIndexChanged.connect(lambda _index: fill_fields())
+    fill_fields()
+    error = QLabel("")
+    error.setStyleSheet("color: #f38ba8; font-size: 11px;")
+    lay.addWidget(error)
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+    )
+    ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    if ok is not None:
+        ok.setText("Save")
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    lay.addWidget(buttons)
+    _prepare_dialog_buttons(dlg)
+    _fit_dialog_to_hint(dlg, hint)
+    while True:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return False
+        chosen_table = str(table.currentData() or "")
+        chosen_field = str(field.currentData() or "")
+        if bool(chosen_table) != bool(chosen_field):
+            error.setText("Choose both a table and a field, or leave both empty to clear it.")
+            continue
+        sources = _read_sources()
+        if chosen_table and chosen_field:
+            sources[signal] = {"table": chosen_table, "field": chosen_field}
+        else:
+            sources.pop(signal, None)
+        settings = _alarm_settings()
+        settings.setValue(_QS_SOURCES, json.dumps(sources))
+        settings.sync()
+        _push_sources(dash)
         return True
 
 
@@ -748,7 +887,10 @@ class _PaletteList(QListWidget):
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, text)
             if kind == "signal" and signal_alarm_type(text):
-                tip = f"{text}\nAlarm type: {signal_alarm_type(text)}"
+                tip = (
+                    f"{text}\nAlarm type: {signal_alarm_type(text)}\n"
+                    "On a rule, click it to choose the table and field."
+                )
             elif kind == "duration" and text == "is seen":
                 tip = "As soon as it is seen. No wait."
             elif kind == "duration" and text == "custom value":
@@ -877,7 +1019,11 @@ class _SignalChip(QFrame):
         self.setStyleSheet(
             f"_SignalChip {{ background: {colour}; border-radius: 3px; }}"
         )
-        self.setToolTip("Double-click to remove this one.")
+        tip = "Click to choose the table and field.\nDouble-click to remove this one."
+        where = signal_source_label(text)
+        if where:
+            tip = f"Read from {where}.\n" + tip
+        self.setToolTip(tip)
         self._click_timer = QTimer(self)
         self._click_timer.setSingleShot(True)
         self._click_timer.timeout.connect(self._open_editor)
@@ -919,8 +1065,7 @@ class _SignalChip(QFrame):
     def mouseReleaseEvent(self, event):
         if self._armed and event.button() == Qt.MouseButton.LeftButton:
             self._armed = False
-            if self._text == _TASMOTA_SIGNAL:
-                self._click_timer.start(QApplication.doubleClickInterval())
+            self._click_timer.start(QApplication.doubleClickInterval())
             return
         self._armed = False
         super().mouseReleaseEvent(event)
@@ -945,10 +1090,14 @@ class _SignalChip(QFrame):
         self._slot.dropEvent(event)
 
     def _open_editor(self) -> None:
-        if self._text != _TASMOTA_SIGNAL:
-            return
         tab = self._slot._tab()
-        if tab is not None and _edit_tasmota_ip(tab):
+        if tab is None:
+            return
+        if self._text == _TASMOTA_SIGNAL:
+            edited = _edit_tasmota_ip(tab)
+        else:
+            edited = _edit_signal_source(tab, self._text, tab.dash)
+        if edited:
             tab.refresh_param_chips()
 
 
@@ -1151,6 +1300,8 @@ class _Slot(QFrame):
         edited = False
         if self._text == _TASMOTA_SIGNAL and tab is not None:
             edited = _edit_tasmota_ip(tab)
+        elif _is_signal_piece(self._text) and tab is not None:
+            edited = _edit_signal_source(tab, self._text, tab.dash)
         elif spec is not None and tab is not None:
             edited = _edit_param(tab, spec, tab.dash)
         elif self._text == "custom value" and tab is not None:
@@ -1431,11 +1582,21 @@ def _show_rule_inspection(parent, number: int, pieces: dict, captions: dict, mon
         lay.addWidget(line)
 
     missing = [k for k in ALARM_PIECE_REQUIRED if not str((pieces or {}).get(k) or "").strip()]
-    key = None if missing else alarm_blocks_key(pieces)
+    unit_problem = "" if missing else alarm_unit_problem(pieces)
+    key = None
+    if not missing and not unit_problem:
+        key = alarm_blocks_key(pieces) or composed_rule_key(pieces)
+    watched = True
+    if key and str(key).startswith("rule:"):
+        watched = bool(
+            monitor is not None
+            and hasattr(monitor, "watches_rule")
+            and monitor.watches_rule(key)
+        )
     enabled = True if monitor is None else bool(getattr(monitor, "enabled", True))
     checked = None
     parts = None
-    if key and monitor is not None and enabled and hasattr(monitor, "rule_inspection"):
+    if key and watched and monitor is not None and enabled and hasattr(monitor, "rule_inspection"):
         parts = monitor.rule_inspection(key)
         checked = monitor.inspection_at() if hasattr(monitor, "inspection_at") else None
 
@@ -1490,25 +1651,20 @@ def _show_rule_inspection(parent, number: int, pieces: dict, captions: dict, mon
             else:
                 chip = _inspect_chip("Not triggering", "#313244", "#cdd6f4")
             add_row(chip, part.label, part.detail)
+    elif key and not watched:
+        note.setText(
+            "Press Commit and this rule will be watched. "
+            "Click each signal and choose the table and field it is stored in."
+        )
     elif key:
         note.setText(
-            "This is one of the built-in alarms, but it has not been checked yet. "
-            "A check runs when a live reading arrives, and about every 15 seconds."
+            "This rule is watched. A check runs when a live reading arrives, "
+            "and about every 15 seconds."
         )
+    elif unit_problem:
+        note.setText(unit_problem)
     else:
-        note.setText(
-            "This sentence is not one of the built-in alarms, so none of these "
-            "parts is watched and the rule does not fire."
-        )
-        for kind in ("signal", "comparison", "threshold", "duration", "context"):
-            text = str((captions or pieces or {}).get(kind) or "").strip()
-            if not text:
-                continue
-            add_row(
-                _inspect_chip("Not watched", "#45475a", "#cdd6f4"),
-                f"{_KIND_SHORT[kind]}: {text}",
-                "",
-            )
+        note.setText("This sentence is not complete, so nothing is being checked.")
 
     buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
     buttons.rejected.connect(dlg.reject)
@@ -1738,10 +1894,18 @@ class _RuleLine(QFrame):
         if alarm_blocks_key(pieces):
             self.setToolTip(sentence)
         else:
-            tip = (
-                sentence + "\nThe sentence is complete, but it is not one of the "
-                "built-in alarms, so it does not fire."
+            signals, _join = split_joined_pieces(
+                pieces.get("signal", ""), set(alarm_palette("signal")),
             )
+            unbound = [name for name in signals if signal_needs_column(name) and not signal_source_label(name)]
+            if unbound:
+                listed = ", ".join(unbound)
+                tip = (
+                    sentence + f"\nClick {listed} and choose the table and field. "
+                    "Until then this rule does not fire."
+                )
+            else:
+                tip = sentence + "\nWatched from the table and field on each signal."
             if note:
                 tip += "\nNon-standard logic: " + note
             self.setToolTip(tip)
@@ -2063,6 +2227,10 @@ class AlarmDefsTab(QWidget):
         monitor.set_rule_holds(holds)
         if hasattr(monitor, "set_rule_flaps"):
             monitor.set_rule_flaps(flaps)
+        if hasattr(monitor, "set_composed_rules"):
+            monitor.set_composed_rules([card.values() for card in self._cards])
+        if hasattr(monitor, "set_signal_sources"):
+            monitor.set_signal_sources(_read_sources())
 
     def _reset(self) -> None:
         """Show the built-in rules as a draft. Commit keeps them."""
