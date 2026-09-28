@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-28 | 0 | 1 | 3 |
+| 2026-09-28 | 1 | 2 | 3 |
 | 2026-09-27 | 4 | 4 | 4 |
 | 2026-09-26 | 14 | 14 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
@@ -119,6 +119,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-081-20260928-01 — Segmentation fault while reading Tasmota history</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-28 15:04 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Tasmota history read (`db/logger.py`); Python GC vs tab-bar paint |
+| **Version found** | 2.9.491 (pid 987988) |
+| **Version fixed** | 2.9.493 |
+
+**Symptom:** `./run-dashboard.sh` printed `line 80: 987988 Segmentation fault (core dumped)` and `Crash logged to /home/user/.energy_dashboard_crash.log`. The process had been up since 14:18 that afternoon.
+
+**Cause:** Not the import-hook crash fixed in 2.9.492 (that was pid 655320). This session was still 2.9.491. The background Tasmota history read was inside Python’s cycle collector at the database `fetchall`, and the main thread was painting the tab bar. Taking Qt objects out of the collector did not stop a worker collection during that paint.
+
+**Resolution:** Automatic collection is off, so a history read cannot start one. The window thread collects cycles every 15 seconds instead. Qt objects stay out of the collector. Fixed 2026-09-28 15:04 in 2.9.493. File: `core/gc_guard.py`.
 
 ### <span style="color:green">BUG-029-20260921-10 — Mid-session SEGV (Shiboken import vs GUI paint)</span>
 

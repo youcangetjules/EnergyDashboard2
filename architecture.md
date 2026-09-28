@@ -107,11 +107,17 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-28 — The cycle collector runs on the window thread
+
+- **Context:** Pid 987988 (2.9.491) segfaulted about half an hour after start. The Tasmota history read was inside Python’s cycle collector (`query_tasmota_power_history` / `fetchall`) while the main thread was painting the tab bar. Taking Qt wrappers out of the collector (2.9.421) did not stop it. This is not the import-hook crash fixed in 2.9.492.
+- **Decision:** Automatic collection is off, so a background thread cannot start one. Every 15 seconds the window thread collects cycles itself. Qt wrappers stay out of the collector. A worker that calls `gc.collect()` does not collect.
+- **Consequence:** Do not turn automatic collection back on to “let Python collect normally”. That is the crash. Do not collect from a fetch thread. The 2026-09-25 and earlier 2026-09-28 lines that say not to disable automatic collection are superseded by this one.
+
 ### 2026-09-28 — Worker imports do not enter Shiboken
 
 - **Context:** Pid 655320 (2.9.491) segfaulted after about an hour. The Octopus live fetch thread was inside Python’s cycle collector, which had entered PySide’s replaced import (`feature_import` / `PyImport_Import`) during `pandas.to_datetime`. The main thread was painting the tab bar. Same shape as the still-open mid-session import race (BUG-029-20260921-10).
 - **Decision:** Leave automatic garbage collection on, and keep Qt wrappers out of the collector. After PySide has loaded, put back the import it saved. This app does not use `from __feature__ import snake_case`. The sweep repeats that restore so the hook cannot come back.
-- **Consequence:** Do not disable `gc` to paper over this crash. Do not route ordinary imports through Shiboken’s feature hook. Do not turn on snake_case or true_property without putting the hook back on purpose.
+- **Consequence:** Do not route ordinary imports through Shiboken’s feature hook. Do not turn on snake_case or true_property without putting the hook back on purpose. Automatic collection on a worker is superseded the same day by “the cycle collector runs on the window thread”.
 
 ### 2026-09-27 — A written alarm reads the column you choose
 
@@ -243,7 +249,7 @@ Newest first. Keep each entry short: context → decision → consequence.
 
 - **Context:** Long sessions segfaulted while a worker was inside Python’s cycle collector (`query_tasmota_power_history`) and the main thread was painting the tab bar. The 08:10 core dump shows the main thread destroying a Qt object (`_Py_Dealloc` / Shiboken `ThreadStateSaver`) and waiting for the Python lock, which the worker held inside the collector. 2.9.419 turned automatic collection off. That was rejected (BUG-059-20260925-02).
 - **Decision:** Leave cyclic GC enabled. Remove PySide wrappers from the collector when they are created, and sweep any already alive. Reference counting still frees them on the thread that drops the last reference. Ordinary Python objects are still collected automatically.
-- **Consequence:** Do not disable `gc` to paper over this crash. New Qt objects must stay out of the cycle collector. Do not put `QLabel` cell widgets back into a sorted table.
+- **Consequence:** New Qt objects must stay out of the cycle collector. Do not put `QLabel` cell widgets back into a sorted table. “Do not disable automatic collection” is superseded on 2026-09-28: a worker collection during paint still crashed (BUG-081-20260928-01). The collector runs on the window thread.
 
 ### 2026-09-24 — Agile Year prior-year delta via paint delegate (no cell widgets)
 

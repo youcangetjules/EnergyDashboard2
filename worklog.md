@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-28
 
+### 15:04
+
+- The dashboard that was started just after 14:00 crashed again with a segmentation fault, about half an hour later. A Tasmota history read had started Python’s garbage collection while the tabs were being painted. That collection now runs on the window’s own thread, every 15 seconds, so a background read cannot start it. Logged as BUG-081-20260928-01.
+
 ### 14:25
 
 - The dashboard that had been open since late evening crashed with a segmentation fault. An Octopus fetch was importing readings at the same moment the tab bar was painting, and that import was going through the Qt library’s own import hook. Ordinary imports now use the normal Python import again. Garbage collection stays on, and Qt objects stay out of it.

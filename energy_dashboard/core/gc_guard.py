@@ -1,33 +1,37 @@
-"""Keep automatic garbage collection on, without letting it destroy Qt objects.
+"""Collect cycles on the window thread, and keep Qt objects out of that collector.
 
-A worker thread that is collecting cycles can run at the same moment the main
-thread has let go of the Python lock inside a Qt teardown (seen during tab-bar
-painting, while a fetch allocated enough to start a collection). The collector
-then walks a half-destroyed Qt wrapper and the process segfaults.
+A worker that is collecting cycles can run at the same moment the main thread
+has let go of the Python lock inside a paint (seen while the tab bar was
+drawing and a Tasmota history read allocated enough to start a collection).
+Taking Qt wrappers off the collector did not stop that crash.
+
+Automatic collection is therefore off. A timer on the window thread collects
+instead, so cycles are still freed, but never by a background fetch. Qt
+wrappers are still removed from the collector as soon as they are created, in
+case something collects anyway. Reference counting still frees them on the
+thread that drops the last reference.
 
 PySide also replaces the built-in import with its own hook, so that
 ``from __feature__ import snake_case`` can rename methods. This app does not
-use that. Every later import — including one inside an Octopus fetch — still
-entered that hook, and the hook calls into Shiboken. Doing that while the tab
-bar is painting segfaults the same way.
-
-Python 3.14 still collects cycles automatically. Qt wrappers are taken off
-that list as soon as they are created. The built-in import PySide saved is put
-back, so a worker import does not enter Shiboken. Reference counting still
-frees Qt objects on the thread that drops the last reference. Ordinary Python
-objects (lists, query results, and so on) are collected as usual.
+use that. The import PySide saved is put back, so a worker import does not
+enter Shiboken while the tab bar is painting.
 """
 from __future__ import annotations
 
 import ctypes
 import gc
 import sys
+import threading
 
 _ctypes_ready = False
 _is_tracked = None
 _untrack_c = None
 _wrapped: set[type] = set()
 _pyside_modules_seen: tuple[str, ...] | None = None
+_orig_collect = gc.collect
+_collect_patched = False
+# How often the window thread frees cycles the workers are not allowed to.
+_COLLECT_INTERVAL_MS = 15000
 
 
 def _bind_ctypes() -> None:
@@ -137,14 +141,36 @@ def restore_builtin_import() -> None:
     builtins.__import__ = orig
 
 
+def _collect_on_gui_thread(*args, **kwargs):
+    """Run a collection only on the window thread.
+
+    A worker that calls ``gc.collect()`` while the tab bar is painting is the
+    crash. Ignore that call. The timer collects from the window thread.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return 0
+    return _orig_collect(*args, **kwargs)
+
+
+def _install_gui_only_collect() -> None:
+    """Stop workers starting a collection. The window thread still collects."""
+    global _collect_patched
+    gc.disable()
+    if _collect_patched:
+        return
+    gc.collect = _collect_on_gui_thread
+    _collect_patched = True
+
+
 def install_shiboken_untrack(parent=None):
-    """Leave cyclic GC enabled. Keep Qt wrappers out of it.
+    """Collect cycles on the window thread. Keep Qt wrappers out of it.
 
     ``parent`` is the QApplication. A short timer repeats the sweep so a
-    wrapper born inside Qt itself is untracked before a worker collection.
-    The same sweep puts the built-in import back if PySide has replaced it.
+    wrapper born inside Qt itself is untracked. Another timer collects cycles
+    on this same thread. The sweep also puts the built-in import back if
+    PySide has replaced it.
     """
-    gc.enable()
+    _install_gui_only_collect()
     restore_builtin_import()
     wrap_loaded_pyside_types()
     untrack_existing_wrappers()
@@ -156,6 +182,10 @@ def install_shiboken_untrack(parent=None):
     timer.setInterval(2000)
     timer.timeout.connect(_sweep)
     timer.start()
+    collect_timer = QTimer(parent)
+    collect_timer.setInterval(_COLLECT_INTERVAL_MS)
+    collect_timer.timeout.connect(_orig_collect)
+    collect_timer.start()
     return timer
 
 

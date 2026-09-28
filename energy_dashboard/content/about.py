@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.493", "2026-09-28", [
+        "A history read in the background no longer starts a garbage collection while the tabs are painting. That collection now runs on the window's own thread.",
+    ]),
     ("2.9.492", "2026-09-28", [
         "A long session no longer crashes while an Octopus fetch is importing data and the tab bar is painting. Ordinary imports no longer go through the Qt library.",
     ]),
