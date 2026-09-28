@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-28 — Worker imports do not enter Shiboken
+
+- **Context:** Pid 655320 (2.9.491) segfaulted after about an hour. The Octopus live fetch thread was inside Python’s cycle collector, which had entered PySide’s replaced import (`feature_import` / `PyImport_Import`) during `pandas.to_datetime`. The main thread was painting the tab bar. Same shape as the still-open mid-session import race (BUG-029-20260921-10).
+- **Decision:** Leave automatic garbage collection on, and keep Qt wrappers out of the collector. After PySide has loaded, put back the import it saved. This app does not use `from __feature__ import snake_case`. The sweep repeats that restore so the hook cannot come back.
+- **Consequence:** Do not disable `gc` to paper over this crash. Do not route ordinary imports through Shiboken’s feature hook. Do not turn on snake_case or true_property without putting the hook back on purpose.
+
 ### 2026-09-27 — A written alarm reads the column you choose
 
 - **Context:** Inspect told the householder a finished sentence was not watched, because it was not one of the built-in alarms. String A and string B voltage were words with nowhere to read a number from.

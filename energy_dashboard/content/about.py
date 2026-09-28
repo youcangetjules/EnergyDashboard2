@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.492", "2026-09-28", [
+        "A long session no longer crashes while an Octopus fetch is importing data and the tab bar is painting. Ordinary imports no longer go through the Qt library.",
+    ]),
     ("2.9.491", "2026-09-27", [
         "The live banner shows hours left to the low-SOC threshold beside SOC, and the discharge rate in percent per hour beside Battery, while the pack is discharging.",
     ]),

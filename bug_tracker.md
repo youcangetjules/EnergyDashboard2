@@ -46,6 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
+| 2026-09-28 | 0 | 1 | 3 |
 | 2026-09-27 | 4 | 4 | 4 |
 | 2026-09-26 | 14 | 14 | 4 |
 | 2026-09-25 | 5 | 5 | 4 |
@@ -111,29 +112,29 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 1. **GUI-thread database + chart work** — Octopus Live `_update_display` (GUI) calls `_attach_cumulative_pv` → `query_growatt_pv_actual`, which opens Postgres and scans `growatt_readings` with Polars `infer_schema_length=None`, then does synchronous `canvas.draw()`. Same pattern of sync `canvas.draw()` on Tasmota. A slow DB or a large window can stall the UI for seconds on every auto-refresh.
 2. **Main-thread CPU** — live PID 652826 (~9.5 h): main thread alone was burning ~65 CPU ticks / 2 s while process RSS ~660 MB. Not a hard deadlock; more like the GUI event loop busy with work.
 3. **Growatt HTTPS half-closed sockets** — same process had two `CLOSE-WAIT` connections to `openapi.growatt.com` / `api.growatt.com` (8.211.2.163). growattServer keeps a `requests.Session`; leaked sockets can pile up over a long session.
-4. **Prior mid-session SEGV** — BUG-029-20260921-10 (Shiboken / worker race) can look like a freeze then crash; Invoker QueuedConnection partially hardened in 2.9.380 but root cause still open.
+4. **Prior mid-session SEGV** — BUG-029-20260921-10 was a crash, not this freeze. The import race in that bug was fixed in 2.9.492. The sticky window above is still open.
 
 **Resolution:** Empty while open. Likely fixes: move PV DB attach off the GUI thread; prefer `draw_idle`; close / recycle Growatt HTTP sessions; re-check worker→GUI Invoker paths if SEGV returns.
-
-### <span style="color:red">BUG-029-20260921-10 — Mid-session SEGV (Shiboken import vs GUI paint)</span>
-
-| Field | Value |
-|-------|--------|
-| **Opened** | 2026-09-21 22:13 (Europe/London) |
-| **Status** | open |
-| **Area** | Qt / threading (`core/invoker.py`, worker threads) |
-| **Version found** | ~2.9.379 (PID 345239) |
-| **Version fixed** | — |
-
-**Symptom:** zsh reported `[8] 345239 segmentation fault (core dumped)` for `./run-dashboard.sh` / `EnergyDashboard2.py`. Not an immediate launch crash — the process had been running for a long session.
-
-**Cause:** Core dump (thread 356856): SEGV in `_Py_HandlePending` while a late-started worker was in `PyImport_Import` / Shiboken. Main thread (345239) was mid-widget paint (`paintAndFlush` → QtWidgets abi → Shiboken `ThreadStateSaver` / GIL). Not the Linux WebEngine/GPU startup path (BUG-005-20260915-05 / BUG-019-20260917-05). Likely a worker/GIL/Shiboken race; Invoker AutoConnection from plain `threading.Thread` can also run slots off the GUI thread.
-
-**Resolution:** Partial hardening in **2.9.380** — `Invoker` now forces `QueuedConnection` so worker `invoke()` always posts to the GUI thread. Fresh `./run-dashboard.sh` smoke-tested ~12s without SEGV. Full root cause of the import race still open if it recurs.
 
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-029-20260921-10 — Mid-session SEGV (Shiboken import vs GUI paint)</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-21 22:13 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Qt / threading (`core/gc_guard.py`, Octopus live fetch) |
+| **Version found** | ~2.9.379 (PID 345239); recurred 2026-09-27 23:15 as pid 655320 on 2.9.491 |
+| **Version fixed** | 2.9.492 |
+
+**Symptom:** `./run-dashboard.sh` died with `segmentation fault (core dumped)`. Not an immediate launch crash. First seen as zsh `[8] 345239`. Again on 2026-09-28 as `line 80: 655320 Segmentation fault` after a session that started 22:23 the night before. Crash log: `~/.energy_dashboard_crash.log`.
+
+**Cause:** A worker thread was inside PySide’s replaced import (`PyImport_Import` / `feature_import`) at the same moment the main thread was painting. On pid 655320 the worker was the Octopus live fetch, in `pandas.to_datetime`, and the collector had entered that import hook. The main thread was in the tab-bar paint. PySide installs the hook so `from __feature__ import snake_case` can rename methods. This app never uses that, but every import still went through Shiboken. Invoker `QueuedConnection` (2.9.380) only stopped worker slots running on the wrong thread. It left the import hook in place. Keeping Qt wrappers out of the collector (2.9.421) did not stop the hook running during a collection.
+
+**Resolution:** After PySide has loaded, the import it saved is put back, and the regular sweep puts it back again if the hook returns. Automatic garbage collection stays on, and Qt wrappers stay out of the collector. Fixed 2026-09-28 14:25 in 2.9.492. File: `core/gc_guard.py`.
 
 ### <span style="color:green">BUG-080-20260927-04 — Dashboard feels slow after the Tasmota layout flush</span>
 

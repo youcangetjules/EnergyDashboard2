@@ -12,6 +12,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-09-28
+
+### 14:25
+
+- The dashboard that had been open since late evening crashed with a segmentation fault. An Octopus fetch was importing readings at the same moment the tab bar was painting, and that import was going through the Qt library’s own import hook. Ordinary imports now use the normal Python import again. Garbage collection stays on, and Qt objects stay out of it.
+
 ## 2026-09-27
 
 ### 22:19

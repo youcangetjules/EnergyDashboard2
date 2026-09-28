@@ -2,14 +2,20 @@
 
 A worker thread that is collecting cycles can run at the same moment the main
 thread has let go of the Python lock inside a Qt teardown (seen during tab-bar
-painting, while a Tasmota history fetch allocated enough to start a
-collection). The collector then walks a half-destroyed Qt wrapper and the
-process segfaults.
+painting, while a fetch allocated enough to start a collection). The collector
+then walks a half-destroyed Qt wrapper and the process segfaults.
+
+PySide also replaces the built-in import with its own hook, so that
+``from __feature__ import snake_case`` can rename methods. This app does not
+use that. Every later import — including one inside an Octopus fetch — still
+entered that hook, and the hook calls into Shiboken. Doing that while the tab
+bar is painting segfaults the same way.
 
 Python 3.14 still collects cycles automatically. Qt wrappers are taken off
-that list as soon as they are created. Reference counting still frees them on
-the thread that drops the last reference. Ordinary Python objects (lists,
-query results, and so on) are collected as usual.
+that list as soon as they are created. The built-in import PySide saved is put
+back, so a worker import does not enter Shiboken. Reference counting still
+frees Qt objects on the thread that drops the last reference. Ordinary Python
+objects (lists, query results, and so on) are collected as usual.
 """
 from __future__ import annotations
 
@@ -113,13 +119,33 @@ def untrack_existing_wrappers() -> None:
         untrack_qt_wrapper(obj)
 
 
+def restore_builtin_import() -> None:
+    """Put back the import PySide replaced.
+
+    PySide's hook is only there for ``from __feature__ import ...``. A worker
+    that imports while the window is painting enters Shiboken through that
+    hook and the process segfaults. If the hook is what is installed, put the
+    saved import back. Leave any other replacement alone.
+    """
+    import builtins
+    orig = getattr(builtins, "__orig_import__", None)
+    feature = getattr(builtins, "__feature_import__", None)
+    if orig is None or feature is None:
+        return
+    if builtins.__import__ is not feature:
+        return
+    builtins.__import__ = orig
+
+
 def install_shiboken_untrack(parent=None):
     """Leave cyclic GC enabled. Keep Qt wrappers out of it.
 
     ``parent`` is the QApplication. A short timer repeats the sweep so a
     wrapper born inside Qt itself is untracked before a worker collection.
+    The same sweep puts the built-in import back if PySide has replaced it.
     """
     gc.enable()
+    restore_builtin_import()
     wrap_loaded_pyside_types()
     untrack_existing_wrappers()
     if parent is None:
@@ -134,5 +160,6 @@ def install_shiboken_untrack(parent=None):
 
 
 def _sweep() -> None:
+    restore_builtin_import()
     wrap_loaded_pyside_types()
     untrack_existing_wrappers()
