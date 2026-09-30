@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-30
 
+### 21:09
+
+- Octopus Energy Data now has a Monthly bills tab. Load pulls each issued statement for the account on Octopus Live: electricity bought and sold, the usage and standing charges, export credit, gas when it is on the same bill, and the payment. Selecting a month lists the lines. These are the figures Octopus billed, separate from the Battery Simulation model.
+
 ### 20:45
 
 - The annual bars on Battery Simulation were hard to trust because the pane never showed the sum. After a run it now writes the working: which half-hours were used, how average power became kilowatt-hours, the pack rules, the window's import and export pounds, and how that net is stretched to a year. It also says when a bigger pack never filled. The pounds themselves are the same model as before, not the Octopus bill. Logged as BUG-083-20260930-02.

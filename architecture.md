@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-30 — Monthly bills are the issued Octopus statements
+
+- **Context:** The battery simulation’s annual pounds are a model. The householder wants each month’s real bill: the kWh Octopus billed and the payment that left the bank.
+- **Decision:** Octopus Energy Data has a Monthly bills tab. It reads the account’s issued statements (GraphQL `account.bills`, statement type) using the API key and account number saved on Octopus Live. Electricity import and export are told apart by the sign of the charge. Gas on the same statement is shown so the direct debit is not only electricity. Money on the wire is pence; the tab shows pounds. The load is on demand, not part of the live meter poll.
+- **Consequence:** Do not mix these rows into the simulation bars, and do not present the simulation as this bill. Do not invent a usage figure when a charge has no kWh. Do not store the statement PDF or a temporary download link.
+
 ### 2026-09-30 — The battery-simulation bill shows its working
 
 - **Context:** The annual bars look like an electricity bill. They are a replay of stored house load and solar through a model pack, then the window's net pounds times 365 over the whole days in that window. The results pane did not show that sum.

@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.496", "2026-09-30", [
+        "Octopus Energy Data can load each month's issued bill: usage in kWh, the charges, and the payment.",
+    ]),
     ("2.9.495", "2026-09-30", [
         "Battery Simulation shows the working for the annual bill: the half-hours used, the prices, the pack rules, and the sum that scales the window up to a year.",
     ]),

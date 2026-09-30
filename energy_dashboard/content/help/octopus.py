@@ -19,5 +19,7 @@ The 7&nbsp;d / 14&nbsp;d / 30&nbsp;d / 90&nbsp;d toggle is the fetch window. 90 
 Net = Import − Export. Green bars below zero are export-heavy days (or weeks).</li>
 <li>
 Typical Day Profile and Day of Week average the half-hours in this window — they are not a second data source.</li>
+<li>
+<b>Monthly bills</b> loads the statements Octopus issued for the account number on Octopus Live. Each row is one month: electricity bought and sold (kWh), the usage charge, the standing charge, any export credit, gas when it is on the same statement, and the payment (the direct debit). Select a row for the individual lines. These figures are what Octopus billed. They are not the Battery Simulation bars, and they are not estimated from the half-hourly charts above.</li>
 </ul>
 """

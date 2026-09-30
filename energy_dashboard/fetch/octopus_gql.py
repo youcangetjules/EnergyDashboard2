@@ -74,12 +74,15 @@ def _gql_telemetry_interval_kwh(reading, is_export_register):
         return 0.0
 
 
-def _gql_post(query, token=None):
+def _gql_post(query, token=None, variables=None):
     """POST a GraphQL query to the Octopus Kraken API. Returns parsed JSON body."""
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"JWT {token}"
-    resp = requests.post(_OCTOPUS_GQL_URL, json={"query": query}, headers=headers, timeout=30)
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+    resp = requests.post(_OCTOPUS_GQL_URL, json=payload, headers=headers, timeout=45)
     body = None
     try:
         body = resp.json()
@@ -95,6 +98,275 @@ def _gql_post(query, token=None):
     if "errors" in body and body["errors"]:
         raise RuntimeError(body["errors"][0].get("message", str(body["errors"])))
     return body
+
+
+_GQL_BILLS_QUERY = '''query ($accountNumber: String!, $after: String) {
+  account(accountNumber: $accountNumber) {
+    bills(first: 24, after: $after, includeHistoricStatements: true) {
+      pageInfo { hasNextPage endCursor }
+      edges {
+        node {
+          __typename
+          billType
+          fromDate
+          toDate
+          issuedDate
+          ... on StatementType {
+            consumptionStartDate
+            consumptionEndDate
+            openingBalance
+            closingBalance
+            totalCharges { grossTotal }
+            totalCredits { grossTotal }
+            transactions(first: 100) {
+              pageInfo { hasNextPage }
+              edges {
+                node {
+                  __typename
+                  ... on Charge {
+                    title
+                    postedDate
+                    amounts { gross net tax }
+                    consumption {
+                      quantity
+                      unit
+                      usageCost
+                      supplyCharge
+                      startDate
+                      endDate
+                    }
+                  }
+                  ... on Payment {
+                    title
+                    postedDate
+                    amounts { gross net }
+                  }
+                  ... on Credit {
+                    title
+                    postedDate
+                    amounts { gross net }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}'''
+
+
+def _pence_to_pounds(value):
+    if value is None:
+        return None
+    try:
+        return int(value) / 100.0
+    except (TypeError, ValueError):
+        return None
+
+
+def _consumption_kwh(consumption):
+    """Kilowatt-hours on a charge line. Quantity is unsigned; the money says which way."""
+    if not isinstance(consumption, dict):
+        return None
+    raw = consumption.get("quantity")
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        qty = abs(float(raw))
+    except (TypeError, ValueError):
+        return None
+    unit = str(consumption.get("unit") or "").upper()
+    if unit in ("", "KWH", "KILOWATT_HOURS"):
+        return qty
+    return None
+
+
+def _line_kind(title, gross_pence):
+    name = (title or "").strip().lower()
+    gross = gross_pence or 0
+    if "electric" in name:
+        return "export" if gross < 0 else "import"
+    if name == "gas" or name.startswith("gas "):
+        return "gas"
+    return "other"
+
+
+def _month_label(to_date, from_date):
+    raw = (to_date or from_date or "").strip()
+    if len(raw) < 7:
+        return raw or "—"
+    try:
+        year = int(raw[0:4])
+        month = int(raw[5:7])
+    except ValueError:
+        return raw
+    names = (
+        "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    )
+    if not 1 <= month <= 12:
+        return raw
+    return f"{names[month]} {year}"
+
+
+def _pretty_date(iso_date):
+    raw = (iso_date or "").strip()
+    if len(raw) < 10:
+        return raw
+    try:
+        year = int(raw[0:4])
+        month = int(raw[5:7])
+        day = int(raw[8:10])
+    except ValueError:
+        return raw
+    names = (
+        "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    )
+    if not 1 <= month <= 12:
+        return raw
+    return f"{day} {names[month]} {year}"
+
+
+def _sum_into(bill, key, amount):
+    if amount is None:
+        return
+    bill[key] = (bill.get(key) or 0.0) + amount
+
+
+def _statement_to_month(node):
+    """One issued statement → usage and payment figures, in pounds and kWh."""
+    bill = {
+        "month": _month_label(node.get("toDate"), node.get("fromDate")),
+        "period": "",
+        "from_date": node.get("fromDate") or "",
+        "to_date": node.get("toDate") or "",
+        "issued": _pretty_date(node.get("issuedDate") or ""),
+        "import_kwh": 0.0,
+        "export_kwh": 0.0,
+        "gas_kwh": 0.0,
+        "usage_gbp": 0.0,
+        "standing_gbp": 0.0,
+        "export_credit_gbp": 0.0,
+        "gas_gbp": 0.0,
+        "other_gbp": 0.0,
+        "charges_gbp": _pence_to_pounds((node.get("totalCharges") or {}).get("grossTotal")),
+        "credits_gbp": _pence_to_pounds((node.get("totalCredits") or {}).get("grossTotal")),
+        "paid_gbp": 0.0,
+        "opening_gbp": _pence_to_pounds(node.get("openingBalance")),
+        "closing_gbp": _pence_to_pounds(node.get("closingBalance")),
+        "lines": [],
+        "transactions_truncated": False,
+    }
+    start = node.get("consumptionStartDate") or node.get("fromDate")
+    end = node.get("consumptionEndDate") or node.get("toDate")
+    if start or end:
+        bill["period"] = f"{_pretty_date(start)} – {_pretty_date(end)}"
+    tx_conn = node.get("transactions") or {}
+    bill["transactions_truncated"] = bool((tx_conn.get("pageInfo") or {}).get("hasNextPage"))
+    for edge in tx_conn.get("edges") or []:
+        item = (edge or {}).get("node") or {}
+        kind_name = item.get("__typename") or ""
+        title = (item.get("title") or kind_name or "Line").strip()
+        gross = (item.get("amounts") or {}).get("gross")
+        gross_gbp = _pence_to_pounds(gross)
+        if kind_name == "Charge":
+            cons = item.get("consumption") or {}
+            kwh = _consumption_kwh(cons)
+            usage_gbp = _pence_to_pounds(cons.get("usageCost"))
+            standing_gbp = _pence_to_pounds(cons.get("supplyCharge"))
+            kind = _line_kind(title, gross)
+            if kind == "import":
+                _sum_into(bill, "import_kwh", kwh)
+                _sum_into(bill, "usage_gbp", usage_gbp)
+                _sum_into(bill, "standing_gbp", standing_gbp)
+            elif kind == "export":
+                _sum_into(bill, "export_kwh", kwh)
+                if gross_gbp is not None:
+                    bill["export_credit_gbp"] += abs(gross_gbp)
+            elif kind == "gas":
+                _sum_into(bill, "gas_kwh", kwh)
+                if gross_gbp is not None:
+                    bill["gas_gbp"] += gross_gbp
+            elif gross_gbp is not None:
+                bill["other_gbp"] += gross_gbp
+            bill["lines"].append({
+                "title": title,
+                "kind": kind,
+                "kwh": kwh,
+                "usage_gbp": usage_gbp,
+                "standing_gbp": standing_gbp,
+                "gbp": gross_gbp,
+                "start": cons.get("startDate") or "",
+                "end": cons.get("endDate") or "",
+            })
+        elif kind_name == "Payment":
+            if gross_gbp is not None:
+                bill["paid_gbp"] += gross_gbp
+            bill["lines"].append({
+                "title": title,
+                "kind": "payment",
+                "kwh": None,
+                "usage_gbp": None,
+                "standing_gbp": None,
+                "gbp": gross_gbp,
+                "start": "",
+                "end": "",
+            })
+        elif kind_name in ("Credit", "Refund"):
+            bill["lines"].append({
+                "title": title,
+                "kind": "credit",
+                "kwh": None,
+                "usage_gbp": None,
+                "standing_gbp": None,
+                "gbp": gross_gbp,
+                "start": "",
+                "end": "",
+            })
+    return bill
+
+
+def fetch_octopus_monthly_bills(api_key, account_number):
+    """Issued Octopus statements, newest first.
+
+    Each item is one month: import and export kWh, electricity usage and
+    standing charge, export credit, gas if the statement has it, and what
+    was paid. Figures are the ones on the statement, in pounds and kWh.
+    """
+    account_number = (account_number or "").strip()
+    api_key = (api_key or "").strip()
+    if not api_key or not account_number:
+        raise RuntimeError("Set the Octopus API key and the account number on Octopus Live first.")
+    token = octopus_gql_authenticate(api_key)
+    bills = []
+    after = None
+    for _page in range(3):
+        body = _gql_post(
+            _GQL_BILLS_QUERY,
+            token=token,
+            variables={"accountNumber": account_number, "after": after},
+        )
+        account = (body.get("data") or {}).get("account")
+        if not account:
+            raise RuntimeError(
+                f"No account data returned for '{account_number}' — check the account number on Octopus Live."
+            )
+        conn = account.get("bills") or {}
+        for edge in conn.get("edges") or []:
+            node = (edge or {}).get("node") or {}
+            if node.get("__typename") != "StatementType":
+                continue
+            if (node.get("billType") or "").upper() not in ("", "STATEMENT"):
+                continue
+            bills.append(_statement_to_month(node))
+        page = conn.get("pageInfo") or {}
+        if not page.get("hasNextPage") or not page.get("endCursor"):
+            break
+        after = page.get("endCursor")
+    return bills
 
 
 def octopus_gql_authenticate(api_key):

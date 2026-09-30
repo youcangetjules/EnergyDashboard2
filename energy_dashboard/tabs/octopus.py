@@ -50,6 +50,87 @@ def _fit_trend(values):
     return slope * x_all + intercept, float(slope)
 
 
+def _gbp_cell(value):
+    if value is None:
+        return "—"
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    sign = "-" if amount < 0 else ""
+    return f"{sign}£{abs(amount):,.2f}"
+
+
+def _kwh_cell(value):
+    if value is None:
+        return "—"
+    try:
+        qty = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{qty:,.1f}"
+
+
+def format_monthly_bill_detail(bill):
+    """Plain-English lines for one issued statement."""
+    lines = [
+        bill.get("month") or "Statement",
+        bill.get("period") or "",
+    ]
+    issued = bill.get("issued") or ""
+    if issued:
+        lines.append(f"Issued {issued}")
+    lines.append("")
+    lines.append(f"Opening balance    {_gbp_cell(bill.get('opening_gbp'))}")
+    lines.append(f"Closing balance    {_gbp_cell(bill.get('closing_gbp'))}")
+    lines.append(f"Statement charges  {_gbp_cell(bill.get('charges_gbp'))}")
+    lines.append(f"Statement credits  {_gbp_cell(bill.get('credits_gbp'))}")
+    charges = []
+    payments = []
+    for item in bill.get("lines") or []:
+        kind = item.get("kind")
+        title = item.get("title") or "Line"
+        if kind == "payment":
+            payments.append(f"  {title}    {_gbp_cell(item.get('gbp'))}")
+            continue
+        bits = [f"  {title}"]
+        if item.get("kwh") is not None:
+            bits.append(f"{_kwh_cell(item.get('kwh'))} kWh")
+        if kind == "export":
+            credit = item.get("gbp")
+            if credit is not None:
+                bits.append(f"credit {_gbp_cell(abs(float(credit)))}")
+        elif kind == "credit":
+            if item.get("gbp") is not None:
+                bits.append(f"credit {_gbp_cell(abs(float(item.get('gbp'))))}")
+        else:
+            if item.get("usage_gbp") is not None:
+                bits.append(f"usage {_gbp_cell(item.get('usage_gbp'))}")
+            if item.get("standing_gbp") is not None:
+                bits.append(f"standing {_gbp_cell(item.get('standing_gbp'))}")
+            if item.get("gbp") is not None:
+                bits.append(f"line {_gbp_cell(item.get('gbp'))}")
+        span = ""
+        if item.get("start") or item.get("end"):
+            span = f"    ({item.get('start') or '?'} to {item.get('end') or '?'})"
+        charges.append("    ".join(bits) + span)
+    if charges:
+        lines.append("")
+        lines.append("Charges")
+        lines.extend(charges)
+    other = bill.get("other_gbp") or 0
+    if other:
+        lines.append(f"  Other charges    {_gbp_cell(other)}")
+    if payments:
+        lines.append("")
+        lines.append("Payments")
+        lines.extend(payments)
+    if bill.get("transactions_truncated"):
+        lines.append("")
+        lines.append("Octopus returned more lines than this view loaded.")
+    return "\n".join(line for line in lines if line is not None)
+
+
 class OctopusTab(QWidget):
     def __init__(self, status_callback, app_params=None):
         super().__init__()
@@ -274,7 +355,77 @@ class OctopusTab(QWidget):
         tab_dow, self.canvas_dow = _make_chart_tab('fig_dow', 'ax_dow')
         self.chart_tabs.addTab(tab_dow, "  Day of Week  ")
 
+        self.chart_tabs.addTab(self._build_bills_tab(), "  Monthly bills  ")
+
         main_layout.addWidget(self.chart_tabs, 1)
+
+    def _build_bills_tab(self):
+        """Issued Octopus statements: usage and the payment on each month."""
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setSpacing(6)
+        note = QLabel(
+            "These are the statements Octopus issued — import, export, standing charge, "
+            "gas if it is on the same bill, and the payment. A month can have more than one row "
+            "when Octopus issued more than one statement. They are not the Battery Simulation model."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #a6adc8; font-size: 11px;")
+        lay.addWidget(note)
+        row = QHBoxLayout()
+        self.bills_btn = QPushButton("Load monthly bills")
+        self.bills_btn.clicked.connect(self.load_monthly_bills)
+        row.addWidget(self.bills_btn)
+        self.bills_status = QLabel("Not loaded yet.")
+        self.bills_status.setStyleSheet("color: #6c7086;")
+        row.addWidget(self.bills_status, 1)
+        lay.addLayout(row)
+        self._monthly_bills = []
+        headers = [
+            "Month", "Period", "Issued", "Import kWh", "Export kWh", "Usage £",
+            "Standing £", "Export credit £", "Gas kWh", "Gas £", "Paid £", "Closing £",
+        ]
+        tips = [
+            "Month the statement runs up to",
+            "Dates covered by the statement",
+            "Date Octopus issued the statement",
+            "Electricity bought from the grid, as billed",
+            "Electricity sold to the grid, as billed",
+            "Electricity usage charge, before the standing charge",
+            "Electricity standing charge on the statement",
+            "Credit for electricity exported",
+            "Gas used, when the statement includes gas",
+            "Gas charge, including its standing charge",
+            "Payments on the statement, such as the direct debit",
+            "Closing balance as Octopus printed it",
+        ]
+        self.bills_table = QTableWidget(0, len(headers))
+        self.bills_table.setHorizontalHeaderLabels(headers)
+        for i, tip in enumerate(tips):
+            item = self.bills_table.horizontalHeaderItem(i)
+            if item is not None:
+                item.setToolTip(tip)
+        self.bills_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.bills_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.bills_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.bills_table.verticalHeader().setVisible(False)
+        self.bills_table.setSortingEnabled(False)
+        qtable_set_column_width_key(self.bills_table, "octopus_monthly_bills")
+        qtable_prepare_interactive_columns(self.bills_table)
+        qtable_restore_column_widths(
+            self.bills_table, "octopus_monthly_bills", resize_if_no_saved=True,
+        )
+        qtable_attach_column_width_persistence(self.bills_table)
+        self.bills_table.itemSelectionChanged.connect(self._show_selected_bill)
+        lay.addWidget(self.bills_table, 1)
+        self.bills_detail = QTextEdit()
+        self.bills_detail.setReadOnly(True)
+        self.bills_detail.setMinimumHeight(140)
+        self.bills_detail.setMaximumHeight(220)
+        self.bills_detail.setPlainText("Select a month to see each charge and the payment.")
+        lay.addWidget(self.bills_detail)
+        return w
 
     def _load_saved_api_key(self):
         """Use the API key saved on Octopus Live when this box still has the default.
@@ -286,6 +437,99 @@ class OctopusTab(QWidget):
         saved = str(s.value("octopus_live/api_key") or "").strip()
         if saved:
             self.api_key_edit.setText(saved)
+
+    def _octopus_account_number(self):
+        """Account number typed on Octopus Live, or the one last saved there."""
+        win = self.window()
+        live = getattr(win, "octopus_live_tab", None)
+        edit = getattr(live, "account_edit", None) if live is not None else None
+        if edit is not None:
+            typed = str(edit.text() or "").strip()
+            if typed:
+                return typed
+        s = QSettings("PowerModel", "EnergyDashboard2")
+        return str(s.value("octopus_live/account") or "").strip()
+
+    def load_monthly_bills(self):
+        api_key = self.api_key_edit.text().strip()
+        account = self._octopus_account_number()
+        if not api_key or not account:
+            self._bills_failed(
+                "Set the API key and the account number on Octopus Live, then load again."
+            )
+            return
+        self.bills_btn.setEnabled(False)
+        self.bills_status.setStyleSheet("color: #a6adc8;")
+        self.bills_status.setText("Loading statements from Octopus…")
+        threading.Thread(
+            target=self._bills_thread, args=(api_key, account), daemon=True,
+        ).start()
+
+    def _bills_thread(self, api_key, account):
+        try:
+            bills = fetch_octopus_monthly_bills(api_key, account)
+        except Exception as exc:
+            msg = str(exc).strip() or "Could not load the statements."
+            self._inv.invoke(lambda m=msg: self._bills_failed(m))
+            return
+        self._inv.invoke(lambda b=list(bills): self._show_bills(b))
+
+    def _bills_failed(self, message):
+        self.bills_btn.setEnabled(True)
+        self.bills_status.setStyleSheet("color: #f38ba8;")
+        self.bills_status.setText(message)
+        self.set_status(f"Monthly bills: {message}")
+
+    def _show_bills(self, bills):
+        self.bills_btn.setEnabled(True)
+        self._monthly_bills = list(bills or [])
+        table = self.bills_table
+        table.setRowCount(0)
+        if not self._monthly_bills:
+            self.bills_status.setStyleSheet("color: #f9e2af;")
+            self.bills_status.setText("Octopus returned no monthly statements for this account.")
+            self.bills_detail.setPlainText("Nothing to show.")
+            self.set_status("Monthly bills: none returned")
+            return
+        table.setRowCount(len(self._monthly_bills))
+        for row, bill in enumerate(self._monthly_bills):
+            values = [
+                bill.get("month") or "—",
+                bill.get("period") or "—",
+                bill.get("issued") or "—",
+                _kwh_cell(bill.get("import_kwh")),
+                _kwh_cell(bill.get("export_kwh")),
+                _gbp_cell(bill.get("usage_gbp")),
+                _gbp_cell(bill.get("standing_gbp")),
+                _gbp_cell(bill.get("export_credit_gbp")),
+                _kwh_cell(bill.get("gas_kwh")),
+                _gbp_cell(bill.get("gas_gbp")),
+                _gbp_cell(bill.get("paid_gbp")),
+                _gbp_cell(bill.get("closing_gbp")),
+            ]
+            for col, text in enumerate(values):
+                item = QTableWidgetItem(text)
+                if col >= 3:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                table.setItem(row, col, item)
+        n = len(self._monthly_bills)
+        self.bills_status.setStyleSheet("color: #a6e3a1;")
+        self.bills_status.setText(
+            f"{n} statement{'s' if n != 1 else ''} loaded. Select a month for the lines."
+        )
+        self.set_status(f"Monthly bills: {n} statement{'s' if n != 1 else ''} loaded")
+        table.selectRow(0)
+        if not qtable_restore_column_widths(table, "octopus_monthly_bills"):
+            table.resizeColumnsToContents()
+
+    def _show_selected_bill(self):
+        rows = self.bills_table.selectionModel().selectedRows()
+        if not rows:
+            return
+        i = rows[0].row()
+        if i < 0 or i >= len(self._monthly_bills):
+            return
+        self.bills_detail.setPlainText(format_monthly_bill_detail(self._monthly_bills[i]))
 
     def _show_chart_message(self, message: str):
         """Dark placeholder so a failed or in-progress fetch is not a blank white plot."""
