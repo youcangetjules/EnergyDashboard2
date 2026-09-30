@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-09-30
 
+### 20:45
+
+- The annual bars on Battery Simulation were hard to trust because the pane never showed the sum. After a run it now writes the working: which half-hours were used, how average power became kilowatt-hours, the pack rules, the window's import and export pounds, and how that net is stretched to a year. It also says when a bigger pack never filled. The pounds themselves are the same model as before, not the Octopus bill. Logged as BUG-083-20260930-02.
+
 ### 09:09
 
 - A second Energy Dashboard no longer opens. Starting it again brings the window that is already running to the front, including when that window is only in the tray. A second energy collector does not start either, so the boot service and the user-session copy cannot both poll. The dashboard and the collector can still run together. Logged as BUG-082-20260930-01.

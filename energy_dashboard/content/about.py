@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.495", "2026-09-30", [
+        "Battery Simulation shows the working for the annual bill: the half-hours used, the prices, the pack rules, and the sum that scales the window up to a year.",
+    ]),
     ("2.9.494", "2026-09-30", [
         "A second Energy Dashboard will not open. It brings the one already running to the front. A second energy collector, including the boot service and the user-session copy, will not start.",
     ]),

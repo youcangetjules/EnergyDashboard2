@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-30 — The battery-simulation bill shows its working
+
+- **Context:** The annual bars look like an electricity bill. They are a replay of stored house load and solar through a model pack, then the window's net pounds times 365 over the whole days in that window. The results pane did not show that sum.
+- **Decision:** After each run, the results pane leads with the history used, how a half-hour becomes kilowatt-hours, the pack rules, the window import and export pounds, and the scale-up. The chart title says the figure is scaled from that model. The pounds themselves are unchanged.
+- **Consequence:** Do not present this bar as the Octopus statement or as measured import. Do not hide the day count, the coverage of half-hours, or the peak energy stored. If the arithmetic changes, the written sum must change with it.
+
 ### 2026-09-30 — One dashboard, and one collector
 
 - **Context:** Nothing stopped a second window, or a second collector. The boot service and the user-session service are the same program (`energy_collector.py`, also launched as powermon-broker). Setup already warned when both copies were active.

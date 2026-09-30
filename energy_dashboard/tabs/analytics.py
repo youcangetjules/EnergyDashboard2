@@ -181,7 +181,7 @@ class AnalyticsTab(QWidget):
         self.builder_summary.setMinimumHeight(120)
         builder_layout.addWidget(self.builder_summary, 1)
 
-        results_box = QGroupBox("Simulation Results")
+        results_box = QGroupBox("Simulation results — how the bill is calculated")
         results_layout = QVBoxLayout(results_box)
         self.results_text = QTextEdit()
         self.results_text.setReadOnly(True)
@@ -284,14 +284,18 @@ class AnalyticsTab(QWidget):
         export_day = res.get('total_grid_export_kwh', 0) / days
         charge_day = res.get('total_grid_charge_kwh', 0) / days
 
+        window_import = res['total_cost_pence'] / 100.0
+        window_export = res['total_export_revenue_pence'] / 100.0
+        window_net = window_import - window_export
         lines = [
             f"{label}",
             "",
-            f"Annual bill:          £{res['annual_bill']:.0f}",
-            f"Direct import cost:   £{direct_cost:.0f}",
-            f"Battery charge cost:  £{charge_cost:.0f}",
-            f"Export credit:       -£{export_credit:.0f}",
-            f"Equation:             £{res['annual_bill']:.0f} = £{direct_cost:.0f} + £{charge_cost:.0f} - £{export_credit:.0f}",
+            f"Window import:        £{window_import:.2f}",
+            f"Window export credit: £{window_export:.2f}",
+            f"Window net:           £{window_net:.2f} over {days} days",
+            f"Annual bill:          £{window_net:.2f} / {days} × 365 = £{res['annual_bill']:.0f}",
+            f"  of which import:    £{direct_cost:.0f} to the house, £{charge_cost:.0f} into the pack",
+            f"  of which export:   -£{export_credit:.0f}",
             "",
             f"Grid import:          {grid_day:.1f} kWh/day",
             f"Grid->battery:        {charge_day:.1f} kWh/day",
@@ -458,12 +462,18 @@ class AnalyticsTab(QWidget):
             baseline['annual_bill'] = (baseline['daily_cost'] - baseline['daily_export_revenue']) * 365 / 100
             results['No Battery'] = baseline
             current_annual = results['Current (2x)']['annual_bill']
+            self._calc_facts = self._calculation_facts(
+                merged, data_source, days, actual_days, slot_prices, agile_prices,
+                flat_import, flat_export, efficiency, max_charge_kw, battery_cost,
+                agile_ok, tou_opt_requested, tou_opt,
+            )
             self._sim_context = {
                 'merged': merged,
                 'agile_prices': agile_prices,
                 'actual_days': actual_days,
                 'current_annual': current_annual,
                 'proxy': bool(data_source and 'approximate' in data_source.lower()),
+                'facts': self._calc_facts,
             }
             for label, res in results.items():
                 res['annual_saving_vs_current'] = current_annual - res['annual_bill']
@@ -568,7 +578,10 @@ class AnalyticsTab(QWidget):
         # kW average over 30 min → kWh for the slot
         hh['load_kWh'] = hh['load_kw'] * 0.5
         hh['solar_kWh'] = hh['pv_kw'] * 0.5
-        return hh[['load_kWh', 'solar_kWh']]
+        out = hh[['load_kWh', 'solar_kWh']].copy()
+        out.attrs['raw_samples'] = len(records)
+        out.attrs['unique_samples'] = len(df)
+        return out
 
     def _simulate_battery(self, merged, capacity, efficiency, max_charge_kw,
                           slot_prices, flat_export_p, cheap_mask, tou_opt,
@@ -894,8 +907,13 @@ class AnalyticsTab(QWidget):
                               f'\u00a3{val:.0f}', ha='center', va='bottom', fontweight='bold', fontsize=9)
         self.ax_bill.set_ylabel('Annual Bill (\u00a3)')
         src = getattr(self, '_data_source_label', '')
-        src_suffix = f'  [{src}]' if src else ''
-        self.ax_bill.set_title(f'Projected Annual Electricity Bill{src_suffix}', fontsize=10)
+        src_suffix = f' [{src}]' if src else ''
+        bill_days = max(1, int(self.sim_actual_days))
+        self.ax_bill.set_title(
+            f'Projected annual bill{src_suffix}\n'
+            f'scaled from {bill_days} days of this model — not the Octopus bill',
+            fontsize=9,
+        )
         self.ax_bill.grid(axis='y', alpha=0.3)
         all_scenarios = [s for s in labels]
         if all_scenarios:
@@ -988,20 +1006,221 @@ class AnalyticsTab(QWidget):
         )
         # GridSpec already owns spacing; tight_layout warns and can mis-pad.
         self.fig.subplots_adjust(
-            left=0.07, right=0.98, top=0.93, bottom=0.08,
+            left=0.07, right=0.98, top=0.90, bottom=0.08,
             hspace=0.35, wspace=0.30,
         )
         self.canvas.draw()
+
+    @staticmethod
+    def _london_stamp(ts) -> str:
+        t = pd.Timestamp(ts)
+        if t.tzinfo is None:
+            t = t.tz_localize('UTC')
+        return t.tz_convert('Europe/London').strftime('%d %b %Y %H:%M')
+
+    @staticmethod
+    def _agile_slots_priced(index, agile_series) -> int:
+        """How many half-hours found an Agile price, before the flat rate fills the rest."""
+        if agile_series is None or len(agile_series) == 0 or len(index) == 0:
+            return 0
+        ix = index.sort_values()
+        left = pd.DataFrame({'t': ix})
+        right = agile_series.sort_index().reset_index()
+        if right.shape[1] != 2:
+            return 0
+        right.columns = ['t', 'price']
+        merged = pd.merge_asof(left, right, on='t', direction='backward')
+        return int(merged['price'].notna().sum())
+
+    def _calculation_facts(
+        self, merged, data_source, requested_days, divisor_days, slot_prices,
+        agile_prices, flat_import, flat_export, efficiency, max_charge_kw,
+        battery_cost, agile_ok, tou_requested, tou_used,
+    ) -> dict:
+        span_s = float((merged.index.max() - merged.index.min()).total_seconds())
+        expected = int(span_s // 1800) + 1 if span_s > 0 else len(merged)
+        prices = slot_prices.astype(float)
+        return {
+            'source': data_source or 'Unknown',
+            'requested_days': int(requested_days),
+            'raw_samples': int(merged.attrs.get('raw_samples') or 0),
+            'unique_samples': int(merged.attrs.get('unique_samples') or 0),
+            'slots': int(len(merged)),
+            'expected_slots': int(max(expected, 1)),
+            'divisor_days': int(divisor_days),
+            'span_hours': span_s / 3600.0,
+            'first': self._london_stamp(merged.index.min()),
+            'last': self._london_stamp(merged.index.max()),
+            'load_kwh': float(merged['load_kWh'].sum()),
+            'solar_kwh': float(merged['solar_kWh'].sum()),
+            'efficiency': float(efficiency),
+            'max_charge_kw': float(max_charge_kw),
+            'flat_import': float(flat_import),
+            'flat_export': float(flat_export),
+            'battery_cost': float(battery_cost),
+            'agile_ok': bool(agile_ok),
+            'agile_slots': self._agile_slots_priced(merged.index, agile_prices) if agile_ok else 0,
+            'mean_slot_p': float(prices.mean()) if len(prices) else float(flat_import),
+            'tou_requested': bool(tou_requested),
+            'tou_used': bool(tou_used),
+        }
+
+    def _how_calculated_lines(self) -> list[str]:
+        """Plain-English working for the pounds on the chart. Uses this run's numbers."""
+        facts = getattr(self, '_calc_facts', None) or {}
+        results = self.sim_results or {}
+        if not facts or not results:
+            return []
+        days = max(int(facts.get('divisor_days') or 1), 1)
+        slots = int(facts.get('slots') or 0)
+        expected = int(facts.get('expected_slots') or slots or 1)
+        cover = (100.0 * slots / expected) if expected else 0.0
+        one_way = (float(facts.get('efficiency') or 0) ** 0.5) * 100.0
+        lines = [
+            "HOW THIS ANNUAL BILL IS CALCULATED",
+            "These pounds are a model of the stored history, stretched to a year.",
+            "They are not your Octopus statement, and not the inverter's measured import.",
+            "",
+            "1. The history that was used",
+            f"   Asked for {facts.get('requested_days')} days. Source: {facts.get('source')}.",
+        ]
+        raw = int(facts.get('raw_samples') or 0)
+        if raw:
+            lines.append(
+                f"   {raw} stored power samples"
+                f" ({int(facts.get('unique_samples') or 0)} after dropping repeats)"
+                " were averaged into half-hours."
+            )
+        lines.append(
+            f"   {slots} half-hour slots, from {facts.get('first')} to {facts.get('last')} (London)."
+        )
+        lines.append(
+            f"   The year uses {days} whole days: the gap from the first slot to the last, "
+            "rounded down. A part-day at the end is not counted."
+        )
+        lines.append(
+            f"   A continuous span that long would be {expected} half-hours. "
+            f"{slots} of them had a reading ({cover:.0f}%)."
+        )
+        if cover < 90:
+            lines.append(
+                "   Missing half-hours are left out of the energy, but they still sit inside "
+                "the day count, so the annual bill is low if those gaps were real use."
+            )
+        lines.extend([
+            "",
+            "2. How a half-hour becomes kilowatt-hours",
+            "   House load and solar are the average kilowatts stored in that half-hour, times 0.5.",
+            "   One sample in the half-hour is treated as if that power lasted the whole half-hour.",
+            f"   Over this window: house load {facts.get('load_kwh', 0):.1f} kWh, "
+            f"solar {facts.get('solar_kwh', 0):.1f} kWh.",
+            "",
+            "3. What each bar actually is",
+            "   No Battery: solar covers the house first, the shortfall is bought, spare solar is sold.",
+            "   Current (2x): the same history, replayed as a 13.0 kWh pack (2 × 6.5 kWh). Not the meter.",
+            "   3 Batteries and 4 Batteries: the same replay with 19.5 kWh and 26.0 kWh.",
+            "",
+            "4. Rules for every pack",
+            f"   Round-trip efficiency {float(facts.get('efficiency') or 0) * 100:.0f}% "
+            f"is applied both ways, so each way is about {one_way:.1f}%.",
+            "   Only 95% of the nameplate can be used. The pack is not taken below 10%.",
+            "   It starts half full. That starting energy is not added onto the bill.",
+            f"   Charge and discharge are capped at {facts.get('max_charge_kw'):.1f} kW "
+            f"({float(facts.get('max_charge_kw') or 0) * 0.5:.2f} kWh in one half-hour).",
+        ])
+        if facts.get('tou_used'):
+            lines.append(
+                "   Smart charge is on: grid charging only covers the house until the next "
+                "half-hour where solar exceeds load, and only in the cheaper third of that "
+                "day's prices, unless the pack is already on the 10% floor."
+            )
+        elif facts.get('tou_requested'):
+            lines.append(
+                "   Smart charge was ticked, but Agile prices did not load, so the pack "
+                "was not charged from the grid on price."
+            )
+        else:
+            lines.append("   Smart charge is off. The pack is not charged from the grid.")
+        agile_slots = int(facts.get('agile_slots') or 0)
+        if facts.get('agile_ok'):
+            lines.append(
+                f"   Import price: Agile on {agile_slots} of {slots} slots. "
+                f"The other {max(slots - agile_slots, 0)} use the flat "
+                f"{facts.get('flat_import'):.2f} p/kWh. "
+                f"Average price across the slots: {facts.get('mean_slot_p'):.2f} p/kWh."
+            )
+        else:
+            lines.append(
+                f"   Import price: flat {facts.get('flat_import'):.2f} p/kWh on every slot. "
+                "Agile was not used."
+            )
+        lines.append(
+            f"   Export credit: flat {facts.get('flat_export'):.2f} p/kWh. Not Agile outgoing."
+        )
+        lines.extend(["", "5. The sum, one row per bar", "   Annual £ = (window import £ − window export £) / days × 365."])
+        lines.append(
+            f"   {'Scenario':<18} {'Import £':>10} {'Export £':>10} {'Net £':>10} {'Annual £':>10}"
+        )
+        for label in ['No Battery', 'Current (2x)', '3 Batteries', '4 Batteries']:
+            res = results.get(label)
+            if not res:
+                continue
+            imp = res['total_cost_pence'] / 100.0
+            exp = res['total_export_revenue_pence'] / 100.0
+            net = imp - exp
+            lines.append(
+                f"   {label:<18} {imp:>10.2f} {exp:>10.2f} {net:>10.2f} {res['annual_bill']:>10.0f}"
+            )
+        lines.extend(["", "6. Why a bigger pack may not move the bill"])
+        lines.append(
+            "   Highest energy the model stored, against the 95% it is allowed to use."
+        )
+        for label, cap in (('Current (2x)', 13.0), ('3 Batteries', 19.5), ('4 Batteries', 26.0)):
+            res = results.get(label)
+            if not res:
+                continue
+            hist = res.get('soc_history') or []
+            usable = cap * 0.95
+            if not hist:
+                continue
+            held = max(v for _, v in hist) / 100.0 * cap
+            lines.append(
+                f"   {label}: peak {held:.1f} kWh stored, of {usable:.1f} kWh usable "
+                f"({cap:.1f} kWh nameplate)."
+            )
+        lines.append(
+            "   If the peak is below the next pack's size, the extra batteries never filled, "
+            "so the bill stays the same. The limit is then the charge rate or the spare solar, "
+            "not the nameplate."
+        )
+        extra = facts.get('battery_cost')
+        lines.extend([
+            "",
+            "7. Payback",
+            "   Payback is the cost of packs beyond the modelled 13 kWh current case, "
+            "divided by how much that case's annual bill falls.",
+            f"   Each extra 6.5 kWh pack is priced at £{float(extra or 0):.0f}. "
+            "It is not a quote, and it is not compared with the real Octopus bill.",
+            "",
+        ])
+        if 'approximate' in str(facts.get('source') or '').lower():
+            lines.extend([
+                "This run did not use stored Growatt load and solar.",
+                "House load was taken as Octopus import + export, and solar as export only.",
+                "That misses energy the real battery already soaked up inside the house.",
+                "",
+            ])
+        return lines
 
     def _write_results(self):
         results = self.sim_results
         days = self.sim_actual_days
         src = getattr(self, '_data_source_label', 'Unknown')
-        lines = []
+        lines = self._how_calculated_lines()
         lines.append(f"Data source: {src}   |   Period: {days} days")
         lines.append("")
-        lines.append("Grid kWh = total electricity bought from the grid (includes overnight battery charging).")
-        lines.append("That total, at Agile/flat rates, drives the annual bill — not the same as the red slice in the mix chart.")
+        lines.append("Grid kWh below is for this window only, including overnight charging of the model pack.")
+        lines.append("The annual bill is the window's net pounds, divided by the day count, times 365. See the working above.")
         lines.append("")
         lines.append(f"{'Scenario':<18} {'Grid kWh':>10} {'Solar+Batt':>11} {'Annual Bill':>12} {'vs Current':>11} {'Payback':>10}")
         lines.append("-" * 80)

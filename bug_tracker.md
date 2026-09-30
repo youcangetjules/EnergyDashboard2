@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-09-30 | 1 | 1 | 3 |
+| 2026-09-30 | 2 | 2 | 3 |
 | 2026-09-28 | 1 | 2 | 3 |
 | 2026-09-27 | 4 | 4 | 4 |
 | 2026-09-26 | 14 | 14 | 4 |
@@ -120,6 +120,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-083-20260930-02 — Battery simulation bill had no visible working</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-30 20:45 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Battery Simulation (`tabs/analytics.py`) |
+| **Version found** | 2.9.494 |
+| **Version fixed** | 2.9.495 |
+
+**Symptom:** The annual bill bars were hard to trust. The pane listed grid kilowatt-hours for the window next to a yearly pound figure, without showing how one became the other.
+
+**Cause:** The chart is a model. Stored load and solar are averaged into half-hours, replayed through a pack, then the window's net pounds are divided by the whole days between the first and last slot and multiplied by 365. That sum was not written out. Current (2x) is a replay of a 13 kWh pack, not the meter.
+
+**Resolution:** The results pane now leads with that working, using the numbers from the run: samples, half-hours, coverage, prices, pack rules, window import and export pounds, the scale-up, and the highest energy each pack stored. The chart title says the bar is scaled from the model. The pounds are unchanged. Fixed 2026-09-30 20:45 in 2.9.495. Files: `tabs/analytics.py`, `content/help/analytics.py`.
 
 ### <span style="color:green">BUG-082-20260930-01 — A second dashboard or collector could start</span>
 
