@@ -35,7 +35,43 @@ def _install_exception_logger():
     sys.excepthook = _hook
 
 
+def _refuse_second_dashboard(holder_pid: int | None) -> None:
+    """A second launch must not open another window."""
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from energy_dashboard.core.single_instance import ask_dashboard_to_show
+
+    app = QApplication.instance() or QApplication(sys.argv)
+    del app
+    who = f" (process {holder_pid})" if holder_pid else ""
+    if ask_dashboard_to_show():
+        print(
+            f"Energy Dashboard is already running{who}. Showing that window.",
+            flush=True,
+        )
+        sys.exit(0)
+    print(
+        f"Energy Dashboard is already running{who}. This copy will not start.",
+        flush=True,
+    )
+    QMessageBox.information(
+        None,
+        "Energy Dashboard",
+        "Energy Dashboard is already running"
+        + (f"{who}." if who else ".")
+        + "\n\nThis copy will not start. If the window is hidden, "
+        "use the PowerMon tray icon.",
+    )
+    sys.exit(0)
+
+
 def main() -> None:
+    from energy_dashboard.core.single_instance import DASHBOARD_NAME, claim, listen_for_show
+
+    dashboard_lock = claim(DASHBOARD_NAME)
+    if not dashboard_lock.acquired:
+        _refuse_second_dashboard(dashboard_lock.holder_pid)
+
     configure_qt_webengine_chromium()
     prepare_qapplication_attributes()
     app = QApplication(sys.argv)
@@ -71,6 +107,13 @@ def main() -> None:
     app.setApplicationVersion(APP_VERSION)
     app.aboutToQuit.connect(_flush_qsettings_on_quit)
     window = EnergyDashboard()
+
+    def _bring_forward() -> None:
+        window.showNormal()
+        window.raise_()
+        window.activateWindow()
+
+    listen_for_show(_bring_forward)
     window.show()
     sys.exit(app.exec())
 

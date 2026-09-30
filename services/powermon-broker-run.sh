@@ -20,4 +20,5 @@ if [[ -z "$PYTHON" || ! -x "$PYTHON" ]]; then
   echo "Run ./setup.sh or set POWERMON_PYTHON in /etc/default/powermon-broker" >&2
   exit 127
 fi
+# Same program as energy-collector. A second copy exits 0 at once.
 exec "$PYTHON" "$ROOT/services/energy_collector.py" "$@"

@@ -647,6 +647,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_arg_parser().parse_args()
+    from energy_dashboard.core.single_instance import COLLECTOR_NAME, claim
+
+    collector_lock = claim(COLLECTOR_NAME)
+    if not collector_lock.acquired:
+        pid = f" (pid {collector_lock.holder_pid})" if collector_lock.holder_pid else ""
+        print(
+            f"energy_collector: already running{pid}. This copy will not start.",
+            flush=True,
+        )
+        # Exit 0 so systemd Restart=on-failure does not keep launching copies.
+        return 0
+
     host, port = parse_listen(args.listen)
     ips = resolve_tasmota_ips(args.tasmota_ips, args.ip_start, args.ip_end)
 

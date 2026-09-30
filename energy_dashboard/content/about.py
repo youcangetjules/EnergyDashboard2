@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.494", "2026-09-30", [
+        "A second Energy Dashboard will not open. It brings the one already running to the front. A second energy collector, including the boot service and the user-session copy, will not start.",
+    ]),
     ("2.9.493", "2026-09-28", [
         "A history read in the background no longer starts a garbage collection while the tabs are painting. That collection now runs on the window's own thread.",
     ]),

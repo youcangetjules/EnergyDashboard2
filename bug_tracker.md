@@ -46,6 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
+| 2026-09-30 | 1 | 1 | 3 |
 | 2026-09-28 | 1 | 2 | 3 |
 | 2026-09-27 | 4 | 4 | 4 |
 | 2026-09-26 | 14 | 14 | 4 |
@@ -119,6 +120,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-082-20260930-01 — A second dashboard or collector could start</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-09-30 09:09 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Launch (`run-dashboard.sh`, energy collector / powermon broker) |
+| **Version found** | 2.9.493 |
+| **Version fixed** | 2.9.494 |
+
+**Symptom:** Nothing stopped two Energy Dashboard windows, or two energy collectors. The boot service and the user-session service are the same program, and Setup already had to warn when both were running.
+
+**Cause:** Each launch started a new process. The collector only noticed a busy HTTP port, and then kept polling anyway.
+
+**Resolution:** One dashboard and one collector are allowed, including both at once. A second dashboard brings the existing window forward and does not open another. A second collector, whichever way it was started, exits without polling. Fixed 2026-09-30 09:09 in 2.9.494. Files: `core/single_instance.py`, `__main__.py`, `services/energy_collector.py`.
 
 ### <span style="color:green">BUG-081-20260928-01 — Segmentation fault while reading Tasmota history</span>
 

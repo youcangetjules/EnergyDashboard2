@@ -20,4 +20,6 @@ if [[ -z "$PYTHON" || ! -x "$PYTHON" ]]; then
   echo "Run ./setup.sh or set POWERMON_PYTHON in /etc/default/energy-collector" >&2
   exit 127
 fi
+# A second copy exits 0 at once. Restart=on-failure will not start it again,
+# so the collector that already holds the lock keeps running.
 exec "$PYTHON" "$ROOT/services/energy_collector.py" "$@"

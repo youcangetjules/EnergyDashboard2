@@ -12,6 +12,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-09-30
+
+### 09:09
+
+- A second Energy Dashboard no longer opens. Starting it again brings the window that is already running to the front, including when that window is only in the tray. A second energy collector does not start either, so the boot service and the user-session copy cannot both poll. The dashboard and the collector can still run together. Logged as BUG-082-20260930-01.
+
 ## 2026-09-28
 
 ### 15:04

@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-09-30 — One dashboard, and one collector
+
+- **Context:** Nothing stopped a second window, or a second collector. The boot service and the user-session service are the same program (`energy_collector.py`, also launched as powermon-broker). Setup already warned when both copies were active.
+- **Decision:** A file lock in `/tmp` allows one dashboard process and one collector process. They may run together, because the collector logs while the window is closed. A second dashboard asks the first to show itself, then exits. A second collector prints that one is already running and exits 0, so systemd does not restart it in a loop. The lock is dropped when the process ends, including a crash.
+- **Consequence:** Do not start a second window or a second collector “just in case”. Do not give the boot service and the user service separate locks. Do not make the dashboard and the collector share one lock.
+
 ### 2026-09-28 — The cycle collector runs on the window thread
 
 - **Context:** Pid 987988 (2.9.491) segfaulted about half an hour after start. The Tasmota history read was inside Python’s cycle collector (`query_tasmota_power_history` / `fetchall`) while the main thread was painting the tab bar. Taking Qt wrappers out of the collector (2.9.421) did not stop it. This is not the import-hook crash fixed in 2.9.492.
