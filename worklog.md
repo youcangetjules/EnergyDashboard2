@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-10-02
 
+### 00:29
+
+- Alarm defs now has an Edit button on each list: Signal, Comparison, Threshold, Duration, Additional Conditions, and Alarm. Edit adds, changes, or removes blocks you define yourself. The built-in blocks stay. A signal you add is either a logging column or an address and port. A comparison uses your words and still means below, above, at least, or that an address did not answer. A threshold is a unit and a number. A duration is another wait. An additional condition watches one signal. An alarm grade uses your words and still counts as critical, major, minor, or a warning. The purple column is now called Duration, and the orange one Additional Conditions.
+
 ### 00:01
 
 - Starting the dashboard died immediately with UnboundLocalError while it loaded the saved alarm rules. The unit check used one name both for the lookup and for the answer, so Python refused the lookup. Those are now two names. Logged as BUG-084-20261002-01.

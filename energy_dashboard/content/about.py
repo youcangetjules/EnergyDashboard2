@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.500", "2026-10-02", [
+        "Alarm defs: each list has an Edit button, so you can add your own signal, comparison, threshold, duration, additional condition, or alarm grade. How long is now Duration. With additional Conditions is now Additional Conditions.",
+    ]),
     ("2.9.499", "2026-10-02", [
         "The dashboard starts again. Loading the saved alarm rules no longer dies while checking their units.",
     ]),

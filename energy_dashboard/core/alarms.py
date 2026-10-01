@@ -390,7 +390,7 @@ def alarm_logic_note(pieces: dict[str, str]) -> str:
     context = str((pieces or {}).get("context") or "").strip()
     if not context:
         return ""
-    allowed = CONTEXT_SIGNALS.get(context)
+    allowed = context_applies_to(context)
     if allowed is None:
         return ""
     signals, _join = split_joined_pieces(
@@ -437,7 +437,9 @@ ACTION_OUTCOMES = (
 
 def outcome_vocabulary() -> set[str]:
     """Every alarm-column phrase a saved rule might still contain."""
-    return set(ALARM_LEVELS) | set(_LEGACY_OUTCOMES)
+    names = set(ALARM_LEVELS) | set(_LEGACY_OUTCOMES)
+    names.update(custom_piece_names("outcome"))
+    return names
 
 
 # Comparisons are listed by family, not by which alarm used them first.
@@ -570,9 +572,12 @@ def alarm_palette(kind: str) -> tuple[str, ...]:
     if kind not in ALARM_PIECE_KINDS:
         return ()
     if kind == "duration":
-        return DURATION_CHOICES
+        return _duration_palette()
     if kind == "outcome":
-        return ALARM_LEVELS
+        extras = [
+            name for name in custom_piece_names("outcome") if name not in ALARM_LEVELS
+        ]
+        return ALARM_LEVELS + tuple(extras)
     out: list[str] = []
     for row in ALARM_BLOCKS:
         text = getattr(row, kind)
@@ -585,6 +590,9 @@ def alarm_palette(kind: str) -> tuple[str, ...]:
         for text in _CUSTOM_SIGNALS:
             if text not in out:
                 out.append(text)
+    for text in custom_piece_names(kind):
+        if text not in out:
+            out.append(text)
     if kind != "comparison":
         return tuple(out)
     rank = {text: index for index, text in enumerate(_COMPARISON_ORDER)}
@@ -837,6 +845,310 @@ def signal_unit(name: str) -> str:
     return str((_CUSTOM_SIGNALS.get(key) or {}).get("unit") or "")
 
 
+# Blocks the householder added with Edit on Alarm defs. Built-in phrases stay
+# in the catalogues above. A comparison stores which real test it means. A
+# threshold stores a unit and a number. A duration is another wait. An
+# additional condition watches one signal. An alarm grade maps onto critical,
+# major, minor, or warning.
+_CUSTOM_PIECES: dict[str, Any] = {
+    "comparison": {},
+    "threshold": {},
+    "duration": [],
+    "context": {},
+    "outcome": {},
+}
+CUSTOM_COMPARISON_OPS: tuple[str, ...] = (
+    "stays below",
+    "stays above",
+    "is at least",
+    "cannot be reached",
+)
+CUSTOM_GRADES: tuple[str, ...] = ("critical", "major", "minor", "warning")
+_THRESHOLD_RANGE = {
+    "percent": (0.0, 100.0),
+    "power": (0.0, 100.0),
+    "volts": (0.0, 1000.0),
+    "energy": (0.0, 100000.0),
+}
+
+
+def _piece_title(name: str, banned: set[str]) -> str:
+    title = " ".join(str(name or "").split())
+    lowered = title.lower()
+    if not title or " and " in lowered or " or " in lowered or title in banned:
+        return ""
+    return title
+
+
+def builtin_piece_names(kind: str) -> set[str]:
+    """Phrases that already belong to this column, before anything added in Edit."""
+    if kind == "signal":
+        return _builtin_signal_names()
+    if kind == "duration":
+        names = set(DURATION_CHOICES)
+        names.update(_PHRASE_HOLD_ATTR)
+        names.add("15 minutes")
+        return names
+    if kind == "outcome":
+        return set(ALARM_LEVELS) | set(_LEGACY_OUTCOMES)
+    if kind == "comparison":
+        return set(_COMPARISON_ORDER)
+    names: set[str] = set()
+    for row in ALARM_BLOCKS:
+        text = str(getattr(row, kind) or "").strip()
+        if text:
+            names.add(text)
+    names.update(ALARM_EXTRA_PIECES.get(kind, ()))
+    return names
+
+
+def custom_piece_names(kind: str) -> tuple[str, ...]:
+    """Names added in Edit for this column, in the order they were saved."""
+    if kind == "duration":
+        return tuple(_CUSTOM_PIECES.get("duration") or ())
+    bucket = _CUSTOM_PIECES.get(kind) or {}
+    if isinstance(bucket, dict):
+        return tuple(bucket.keys())
+    return ()
+
+
+def _duration_palette() -> tuple[str, ...]:
+    extras = [
+        name for name in custom_piece_names("duration") if name not in DURATION_CHOICES
+    ]
+    out: list[str] = []
+    for text in DURATION_CHOICES:
+        if text == "custom value":
+            out.extend(extras)
+        out.append(text)
+    return tuple(out)
+
+
+def comparison_op(name: str) -> str:
+    """The real test a comparison runs. Added phrases map onto a built-in test."""
+    key = str(name or "").strip()
+    spec = (_CUSTOM_PIECES.get("comparison") or {}).get(key) or {}
+    op = str(spec.get("op") or "").strip()
+    if op in CUSTOM_COMPARISON_OPS:
+        return op
+    return key
+
+
+def threshold_unit(name: str) -> str:
+    """percent, power, volts, or energy. Empty when this is not a numeric limit."""
+    key = str(name or "").strip()
+    if key in _THRESHOLD_UNIT:
+        return _THRESHOLD_UNIT[key]
+    spec = (_CUSTOM_PIECES.get("threshold") or {}).get(key) or {}
+    unit = str(spec.get("unit") or "")
+    return unit if unit in _CUSTOM_NUMBER_UNITS else ""
+
+
+def custom_threshold(name: str) -> dict[str, Any]:
+    row = (_CUSTOM_PIECES.get("threshold") or {}).get(str(name or "").strip()) or {}
+    return dict(row)
+
+
+def is_custom_threshold(name: str) -> bool:
+    return str(name or "").strip() in (_CUSTOM_PIECES.get("threshold") or {})
+
+
+def set_custom_threshold_value(name: str, value: float) -> bool:
+    """Change the number on a threshold added in Edit. The unit stays."""
+    key = str(name or "").strip()
+    row = (_CUSTOM_PIECES.get("threshold") or {}).get(key)
+    if not row:
+        return False
+    lo, hi = _THRESHOLD_RANGE[str(row.get("unit") or "")]
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    if number != number:
+        return False
+    row["value"] = min(hi, max(lo, number))
+    return True
+
+
+def _status_pair_known(signal: str, op: str) -> bool:
+    """True when this feed and this test are a pair the check already judges."""
+    pairs = {
+        ("Grott feed", "stops arriving"),
+        ("Grott feed", "stops"),
+        ("Logging database", "cannot be reached"),
+        ("Database writing", "stops"),
+        ("Inverter", "is reported offline"),
+        ("Tasmota MQTT", "drops"),
+        ("Tasmota device", "goes silent"),
+    }
+    if (signal, op) in pairs:
+        return True
+    spec = _CUSTOM_SIGNALS.get(signal) or {}
+    return spec.get("source") == "ip" and op == "cannot be reached"
+
+
+def comparison_fits(signal: str, comparison: str) -> bool:
+    """Whether this comparison can be used on this signal."""
+    op = comparison_op(comparison)
+    unit = signal_unit(signal)
+    if op in ("stays below", "stays above", "is at least"):
+        return unit in _CUSTOM_NUMBER_UNITS
+    if unit != "status":
+        return False
+    return _status_pair_known(signal, op)
+
+
+def _clamp_threshold(unit: str, value: Any) -> float | None:
+    if unit not in _THRESHOLD_RANGE:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number:
+        return None
+    lo, hi = _THRESHOLD_RANGE[unit]
+    return min(hi, max(lo, number))
+
+
+def set_custom_pieces(rows: Any) -> None:
+    """Replace comparisons, thresholds, durations, conditions, and grades from Edit.
+
+    Signals are stored separately. A condition that points at a missing signal,
+    or at a limit in the wrong unit, is dropped.
+    """
+    global _CUSTOM_PIECES
+    raw = rows if isinstance(rows, dict) else {}
+
+    comparisons: dict[str, dict[str, str]] = {}
+    banned = builtin_piece_names("comparison")
+    src = raw.get("comparison") if isinstance(raw.get("comparison"), dict) else {}
+    for name, spec in src.items():
+        title = _piece_title(name, banned | set(comparisons))
+        if not title or not isinstance(spec, dict):
+            continue
+        op = str(spec.get("op") or "").strip()
+        if op not in CUSTOM_COMPARISON_OPS:
+            continue
+        comparisons[title] = {"op": op}
+
+    thresholds: dict[str, dict[str, Any]] = {}
+    banned = builtin_piece_names("threshold")
+    src = raw.get("threshold") if isinstance(raw.get("threshold"), dict) else {}
+    for name, spec in src.items():
+        title = _piece_title(name, banned | set(thresholds))
+        if not title or not isinstance(spec, dict):
+            continue
+        unit = str(spec.get("unit") or "").strip()
+        number = _clamp_threshold(unit, spec.get("value"))
+        if number is None:
+            continue
+        thresholds[title] = {"unit": unit, "value": number}
+
+    durations: list[str] = []
+    banned = builtin_piece_names("duration")
+    seen: set[str] = set()
+    src_d = raw.get("duration") if isinstance(raw.get("duration"), list) else []
+    for item in src_d:
+        seconds = duration_seconds(str(item or ""))
+        if seconds is None or seconds <= 0:
+            continue
+        phrase = format_duration(seconds)
+        if not phrase or phrase in banned or phrase in seen:
+            continue
+        seen.add(phrase)
+        durations.append(phrase)
+
+    outcomes: dict[str, dict[str, str]] = {}
+    banned = builtin_piece_names("outcome")
+    src = raw.get("outcome") if isinstance(raw.get("outcome"), dict) else {}
+    for name, spec in src.items():
+        title = _piece_title(name, banned | set(outcomes))
+        if not title or not isinstance(spec, dict):
+            continue
+        grade = str(spec.get("grade") or "").strip().lower()
+        if grade not in CUSTOM_GRADES:
+            continue
+        outcomes[title] = {"grade": grade}
+
+    # Install the pieces a condition is allowed to name, then keep the ones
+    # whose signal, test, and limit still agree.
+    _CUSTOM_PIECES = {
+        "comparison": comparisons,
+        "threshold": thresholds,
+        "duration": durations,
+        "context": {},
+        "outcome": outcomes,
+    }
+    contexts: dict[str, dict[str, str]] = {}
+    banned = builtin_piece_names("context")
+    src = raw.get("context") if isinstance(raw.get("context"), dict) else {}
+    for name, spec in src.items():
+        title = _piece_title(name, banned | set(contexts))
+        if not title or not isinstance(spec, dict):
+            continue
+        signal = str(spec.get("signal") or "").strip()
+        if not signal_unit(signal):
+            continue
+        comparison = str(spec.get("comparison") or "").strip()
+        if not comparison_fits(signal, comparison):
+            continue
+        op = comparison_op(comparison)
+        threshold = str(spec.get("threshold") or "").strip()
+        if op in ("stays below", "stays above", "is at least"):
+            if threshold_unit(threshold) != signal_unit(signal):
+                continue
+        else:
+            threshold = ""
+        contexts[title] = {
+            "signal": signal,
+            "comparison": comparison,
+            "threshold": threshold,
+        }
+    _CUSTOM_PIECES["context"] = contexts
+
+
+def custom_pieces() -> dict[str, Any]:
+    """Copy of the blocks added with Edit, safe to save as JSON."""
+    return {
+        "comparison": {
+            name: dict(spec) for name, spec in _CUSTOM_PIECES["comparison"].items()
+        },
+        "threshold": {
+            name: {"unit": spec["unit"], "value": float(spec["value"])}
+            for name, spec in _CUSTOM_PIECES["threshold"].items()
+        },
+        "duration": list(_CUSTOM_PIECES["duration"]),
+        "context": {
+            name: dict(spec) for name, spec in _CUSTOM_PIECES["context"].items()
+        },
+        "outcome": {
+            name: dict(spec) for name, spec in _CUSTOM_PIECES["outcome"].items()
+        },
+    }
+
+
+def context_applies_to(context: str) -> tuple[str, ...] | None:
+    """Signals an additional condition can sensibly sit beside.
+
+    None means the condition is not one we know, so it draws no logic note.
+    A condition added in Edit applies to signals measured in the same unit
+    as the signal it watches.
+    """
+    key = str(context or "").strip()
+    if key in CONTEXT_SIGNALS:
+        return CONTEXT_SIGNALS[key]
+    spec = (_CUSTOM_PIECES.get("context") or {}).get(key)
+    if not spec:
+        return None
+    unit = signal_unit(str(spec.get("signal") or ""))
+    if not unit:
+        return ()
+    return tuple(
+        text for text in alarm_palette("signal") if signal_unit(text) == unit
+    )
+
+
 _UNIT_WORDS = {
     "percent": "a percentage",
     "power": "power, in kW",
@@ -897,9 +1209,10 @@ def alarm_unit_problem(pieces: dict[str, str]) -> str:
         )
     shared = paired[0][1]
     comparison = p["comparison"]
+    op = comparison_op(comparison)
     threshold = p["threshold"]
-    threshold_unit = _THRESHOLD_UNIT.get(threshold, "") if threshold else ""
-    if comparison in _MEASURED_COMPARISONS:
+    limit_unit = threshold_unit(threshold) if threshold else ""
+    if op in _MEASURED_COMPARISONS:
         if shared == "status":
             return (
                 f"{comparison.capitalize()} compares a measurement, "
@@ -910,22 +1223,22 @@ def alarm_unit_problem(pieces: dict[str, str]) -> str:
                 f"{comparison.capitalize()} needs a limit in the same unit "
                 f"({_UNIT_WORDS[shared]})."
             )
-        if threshold_unit and threshold_unit != shared:
+        if limit_unit and limit_unit != shared:
             return (
-                f"{_unit_list(paired)}, but {threshold} is {_UNIT_WORDS[threshold_unit]}. "
+                f"{_unit_list(paired)}, but {threshold} is {_UNIT_WORDS[limit_unit]}. "
                 "The limit has to be in the same unit as the signal."
             )
         return ""
-    if comparison in _STATUS_COMPARISONS:
+    if op in _STATUS_COMPARISONS:
         if shared != "status":
             return (
                 f"{comparison.capitalize()} is about a feed going quiet, "
                 f"but {paired[0][0]} is {_UNIT_WORDS[shared]}."
             )
-        if threshold_unit:
+        if limit_unit:
             return (
                 f"{comparison.capitalize()} does not take "
-                f"a limit that is {_UNIT_WORDS[threshold_unit]}."
+                f"a limit that is {_UNIT_WORDS[limit_unit]}."
             )
     return ""
 
@@ -997,9 +1310,15 @@ def composed_severity(outcome: str) -> str:
     """Grade for a sentence the householder wrote: critical, major, minor, or warn.
 
     Critical because a lesser alarm is repeating is still critical. A channel
-    on its own, with no grade, is a warning.
+    on its own, with no grade, is a warning. A grade added in Edit uses the
+    seriousness chosen there.
     """
-    text = severity_outcome(outcome).strip().lower()
+    text = severity_outcome(outcome).strip()
+    spec = (_CUSTOM_PIECES.get("outcome") or {}).get(text) or {}
+    grade = str(spec.get("grade") or "").strip().lower()
+    if grade in CUSTOM_GRADES:
+        return "warn" if grade == "warning" else grade
+    text = text.lower()
     if text.startswith("critical"):
         return "critical"
     if text == "major":
@@ -1073,6 +1392,11 @@ def _fmt_measure(value: float, unit: str) -> str:
     return f"{float(value):.1f}"
 
 
+def format_threshold_amount(value: float, unit: str) -> str:
+    """The number on a threshold, with its unit, for a chip or a list."""
+    return _fmt_measure(float(value), _UNIT_SYMBOL.get(unit, ""))
+
+
 def _as_float(raw: Any) -> float | None:
     if raw is None or raw == "":
         return None
@@ -1103,6 +1427,13 @@ def _limit_of(threshold: str, facts: dict[str, Any]) -> tuple[float | None, str]
         if line is None:
             return None, ""
         return line, _fmt_measure(line, "kW")
+    spec = custom_threshold(threshold)
+    if spec:
+        number = _as_float(spec.get("value"))
+        symbol = _UNIT_SYMBOL.get(str(spec.get("unit") or ""), "")
+        if number is None or not symbol:
+            return None, ""
+        return number, _fmt_measure(number, symbol)
     return None, ""
 
 
@@ -1120,20 +1451,21 @@ def _status_clause(
     signal: str, comparison: str, facts: dict[str, Any],
 ) -> tuple[bool, str] | None:
     """One feed or device clause, or None when this pair is not judged here."""
-    if signal == "Grott feed" and comparison in ("stops arriving", "stops"):
+    op = comparison_op(comparison)
+    if signal == "Grott feed" and op in ("stops arriving", "stops"):
         return bool(facts.get("grott_bad")), str(facts.get("grott_detail") or "")
-    if signal == "Logging database" and comparison == "cannot be reached":
+    if signal == "Logging database" and op == "cannot be reached":
         return bool(facts.get("db_down")), str(facts.get("db_detail") or "")
-    if signal == "Database writing" and comparison == "stops":
+    if signal == "Database writing" and op == "stops":
         return bool(facts.get("ingest_bad")), str(facts.get("ingest_detail") or "")
-    if signal == "Inverter" and comparison == "is reported offline":
+    if signal == "Inverter" and op == "is reported offline":
         return bool(facts.get("inv_bad")), str(facts.get("inv_detail") or "")
-    if signal == "Tasmota MQTT" and comparison == "drops":
+    if signal == "Tasmota MQTT" and op == "drops":
         return bool(facts.get("mqtt_bad")), str(facts.get("mqtt_detail") or "")
-    if signal == "Tasmota device" and comparison == "goes silent":
+    if signal == "Tasmota device" and op == "goes silent":
         return bool(facts.get("plugs_bad")), str(facts.get("plugs_detail") or "")
     spec = _CUSTOM_SIGNALS.get(signal) or {}
-    if spec.get("source") == "ip" and comparison == "cannot be reached":
+    if spec.get("source") == "ip" and op == "cannot be reached":
         row = (facts.get("hosts") or {}).get(signal) or {}
         addr = f"{spec.get('ip')}:{spec.get('port')}"
         if row.get("pending") or row.get("up") is None:
@@ -1144,8 +1476,35 @@ def _status_clause(
     return None
 
 
+def _judge_custom_context(
+    name: str, spec: dict[str, str], facts: dict[str, Any],
+) -> tuple[bool, str]:
+    """An additional condition added in Edit: one signal, one test, one limit."""
+    signal = str(spec.get("signal") or "")
+    comparison = str(spec.get("comparison") or "")
+    op = comparison_op(comparison)
+    if signal_unit(signal) == "status":
+        row = _status_clause(signal, comparison, facts)
+        if row is None:
+            return False, f"“{name}” is not judged on this check."
+        return bool(row[0]), row[1] or name
+    value, unit, problem = _signal_measure(signal, facts)
+    if problem or value is None:
+        return False, problem or f"{signal} has no reading on the last check."
+    limit, limit_text = _limit_of(str(spec.get("threshold") or ""), facts)
+    if limit is None:
+        return False, f"“{name}” has no limit set."
+    met = _level_met(op, value, limit)
+    shown = _fmt_measure(value, unit)
+    phrase = comparison[:1].upper() + comparison[1:] if comparison else "The test"
+    return met, f"{signal} is {shown}. {phrase} {limit_text}."
+
+
 def _context_clause(context: str, facts: dict[str, Any]) -> tuple[bool, str]:
     """Whether the extra condition is true, and a sentence that says why."""
+    spec = (_CUSTOM_PIECES.get("context") or {}).get(context)
+    if spec:
+        return _judge_custom_context(context, spec, facts)
     idle = float(facts.get("idle") or 0.0)
     chg = float(facts.get("chg") or 0.0)
     dsch = float(facts.get("dsch") or 0.0)
@@ -1287,6 +1646,7 @@ def judge_composed(
     p = {k: str((pieces or {}).get(k) or "").strip() for k in ALARM_PIECE_KINDS}
     signals, join = split_joined_pieces(p["signal"], set(alarm_palette("signal")))
     comparison = p["comparison"]
+    op = comparison_op(comparison)
     parts: list[AlarmPart] = []
     status_rows = [
         _status_clause(signal, comparison, facts) for signal in signals
@@ -1375,7 +1735,7 @@ def judge_composed(
         else:
             title = "String voltage differential" if unit == "V" else "Differential"
             detail = signal_detail
-    elif comparison in _MEASURED_COMPARISONS and comparison != "uses almost all of":
+    elif op in ("stays below", "stays above", "is at least"):
         limit, limit_text = _limit_of(p["threshold"], facts)
         known = []
         lines = []
@@ -1394,7 +1754,7 @@ def judge_composed(
                 flags.append(False)
                 lines.append(f"{signal} is {shown}.")
             else:
-                met = _level_met(comparison, value, limit)
+                met = _level_met(op, value, limit)
                 flags.append(met)
                 lines.append(f"{signal} is {shown}. The line is {limit_text}.")
         if problems or limit is None:
@@ -1452,7 +1812,7 @@ def judge_composed(
     context = p["context"]
     if context:
         ctx_on, ctx_detail = _context_clause(context, facts)
-        parts.append(AlarmPart("With additional Conditions", ctx_on, ctx_detail, slot="context"))
+        parts.append(AlarmPart("Additional Conditions", ctx_on, ctx_detail, slot="context"))
         if not ctx_on:
             cond = False
     return bool(cond), parts, title, detail
@@ -2012,7 +2372,7 @@ class AlarmMonitor:
                 firing = False
             if flap is None and hold is None:
                 how = AlarmPart(
-                    "How long",
+                    "Duration",
                     False,
                     "This wait is not a length of time the check can use, so the rule is not firing.",
                     slot="duration",
@@ -2398,22 +2758,22 @@ class AlarmMonitor:
             started = self._flap_on.get(key)
             if cond and started is not None and not self._flap_counted.get(key):
                 detail += f" The latest one has lasted {_span_words(now - started)}."
-            return AlarmPart("How long", n >= int(spec.times), detail)
+            return AlarmPart("Duration", n >= int(spec.times), detail)
         if not cond or since is None:
             return AlarmPart(
-                "How long",
+                "Duration",
                 False,
                 "Not every condition is true, so the wait has not started.",
             )
         held = max(0.0, now - float(since))
         need = max(0.0, float(hold_s))
         if need <= 0:
-            return AlarmPart("How long", True, "No wait. It counts as soon as it is seen.")
+            return AlarmPart("Duration", True, "No wait. It counts as soon as it is seen.")
         if held >= need:
             detail = f"True for {_span_words(held)}. The wait is {_span_words(need)}."
         else:
             detail = f"True for {_span_words(held)} of {_span_words(need)}."
-        return AlarmPart("How long", held >= need, detail)
+        return AlarmPart("Duration", held >= need, detail)
 
     def _remember_inspection(self, now: float, **fact: Any) -> None:
         """Store each built-in alarm's clauses from the check that just ran.
@@ -2452,7 +2812,7 @@ class AlarmMonitor:
             ):
                 parts[key] = (
                     AlarmPart(label, False, quiet),
-                    AlarmPart("How long", False, quiet),
+                    AlarmPart("Duration", False, quiet),
                     result(key, False),
                 )
         else:
@@ -3183,6 +3543,20 @@ __all__ = [
     "custom_signal",
     "is_custom_signal",
     "CUSTOM_ALARM_TYPES",
+    "CUSTOM_COMPARISON_OPS",
+    "CUSTOM_GRADES",
+    "set_custom_pieces",
+    "custom_pieces",
+    "custom_piece_names",
+    "custom_threshold",
+    "is_custom_threshold",
+    "set_custom_threshold_value",
+    "comparison_op",
+    "comparison_fits",
+    "threshold_unit",
+    "context_applies_to",
+    "format_threshold_amount",
+    "builtin_piece_names",
     "alarm_logic_note",
     "alarm_blocks_key",
     "alarm_unit_problem",

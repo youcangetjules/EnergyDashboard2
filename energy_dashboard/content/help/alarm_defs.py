@@ -25,7 +25,7 @@ goes silent.</li>
 <li><b>Threshold</b> (amber) — what it is compared against, such as the
 low-battery line or the spare-solar minimum. Some alarms have nothing to
 compare against, so this box can stay empty.</li>
-<li><b>For how long</b> (purple) — how long it must hold before the alarm
+<li><b>Duration</b> (purple) — how long it must hold before the alarm
 sounds. Choose <b>is seen</b> for no wait, a fixed time from 10 seconds up
 to 30 minutes, or <b>custom value</b> to type your own. <b>Is flapping</b>
 is for a line that is crossed over and over rather than staying true. Dropping
@@ -35,7 +35,7 @@ replaces the plain wait. The alarm sounds once it has been crossed that often
 inside the window, and it clears once those crossings fall outside the window.
 The older phrases, such as “the hold time”, still mean the figure in Setup
 &amp; Info.</li>
-<li><b>With additional Conditions</b> (orange) — an extra condition that also
+<li><b>Additional Conditions</b> (orange) — an extra condition that also
 has to be true, for example “logging is switched on”, “it is daytime”, “the
 battery is charging”, “the grid is importing”, or “Agile is in a cheap slot”.
 Optional. A condition only makes sense against some signals: “MQTT is still
@@ -61,6 +61,15 @@ OR means either one is enough. Rules are numbered
 down the left. The three bars on the left of a rule are its handle: drag
 that to change the order, or drag it into the bin to remove the whole rule.
 Hovering a rule shows the whole sentence.</p>
+<p>
+<b>Edit</b>, on each column, is where you add your own blocks. A signal needs a
+name, an alarm type, and either a logging table and field or an address and
+port. A comparison needs words and what they mean: below a limit, above a
+limit, at least a limit, or an address that cannot be reached. A threshold
+needs a unit and a number. A duration is another length of time. An additional
+condition watches one signal. An alarm grade uses your words and still counts
+as critical, major, minor, or a warning. The blocks already in the lists stay.
+Click a threshold you added, once it is on a rule, to change its number.</p>
 <p>
 Comparisons are grouped: below and above together, then other level checks,
 then phrases about a feed stopping, then ones about something you cannot reach.
@@ -100,7 +109,7 @@ if a signal still needs a column.</p>
 <p>
 <b>Inspect</b>, on the right of each rule, opens the parts of that rule and
 marks each one <b>Triggering</b> or <b>Not triggering</b> from the last live
-check. How long is triggering only once the wait, or the flapping count, has
+check. Duration is triggering only once the wait, or the flapping count, has
 been met. The last line says whether the alarm is sounding. If a signal has
 no table and field yet, that line says so, and the rule does not fire.</p>
 <p>

@@ -30,12 +30,16 @@ from energy_dashboard.core.alarms import (
     ALARM_BLOCKS,
     ALARM_PIECE_KINDS,
     ALARM_PIECE_REQUIRED,
+    CUSTOM_ALARM_TYPES,
+    CUSTOM_COMPARISON_OPS,
+    CUSTOM_GRADES,
     alarm_blocks_key,
     alarm_logic_note,
     alarm_palette,
     outcome_vocabulary,
     duration_seconds,
     format_duration,
+    format_threshold_amount,
     parse_flap,
     FLAP_CHOICE,
     FlapSpec,
@@ -46,6 +50,20 @@ from energy_dashboard.core.alarms import (
     alarm_rule_syntax,
     composed_rule_key,
     signal_needs_column,
+    builtin_piece_names,
+    comparison_fits,
+    comparison_op,
+    custom_pieces,
+    custom_signal,
+    custom_signals,
+    custom_threshold,
+    is_custom_signal,
+    is_custom_threshold,
+    set_custom_pieces,
+    set_custom_signals,
+    set_custom_threshold_value,
+    signal_unit,
+    threshold_unit,
 )
 
 _MIME = "application/x-powermon-alarm-piece"
@@ -68,20 +86,18 @@ _KIND_LABEL = {
     "signal": "Signal",
     "comparison": "Comparison",
     "threshold": "Threshold",
-    "duration": "For how long",
-    "context": "With additional Conditions (optional)",
+    "duration": "Duration",
+    "context": "Additional Conditions",
     "outcome": "Alarm",
 }
-_KIND_SHORT = dict(
-    _KIND_LABEL, duration="How long", context="With additional Conditions",
-)
+_KIND_SHORT = dict(_KIND_LABEL)
 # One or two words for hover text: "Drop a condition here."
 _KIND_WORD = {
     "signal": "signal",
     "comparison": "comparison",
     "threshold": "threshold",
-    "duration": "how long",
-    "context": "condition",
+    "duration": "duration",
+    "context": "additional condition",
     "outcome": "alarm",
 }
 # Dark grey for the alarm type on the right of each signal pill.
@@ -99,8 +115,8 @@ _KIND_NOUN = dict(
     signal="a signal",
     comparison="a comparison",
     threshold="a threshold",
-    duration="a length of time",
-    context="an extra condition",
+    duration="a duration",
+    context="an additional condition",
     outcome="an alarm",
 )
 
@@ -203,11 +219,15 @@ def _opens_editor(text: str) -> bool:
         or text == "custom value"
         or text == FLAP_CHOICE
         or parse_flap(text) is not None
+        or is_custom_threshold(text)
     )
 
 
 def _piece_caption(text: str) -> str:
-    if text == _TASMOTA_SIGNAL:
+    added = custom_threshold(text)
+    if added:
+        base = f"{text} ({format_threshold_amount(float(added['value']), str(added['unit']))})"
+    elif text == _TASMOTA_SIGNAL:
         base = _tasmota_caption(text)
     else:
         spec = _PARAM_FOR.get(text)
@@ -535,6 +555,8 @@ def _edit_tasmota_ip(parent) -> bool:
 
 
 _QS_SOURCES = "alarms/signal_sources"
+_QS_CUSTOM_SIGNALS = "alarms/custom_signals"
+_QS_CUSTOM_PIECES = "alarms/custom_pieces"
 
 
 def _read_sources() -> dict[str, dict[str, str]]:
@@ -565,6 +587,9 @@ def signal_source_label(name: str) -> str:
     field = str(row.get("field") or "").strip()
     if table and field:
         return f"{table}.{field}"
+    spec = custom_signal(str(name or "").strip())
+    if spec.get("source") == "ip" and spec.get("ip"):
+        return f"{spec['ip']}:{spec['port']}"
     return ""
 
 
@@ -659,6 +684,16 @@ def _edit_signal_source(parent, signal: str, dash) -> bool:
         settings.setValue(_QS_SOURCES, json.dumps(sources))
         settings.sync()
         _push_sources(dash)
+        spec = custom_signal(signal)
+        if spec.get("source") == "database" and chosen_table and chosen_field:
+            rows = custom_signals()
+            updated = dict(rows.get(signal) or spec)
+            updated["table"] = chosen_table
+            updated["field"] = chosen_field
+            rows[signal] = updated
+            set_custom_signals(rows)
+            settings.setValue(_QS_CUSTOM_SIGNALS, json.dumps(custom_signals()))
+            settings.sync()
         return True
 
 
@@ -684,18 +719,21 @@ _SIGNAL_MENU_QSS = (
 )
 
 
-def _signal_choice_menu(parent, *, delete_enabled: bool) -> QMenu:
+def _signal_choice_menu(parent, *, delete_enabled: bool, define_enabled: bool = True) -> QMenu:
     """Define and Delete for one signal pill."""
     menu = QMenu(parent)
     menu.setStyleSheet(_SIGNAL_MENU_QSS)
-    menu.addAction("Define")
+    define = menu.addAction("Define")
+    define.setEnabled(define_enabled)
     delete = menu.addAction("Delete")
     delete.setEnabled(delete_enabled)
     return menu
 
 
-def _popup_signal_choice(parent, *, delete_enabled: bool) -> str:
-    menu = _signal_choice_menu(parent, delete_enabled=delete_enabled)
+def _popup_signal_choice(parent, *, delete_enabled: bool, define_enabled: bool = True) -> str:
+    menu = _signal_choice_menu(
+        parent, delete_enabled=delete_enabled, define_enabled=define_enabled,
+    )
     chosen = menu.exec(QCursor.pos())
     if chosen is None:
         return ""
@@ -727,9 +765,12 @@ def _signal_palette_tip(text: str) -> str:
     where = signal_source_label(text)
     if where:
         lines.append(f"Read from {where}.")
-    lines.append(
-        "Right-click: Define chooses the table and field. Delete clears that choice."
-    )
+    if custom_signal(text).get("source") == "ip":
+        lines.append("This is an address you added. Use Edit to change it.")
+    else:
+        lines.append(
+            "Right-click: Define chooses the table and field. Delete clears that choice."
+        )
     return "\n".join(lines)
 
 
@@ -984,6 +1025,21 @@ class _PaletteList(QListWidget):
         if kind == "signal":
             self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             self.customContextMenuRequested.connect(self._on_signal_menu)
+        self._fill()
+        # No QListWidget::item rule. That replaces the delegate and the
+        # rows vanish on this desktop.
+        self.setStyleSheet(
+            "QListWidget {"
+            "  background: #181825;"
+            "  border: 1px solid #313244;"
+            "  border-radius: 4px;"
+            "  outline: none;"
+            "  font-size: 11px;"
+            "}"
+        )
+
+    def _fill(self) -> None:
+        kind = self.kind
         for text in alarm_palette(kind):
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, text)
@@ -1007,17 +1063,10 @@ class _PaletteList(QListWidget):
                 tip = text
             item.setToolTip(tip)
             self.addItem(item)
-        # No QListWidget::item rule. That replaces the delegate and the
-        # rows vanish on this desktop.
-        self.setStyleSheet(
-            "QListWidget {"
-            "  background: #181825;"
-            "  border: 1px solid #313244;"
-            "  border-radius: 4px;"
-            "  outline: none;"
-            "  font-size: 11px;"
-            "}"
-        )
+
+    def reload(self) -> None:
+        self.clear()
+        self._fill()
 
     def mimeTypes(self):
         return [_MIME]
@@ -1066,8 +1115,11 @@ class _PaletteList(QListWidget):
         text = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "")
         if not text:
             return
+        spec = custom_signal(text)
         choice = _popup_signal_choice(
-            self, delete_enabled=bool(signal_source_label(text)),
+            self,
+            delete_enabled=bool(signal_source_label(text)) and spec.get("source") != "ip",
+            define_enabled=spec.get("source") != "ip",
         )
         if choice == "Define":
             _define_signal(self, text)
@@ -1438,6 +1490,8 @@ class _Slot(QFrame):
             edited = _edit_tasmota_ip(tab)
         elif spec is not None and tab is not None:
             edited = _edit_param(tab, spec, tab.dash)
+        elif is_custom_threshold(self._text) and tab is not None:
+            edited = _edit_custom_threshold_value(tab, self._text, tab.dash)
         elif self._text == "custom value" and tab is not None:
             phrase = _edit_custom_duration(tab)
             if phrase:
@@ -2072,6 +2126,879 @@ class _RuleLine(QFrame):
         self._chrome()
 
 
+_UNIT_SPIN = {
+    "percent": (0.0, 100.0, 0, " %"),
+    "power": (0.0, 100.0, 2, " kW"),
+    "volts": (0.0, 1000.0, 1, " V"),
+    "energy": (0.0, 100000.0, 2, " kWh"),
+}
+_UNIT_CHOICES = (
+    ("a percentage", "percent"),
+    ("power, in kW", "power"),
+    ("volts", "volts"),
+    ("energy, in kWh", "energy"),
+)
+_OP_CHOICES = (
+    ("stays below a limit", "stays below"),
+    ("stays above a limit", "stays above"),
+    ("is at least a limit", "is at least"),
+    ("an address cannot be reached", "cannot be reached"),
+)
+_GRADE_CHOICES = (
+    ("Critical", "critical"),
+    ("Major", "major"),
+    ("Minor", "minor"),
+    ("Warning", "warning"),
+)
+_EDIT_TITLE = {
+    "signal": "Edit signals",
+    "comparison": "Edit comparisons",
+    "threshold": "Edit thresholds",
+    "duration": "Edit durations",
+    "context": "Edit additional conditions",
+    "outcome": "Edit alarms",
+}
+_EDIT_HINT = {
+    "signal": (
+        "A signal is something an alarm can watch. Give it a name, what kind of "
+        "alarm it is, and where the reading comes from: a column in the logging "
+        "database, or an address and port that should answer."
+    ),
+    "comparison": (
+        "A comparison is the test. The words are yours. Underneath, it still means "
+        "below a limit, above a limit, at least a limit, or that an address cannot "
+        "be reached."
+    ),
+    "threshold": (
+        "A threshold is the limit. Pick the unit and the number. "
+        "Click the block on a rule later to change the number."
+    ),
+    "duration": (
+        "A duration is how long the condition must stay true before the alarm fires. "
+        "The usual waits are already in the list. Add another length of time here."
+    ),
+    "context": (
+        "An additional condition has to be true as well as the rule. "
+        "It watches one signal, with a comparison and, when that signal is a number, "
+        "a threshold in the same unit."
+    ),
+    "outcome": (
+        "An alarm grade is how serious it is. The words are yours. "
+        "It still counts as critical, major, minor, or a warning. "
+        "Send SMS and Create Desktop Alert stay as they are."
+    ),
+}
+
+
+def _field_label(text: str) -> QLabel:
+    lab = QLabel(text)
+    lab.setStyleSheet("color: #cdd6f4; font-size: 12px;")
+    return lab
+
+
+def _form_error() -> QLabel:
+    error = QLabel("")
+    error.setWordWrap(True)
+    error.setStyleSheet("color: #f38ba8; font-size: 11px;")
+    return error
+
+
+def _form_buttons(dlg: QDialog, lay: QVBoxLayout) -> None:
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+    )
+    ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+    if ok is not None:
+        ok.setText("Save")
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    lay.addWidget(buttons)
+    _prepare_dialog_buttons(dlg)
+
+
+def _reject_name(name: str, taken: set[str]) -> str:
+    title = " ".join(str(name or "").split())
+    if not title:
+        return "Give it a name."
+    lowered = title.lower()
+    if " and " in lowered or " or " in lowered or lowered in ("and", "or"):
+        return "The name cannot contain “and” or “or”. Those words join two blocks."
+    if title in taken:
+        return "That name is already in this list."
+    return ""
+
+
+def _swap_piece_token(kind: str, text: str, old: str, new: str) -> str:
+    raw = (text or "").strip()
+    if not raw or not old or old == new:
+        return raw
+    if kind in _MULTI_KINDS:
+        for op in (" or ", " and "):
+            parts = [part.strip() for part in raw.split(op) if part.strip()]
+            if len(parts) > 1 and old in parts:
+                return f" {op.strip()} ".join(
+                    new if part == old else part for part in parts
+                )
+    if raw == old:
+        return new
+    return raw
+
+
+def _logging_choices() -> tuple[list, dict]:
+    try:
+        from energy_dashboard.db.full_schema import TABLE_SUMMARIES, logger_table_columns
+        return list(TABLE_SUMMARIES), dict(logger_table_columns())
+    except Exception:
+        return [], {}
+
+
+def _fill_combo(combo: QComboBox, rows: tuple, current) -> None:
+    combo.blockSignals(True)
+    combo.clear()
+    for label, value in rows:
+        combo.addItem(label, value)
+    index = combo.findData(current)
+    if index >= 0:
+        combo.setCurrentIndex(index)
+    combo.blockSignals(False)
+
+
+def _write_custom_signals(
+    rows: dict,
+    dash,
+    forgotten: list[str] | None = None,
+    rename: tuple[str, str] | None = None,
+) -> None:
+    """Save added signals, and keep conditions that name one of them."""
+    pieces = custom_pieces()
+    if rename and rename[0] and rename[1] and rename[0] != rename[1]:
+        for spec in pieces.get("context", {}).values():
+            if spec.get("signal") == rename[0]:
+                spec["signal"] = rename[1]
+    set_custom_signals(rows)
+    kept = custom_signals()
+    set_custom_pieces(pieces)
+    settings = _alarm_settings()
+    settings.setValue(_QS_CUSTOM_SIGNALS, json.dumps(kept))
+    settings.setValue(_QS_CUSTOM_PIECES, json.dumps(custom_pieces()))
+    sources = _read_sources()
+    builtin = builtin_piece_names("signal")
+    for name in forgotten or []:
+        if name and name not in builtin:
+            sources.pop(name, None)
+    for name, spec in kept.items():
+        if spec.get("source") == "database":
+            sources[name] = {
+                "table": str(spec.get("table") or ""),
+                "field": str(spec.get("field") or ""),
+            }
+        else:
+            sources.pop(name, None)
+    settings.setValue(_QS_SOURCES, json.dumps(sources))
+    settings.sync()
+    _push_sources(dash)
+
+
+def _write_custom_pieces(rows: dict, dash) -> None:
+    set_custom_pieces(rows)
+    settings = _alarm_settings()
+    settings.setValue(_QS_CUSTOM_PIECES, json.dumps(custom_pieces()))
+    settings.sync()
+    if dash is not None:
+        try:
+            dash._alarm_field_at = 0.0
+        except Exception:
+            pass
+
+
+def _taken_names(kind: str, except_name: str) -> set[str]:
+    names = set(builtin_piece_names(kind))
+    if kind == "signal":
+        names.update(custom_signals())
+    elif kind == "duration":
+        names.update(custom_pieces().get("duration") or [])
+    else:
+        names.update((custom_pieces().get(kind) or {}).keys())
+    if except_name:
+        names.discard(except_name)
+    return names
+
+
+def _ask_signal(parent, name: str, spec: dict | None, taken: set[str]):
+    spec = spec or {}
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Signal")
+    dlg.setMinimumWidth(560)
+    lay = QVBoxLayout(dlg)
+    hint = _dialog_hint(_EDIT_HINT["signal"])
+    lay.addWidget(hint)
+    lay.addWidget(_field_label("Name"))
+    name_edit = QLineEdit(name)
+    name_edit.setPlaceholderText("Immersion heater")
+    apply_setup_info_line_field_motif(name_edit, width=320)
+    lay.addWidget(name_edit)
+    lay.addWidget(_field_label("Alarm type"))
+    alarm_type = QComboBox()
+    _fill_combo(alarm_type, tuple((item, item) for item in CUSTOM_ALARM_TYPES), spec.get("alarm_type") or "Hardware")
+    apply_combo_field_motif(alarm_type, width=280)
+    lay.addWidget(alarm_type)
+    lay.addWidget(_field_label("Read from"))
+    source = QComboBox()
+    _fill_combo(
+        source,
+        (
+            ("A column in the logging database", "database"),
+            ("An address and port", "ip"),
+        ),
+        spec.get("source") or "database",
+    )
+    apply_combo_field_motif(source, width=320)
+    lay.addWidget(source)
+
+    tables, columns = _logging_choices()
+    db_box = QWidget()
+    db_lay = QVBoxLayout(db_box)
+    db_lay.setContentsMargins(0, 0, 0, 0)
+    db_lay.addWidget(_field_label("Table"))
+    table = QComboBox()
+    table.addItem("— choose a table —", "")
+    for table_name, blurb in tables:
+        table.addItem(f"{table_name} — {blurb}", table_name)
+    apply_combo_field_motif(table, width=500)
+    db_lay.addWidget(table)
+    db_lay.addWidget(_field_label("Field"))
+    field = QComboBox()
+    apply_combo_field_motif(field, width=500)
+    db_lay.addWidget(field)
+    db_lay.addWidget(_field_label("Unit"))
+    unit = QComboBox()
+    _fill_combo(unit, _UNIT_CHOICES, spec.get("unit") or "power")
+    apply_combo_field_motif(unit, width=280)
+    db_lay.addWidget(unit)
+    lay.addWidget(db_box)
+
+    def fill_fields() -> None:
+        field.blockSignals(True)
+        field.clear()
+        field.addItem("— choose a field —", "")
+        chosen = str(table.currentData() or "")
+        for col in columns.get(chosen, ()):
+            field.addItem(col, col)
+        want = str(spec.get("field") or "") if chosen == str(spec.get("table") or "") else ""
+        index = field.findData(want)
+        if index >= 0:
+            field.setCurrentIndex(index)
+        field.blockSignals(False)
+
+    saved = table.findData(str(spec.get("table") or ""))
+    if saved >= 0:
+        table.setCurrentIndex(saved)
+    table.currentIndexChanged.connect(lambda _index: fill_fields())
+    fill_fields()
+
+    ip_box = QWidget()
+    ip_lay = QVBoxLayout(ip_box)
+    ip_lay.setContentsMargins(0, 0, 0, 0)
+    ip_lay.addWidget(_field_label("Address"))
+    ip_edit = QLineEdit(str(spec.get("ip") or ""))
+    ip_edit.setPlaceholderText("192.168.1.50")
+    apply_setup_info_line_field_motif(ip_edit, width=180)
+    ip_lay.addWidget(ip_edit)
+    ip_lay.addWidget(_field_label("Port"))
+    port = QSpinBox()
+    port.setRange(1, 65535)
+    try:
+        port.setValue(int(spec.get("port") or 80))
+    except (TypeError, ValueError):
+        port.setValue(80)
+    apply_spin_field_motif(port, width=120)
+    ip_lay.addWidget(port)
+    lay.addWidget(ip_box)
+
+    def show_source() -> None:
+        database = str(source.currentData() or "") == "database"
+        db_box.setVisible(database)
+        ip_box.setVisible(not database)
+
+    source.currentIndexChanged.connect(lambda _index: show_source())
+    show_source()
+    error = _form_error()
+    lay.addWidget(error)
+    _form_buttons(dlg, lay)
+    _fit_dialog_to_hint(dlg, hint)
+    while True:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        title = " ".join(name_edit.text().split())
+        problem = _reject_name(title, taken)
+        if problem:
+            error.setText(problem)
+            continue
+        kind_name = str(alarm_type.currentData() or "Hardware")
+        if str(source.currentData() or "") == "database":
+            chosen_table = str(table.currentData() or "")
+            chosen_field = str(field.currentData() or "")
+            if not chosen_table or not chosen_field:
+                error.setText("Choose the logging table and the field.")
+                continue
+            if not columns:
+                error.setText("The logging tables are not available, so a column cannot be chosen.")
+                continue
+            return title, {
+                "source": "database",
+                "table": chosen_table,
+                "field": chosen_field,
+                "unit": str(unit.currentData() or "power"),
+                "alarm_type": kind_name,
+            }
+        ip = _valid_ipv4(ip_edit.text().strip())
+        if not ip:
+            error.setText("Enter an IP address such as 192.168.1.50.")
+            continue
+        return title, {
+            "source": "ip",
+            "ip": ip,
+            "port": str(int(port.value())),
+            "unit": "status",
+            "alarm_type": kind_name,
+        }
+
+
+def _ask_comparison(parent, name: str, spec: dict | None, taken: set[str]):
+    spec = spec or {}
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Comparison")
+    dlg.setMinimumWidth(520)
+    lay = QVBoxLayout(dlg)
+    hint = _dialog_hint(_EDIT_HINT["comparison"])
+    lay.addWidget(hint)
+    lay.addWidget(_field_label("Words"))
+    name_edit = QLineEdit(name)
+    name_edit.setPlaceholderText("falls under")
+    apply_setup_info_line_field_motif(name_edit, width=320)
+    lay.addWidget(name_edit)
+    lay.addWidget(_field_label("It means"))
+    op = QComboBox()
+    _fill_combo(op, _OP_CHOICES, spec.get("op") or "stays below")
+    apply_combo_field_motif(op, width=320)
+    lay.addWidget(op)
+    error = _form_error()
+    lay.addWidget(error)
+    _form_buttons(dlg, lay)
+    _fit_dialog_to_hint(dlg, hint)
+    while True:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        title = " ".join(name_edit.text().split())
+        problem = _reject_name(title, taken)
+        if problem:
+            error.setText(problem)
+            continue
+        chosen = str(op.currentData() or "")
+        if chosen not in CUSTOM_COMPARISON_OPS:
+            error.setText("Choose what the test means.")
+            continue
+        return title, {"op": chosen}
+
+
+def _ask_threshold(parent, name: str, spec: dict | None, taken: set[str]):
+    spec = spec or {}
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Threshold")
+    dlg.setMinimumWidth(520)
+    lay = QVBoxLayout(dlg)
+    hint = _dialog_hint(_EDIT_HINT["threshold"])
+    lay.addWidget(hint)
+    lay.addWidget(_field_label("Words"))
+    name_edit = QLineEdit(name)
+    name_edit.setPlaceholderText("the immersion line")
+    apply_setup_info_line_field_motif(name_edit, width=320)
+    lay.addWidget(name_edit)
+    lay.addWidget(_field_label("Unit"))
+    unit = QComboBox()
+    _fill_combo(unit, _UNIT_CHOICES, spec.get("unit") or "power")
+    apply_combo_field_motif(unit, width=280)
+    lay.addWidget(unit)
+    lay.addWidget(_field_label("Number"))
+    spin = QDoubleSpinBox()
+    apply_spin_field_motif(spin, width=140)
+    lay.addWidget(spin)
+
+    def apply_unit() -> None:
+        key = str(unit.currentData() or "power")
+        lo, hi, decimals, suffix = _UNIT_SPIN[key]
+        spin.setDecimals(decimals)
+        spin.setRange(lo, hi)
+        spin.setSuffix(suffix)
+        if str(spec.get("unit") or "") == key:
+            spin.setValue(float(spec.get("value") or lo))
+        elif spin.value() < lo or spin.value() > hi:
+            spin.setValue(lo)
+
+    unit.currentIndexChanged.connect(lambda _index: apply_unit())
+    apply_unit()
+    if spec.get("value") is not None and str(spec.get("unit") or "") == str(unit.currentData() or ""):
+        spin.setValue(float(spec["value"]))
+    error = _form_error()
+    lay.addWidget(error)
+    _form_buttons(dlg, lay)
+    _fit_dialog_to_hint(dlg, hint)
+    while True:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        title = " ".join(name_edit.text().split())
+        problem = _reject_name(title, taken)
+        if problem:
+            error.setText(problem)
+            continue
+        return title, {
+            "unit": str(unit.currentData() or "power"),
+            "value": float(spin.value()),
+        }
+
+
+def _ask_duration(parent, name: str, taken: set[str]):
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Duration")
+    dlg.setMinimumWidth(480)
+    lay = QVBoxLayout(dlg)
+    hint = _dialog_hint(_EDIT_HINT["duration"])
+    lay.addWidget(hint)
+    seconds = duration_seconds(name) if name else 60.0
+    if not seconds:
+        seconds = 60.0
+    use_minutes = seconds >= 60 and int(seconds) % 60 == 0
+    spin = QSpinBox()
+    unit = QComboBox()
+    unit.addItem("minutes", 60)
+    unit.addItem("seconds", 1)
+
+    def limit_spin() -> None:
+        if int(unit.currentData() or 1) == 60:
+            spin.setRange(1, 1440)
+        else:
+            spin.setRange(1, 86400)
+
+    unit.currentIndexChanged.connect(lambda _index: limit_spin())
+    apply_spin_field_motif(spin, width=120)
+    apply_combo_field_motif(unit, width=120)
+    unit.setCurrentIndex(0 if use_minutes else 1)
+    limit_spin()
+    spin.setValue(int(seconds) // 60 if use_minutes else max(1, int(seconds)))
+    row = QHBoxLayout()
+    row.addWidget(spin)
+    row.addWidget(unit)
+    row.addStretch(1)
+    lay.addLayout(row)
+    error = _form_error()
+    lay.addWidget(error)
+    _form_buttons(dlg, lay)
+    _fit_dialog_to_hint(dlg, hint)
+    while True:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        scale = int(unit.currentData() or 1)
+        phrase = format_duration(float(spin.value()) * scale)
+        problem = _reject_name(phrase, taken)
+        if problem:
+            error.setText(
+                "That wait is already in the list."
+                if phrase in taken
+                else problem
+            )
+            continue
+        if duration_seconds(phrase) is None:
+            error.setText("Enter a length of time.")
+            continue
+        return phrase, phrase
+
+
+def _ask_context(parent, name: str, spec: dict | None, taken: set[str]):
+    spec = spec or {}
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Additional condition")
+    dlg.setMinimumWidth(560)
+    lay = QVBoxLayout(dlg)
+    hint = _dialog_hint(_EDIT_HINT["context"])
+    lay.addWidget(hint)
+    lay.addWidget(_field_label("Words"))
+    name_edit = QLineEdit(name)
+    name_edit.setPlaceholderText("the immersion is on")
+    apply_setup_info_line_field_motif(name_edit, width=360)
+    lay.addWidget(name_edit)
+    lay.addWidget(_field_label("Signal"))
+    signal = QComboBox()
+    signal_rows = tuple((text, text) for text in alarm_palette("signal"))
+    _fill_combo(signal, signal_rows, spec.get("signal") or (signal_rows[0][1] if signal_rows else ""))
+    apply_combo_field_motif(signal, width=360)
+    lay.addWidget(signal)
+    lay.addWidget(_field_label("Comparison"))
+    comparison = QComboBox()
+    apply_combo_field_motif(comparison, width=360)
+    lay.addWidget(comparison)
+    threshold_label = _field_label("Threshold")
+    threshold = QComboBox()
+    apply_combo_field_motif(threshold, width=360)
+    lay.addWidget(threshold_label)
+    lay.addWidget(threshold)
+
+    def refill() -> None:
+        chosen_signal = str(signal.currentData() or "")
+        fits = [
+            text for text in alarm_palette("comparison")
+            if comparison_fits(chosen_signal, text)
+        ]
+        _fill_combo(
+            comparison,
+            tuple((text, text) for text in fits),
+            spec.get("comparison") or (fits[0] if fits else ""),
+        )
+        unit = signal_unit(chosen_signal)
+        numeric = unit in ("percent", "power", "volts", "energy")
+        limits = [
+            text for text in alarm_palette("threshold")
+            if threshold_unit(text) == unit
+        ] if numeric else []
+        _fill_combo(
+            threshold,
+            tuple((text, text) for text in limits),
+            spec.get("threshold") or (limits[0] if limits else ""),
+        )
+        threshold_label.setVisible(numeric)
+        threshold.setVisible(numeric)
+
+    signal.currentIndexChanged.connect(lambda _index: refill())
+    refill()
+    error = _form_error()
+    lay.addWidget(error)
+    _form_buttons(dlg, lay)
+    _fit_dialog_to_hint(dlg, hint)
+    while True:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        title = " ".join(name_edit.text().split())
+        problem = _reject_name(title, taken)
+        if problem:
+            error.setText(problem)
+            continue
+        chosen_signal = str(signal.currentData() or "")
+        chosen_comparison = str(comparison.currentData() or "")
+        if not chosen_signal or not chosen_comparison:
+            error.setText("Choose a signal and a comparison.")
+            continue
+        if not comparison_fits(chosen_signal, chosen_comparison):
+            error.setText("That comparison does not apply to this signal.")
+            continue
+        chosen_threshold = ""
+        if threshold.isVisible():
+            chosen_threshold = str(threshold.currentData() or "")
+            if not chosen_threshold:
+                error.setText(
+                    "Add a threshold in the same unit first, with Edit on Threshold."
+                )
+                continue
+        return title, {
+            "signal": chosen_signal,
+            "comparison": chosen_comparison,
+            "threshold": chosen_threshold,
+        }
+
+
+def _ask_outcome(parent, name: str, spec: dict | None, taken: set[str]):
+    spec = spec or {}
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Alarm")
+    dlg.setMinimumWidth(480)
+    lay = QVBoxLayout(dlg)
+    hint = _dialog_hint(_EDIT_HINT["outcome"])
+    lay.addWidget(hint)
+    lay.addWidget(_field_label("Words"))
+    name_edit = QLineEdit(name)
+    name_edit.setPlaceholderText("Emergency")
+    apply_setup_info_line_field_motif(name_edit, width=320)
+    lay.addWidget(name_edit)
+    lay.addWidget(_field_label("It counts as"))
+    grade = QComboBox()
+    _fill_combo(grade, _GRADE_CHOICES, spec.get("grade") or "warning")
+    apply_combo_field_motif(grade, width=220)
+    lay.addWidget(grade)
+    error = _form_error()
+    lay.addWidget(error)
+    _form_buttons(dlg, lay)
+    _fit_dialog_to_hint(dlg, hint)
+    while True:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        title = " ".join(name_edit.text().split())
+        problem = _reject_name(title, taken)
+        if problem:
+            error.setText(problem)
+            continue
+        chosen = str(grade.currentData() or "")
+        if chosen not in CUSTOM_GRADES:
+            error.setText("Choose how serious it is.")
+            continue
+        return title, {"grade": chosen}
+
+
+def _ask_block(parent, kind: str, name: str, spec, taken: set[str]):
+    if kind == "signal":
+        return _ask_signal(parent, name, spec if isinstance(spec, dict) else None, taken)
+    if kind == "comparison":
+        return _ask_comparison(parent, name, spec if isinstance(spec, dict) else None, taken)
+    if kind == "threshold":
+        return _ask_threshold(parent, name, spec if isinstance(spec, dict) else None, taken)
+    if kind == "duration":
+        return _ask_duration(parent, name, taken)
+    if kind == "context":
+        return _ask_context(parent, name, spec if isinstance(spec, dict) else None, taken)
+    if kind == "outcome":
+        return _ask_outcome(parent, name, spec if isinstance(spec, dict) else None, taken)
+    return None
+
+
+def _piece_blurb(kind: str, name: str, spec) -> str:
+    if kind == "signal" and isinstance(spec, dict):
+        if spec.get("source") == "ip":
+            return f"{spec.get('ip')}:{spec.get('port')} · {spec.get('alarm_type') or 'Hardware'}"
+        unit = {"percent": "a percentage", "power": "kW", "volts": "volts", "energy": "kWh"}.get(
+            str(spec.get("unit") or ""), str(spec.get("unit") or ""),
+        )
+        return (
+            f"{spec.get('table')}.{spec.get('field')} · {unit} · "
+            f"{spec.get('alarm_type') or 'Hardware'}"
+        )
+    if kind == "comparison" and isinstance(spec, dict):
+        return _op_blurb(str(spec.get("op") or ""))
+    if kind == "threshold" and isinstance(spec, dict):
+        return format_threshold_amount(float(spec.get("value") or 0), str(spec.get("unit") or ""))
+    if kind == "context" and isinstance(spec, dict):
+        bits = [str(spec.get("signal") or ""), str(spec.get("comparison") or "")]
+        if spec.get("threshold"):
+            bits.append(str(spec["threshold"]))
+        return " ".join(bit for bit in bits if bit)
+    if kind == "outcome" and isinstance(spec, dict):
+        return dict((value, label) for label, value in _GRADE_CHOICES).get(
+            str(spec.get("grade") or ""), str(spec.get("grade") or ""),
+        )
+    return ""
+
+
+def _op_blurb(op: str) -> str:
+    for label, value in _OP_CHOICES:
+        if value == op:
+            return label
+    return op
+
+
+def _edit_custom_threshold_value(parent, name: str, dash) -> bool:
+    """Click a threshold you added, on a rule, to change its number."""
+    row = custom_threshold(name)
+    if not row:
+        return False
+    unit = str(row.get("unit") or "power")
+    if unit not in _UNIT_SPIN:
+        return False
+    lo, hi, decimals, suffix = _UNIT_SPIN[unit]
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(name)
+    dlg.setMinimumWidth(420)
+    lay = QVBoxLayout(dlg)
+    hint = _dialog_hint(f"The number {name} stands for. The unit stays the same.")
+    lay.addWidget(hint)
+    spin = QDoubleSpinBox()
+    spin.setDecimals(decimals)
+    spin.setRange(lo, hi)
+    spin.setSuffix(suffix)
+    spin.setValue(float(row.get("value") or lo))
+    apply_spin_field_motif(spin, width=140)
+    lay.addWidget(spin)
+    _form_buttons(dlg, lay)
+    _fit_dialog_to_hint(dlg, hint)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return False
+    if not set_custom_threshold_value(name, float(spin.value())):
+        return False
+    _write_custom_pieces(custom_pieces(), dash)
+    return True
+
+
+def _edit_palette_dialog(tab, kind: str) -> bool:
+    """Add, change, or remove blocks of one kind. Built-in blocks stay."""
+    dlg = QDialog(tab)
+    dlg.setWindowTitle(_EDIT_TITLE.get(kind, "Edit"))
+    dlg.setMinimumWidth(560)
+    lay = QVBoxLayout(dlg)
+    hint = _dialog_hint(
+        _EDIT_HINT.get(kind, "")
+        + " Blocks already in the column stay. Removing one leaves a rule that "
+        "uses it, but that rule can no longer judge it."
+    )
+    lay.addWidget(hint)
+    listing = QListWidget()
+    listing.setMinimumHeight(180)
+    listing.setStyleSheet(
+        "QListWidget {"
+        "  background: #181825; color: #cdd6f4;"
+        "  border: 1px solid #313244; border-radius: 4px;"
+        "  font-size: 12px; outline: none;"
+        "}"
+        "QListWidget::item { padding: 4px 8px; }"
+        "QListWidget::item:selected { background: #313244; color: #cdd6f4; }"
+    )
+    lay.addWidget(listing)
+    dirty = {"on": False}
+
+    def rows_now() -> list[tuple[str, object]]:
+        if kind == "signal":
+            return list(custom_signals().items())
+        if kind == "duration":
+            return [(phrase, phrase) for phrase in custom_pieces().get("duration") or []]
+        return list((custom_pieces().get(kind) or {}).items())
+
+    def reload_list() -> None:
+        listing.clear()
+        for item_name, spec in rows_now():
+            blurb = _piece_blurb(kind, item_name, spec)
+            label = item_name if not blurb or blurb == item_name else f"{item_name} — {blurb}"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, item_name)
+            listing.addItem(item)
+
+    def selected() -> str:
+        item = listing.currentItem()
+        if item is None:
+            return ""
+        return str(item.data(Qt.ItemDataRole.UserRole) or "")
+
+    def selected_spec():
+        item_name = selected()
+        for row_name, spec in rows_now():
+            if row_name == item_name:
+                return spec
+        return None
+
+    def remember(old: str, new: str) -> None:
+        if old and new and old != new:
+            tab._retitle_piece(kind, old, new)
+        dirty["on"] = True
+        reload_list()
+        for row in range(listing.count()):
+            item = listing.item(row)
+            if str(item.data(Qt.ItemDataRole.UserRole) or "") == new:
+                listing.setCurrentItem(item)
+                break
+
+    def add_block() -> None:
+        result = _ask_block(dlg, kind, "", None, _taken_names(kind, ""))
+        if not result:
+            return
+        new, payload = result
+        dash = tab.dash
+        if kind == "signal":
+            rows = custom_signals()
+            rows[new] = payload
+            _write_custom_signals(rows, dash)
+        elif kind == "duration":
+            pieces = custom_pieces()
+            pieces["duration"] = list(pieces.get("duration") or []) + [new]
+            _write_custom_pieces(pieces, dash)
+        else:
+            pieces = custom_pieces()
+            pieces[kind][new] = payload
+            _write_custom_pieces(pieces, dash)
+        remember("", new)
+
+    def change_block() -> None:
+        old = selected()
+        if not old:
+            return
+        result = _ask_block(dlg, kind, old, selected_spec(), _taken_names(kind, old))
+        if not result:
+            return
+        new, payload = result
+        dash = tab.dash
+        if kind == "signal":
+            rows = custom_signals()
+            if old != new:
+                rows.pop(old, None)
+            rows[new] = payload
+            _write_custom_signals(
+                rows, dash,
+                forgotten=[old] if old != new else None,
+                rename=(old, new) if old != new else None,
+            )
+        elif kind == "duration":
+            pieces = custom_pieces()
+            pieces["duration"] = [
+                new if phrase == old else phrase
+                for phrase in (pieces.get("duration") or [])
+            ]
+            _write_custom_pieces(pieces, dash)
+        else:
+            pieces = custom_pieces()
+            bucket = pieces[kind]
+            if old != new:
+                bucket.pop(old, None)
+                for ctx in pieces.get("context", {}).values():
+                    if ctx.get(kind) == old:
+                        ctx[kind] = new
+            bucket[new] = payload
+            _write_custom_pieces(pieces, dash)
+        remember(old, new)
+
+    def remove_block() -> None:
+        old = selected()
+        if not old:
+            return
+        dash = tab.dash
+        if kind == "signal":
+            rows = custom_signals()
+            rows.pop(old, None)
+            _write_custom_signals(rows, dash, forgotten=[old])
+        elif kind == "duration":
+            pieces = custom_pieces()
+            pieces["duration"] = [
+                phrase for phrase in (pieces.get("duration") or []) if phrase != old
+            ]
+            _write_custom_pieces(pieces, dash)
+        else:
+            pieces = custom_pieces()
+            pieces[kind].pop(old, None)
+            _write_custom_pieces(pieces, dash)
+        dirty["on"] = True
+        reload_list()
+
+    buttons = QHBoxLayout()
+    add_btn = QPushButton("Add")
+    change_btn = QPushButton("Change")
+    remove_btn = QPushButton("Remove")
+    add_btn.clicked.connect(add_block)
+    change_btn.clicked.connect(change_block)
+    remove_btn.clicked.connect(remove_block)
+    buttons.addWidget(add_btn)
+    buttons.addWidget(change_btn)
+    buttons.addWidget(remove_btn)
+    buttons.addStretch(1)
+    close_btn = QPushButton("Close")
+    close_btn.clicked.connect(dlg.accept)
+    buttons.addWidget(close_btn)
+    lay.addLayout(buttons)
+
+    def sync_buttons() -> None:
+        has = bool(selected())
+        change_btn.setEnabled(has)
+        remove_btn.setEnabled(has)
+
+    listing.currentItemChanged.connect(lambda *_args: sync_buttons())
+    reload_list()
+    sync_buttons()
+    _prepare_dialog_buttons(dlg)
+    _fit_dialog_to_hint(dlg, hint)
+    dlg.exec()
+    return bool(dirty["on"])
+
+
 class AlarmDefsTab(QWidget):
     """Controls page: drag blocks from short lists onto one line per rule."""
 
@@ -2079,6 +3006,7 @@ class AlarmDefsTab(QWidget):
         super().__init__()
         self.dash = dash
         self._cards: list[_RuleLine] = []
+        self._palettes: dict[str, _PaletteList] = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
@@ -2220,6 +3148,28 @@ class AlarmDefsTab(QWidget):
         if signal_list is not None:
             signal_list.refresh_tips()
 
+    def refresh_palettes(self) -> None:
+        for palette in getattr(self, "_palettes", {}).values():
+            palette.reload()
+        self.refresh_param_chips()
+
+    def _retitle_piece(self, kind: str, old: str, new: str) -> None:
+        """Keep a rule pointing at a block after Edit renames it."""
+        if not old or not new or old == new:
+            return
+        for card in self._cards:
+            slot = card.slots.get(kind)
+            if slot is None:
+                continue
+            updated = _swap_piece_token(kind, slot.text(), old, new)
+            if updated != slot.text():
+                slot.set_piece(updated)
+                slot.changed.emit()
+
+    def _edit_palette(self, kind: str) -> None:
+        if _edit_palette_dialog(self, kind):
+            self.refresh_palettes()
+
     def _card(self, token: str) -> _RuleLine | None:
         for card in self._cards:
             if card.token == token:
@@ -2266,12 +3216,26 @@ class AlarmDefsTab(QWidget):
         col = QVBoxLayout(box)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(2)
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(4)
         label = QLabel(_KIND_SHORT[kind])
         label.setStyleSheet(
             f"color: {_KIND_COLOR[kind]}; font-size: 11px; font-weight: bold;"
         )
-        col.addWidget(label)
+        label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        head.addWidget(label, 1)
+        edit = QPushButton("Edit")
+        edit.setFixedHeight(26)
+        edit.setToolTip(
+            f"Add, change, or remove your own {_KIND_WORD[kind]} blocks. "
+            "The ones already in the list stay."
+        )
+        edit.clicked.connect(lambda _checked=False, k=kind: self._edit_palette(k))
+        head.addWidget(edit, 0)
+        col.addLayout(head)
         palette = _PaletteList(kind)
+        self._palettes[kind] = palette
         if kind == "signal":
             self._signal_list = palette
         col.addWidget(palette, 1)

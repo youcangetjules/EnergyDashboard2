@@ -1428,8 +1428,22 @@ class EnergyDashboard(QMainWindow):
                     custom = parsed
             except (TypeError, ValueError, json.JSONDecodeError):
                 custom = {}
-        from energy_dashboard.core.alarms import custom_signals, set_custom_signals
+        from energy_dashboard.core.alarms import (
+            custom_signals,
+            set_custom_pieces,
+            set_custom_signals,
+        )
         set_custom_signals(custom)
+        pieces = {}
+        raw_pieces = s.value("alarms/custom_pieces", "")
+        if raw_pieces:
+            try:
+                parsed = json.loads(str(raw_pieces))
+                if isinstance(parsed, dict):
+                    pieces = parsed
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pieces = {}
+        set_custom_pieces(pieces)
         for name, spec in custom_signals().items():
             if spec.get("source") == "database":
                 sources[name] = {"table": spec.get("table"), "field": spec.get("field")}
