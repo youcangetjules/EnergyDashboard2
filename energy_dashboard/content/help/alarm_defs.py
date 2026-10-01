@@ -43,8 +43,11 @@ up” says something about a feed or a plug, nothing about a string voltage. Put
 a condition on a signal it has no bearing on and the rule still reads as a
 sentence, so the chip says <b>Syntax Correct/Non-Standard Logic - please
 check</b> on amber instead of plain green. Hover the chip to see why.</li>
-<li><b>Outcome</b> (red) — warning or critical, and how you are told:
-<b>send SMS</b> or <b>create a desktop alert</b>.</li>
+<li><b>Alarm</b> (red) — the grade, and how you are told. The grades are
+<b>Critical</b>, <b>Critical because Lesser Alarm repeating</b> (a major,
+minor, or warning alarm that has kept coming back), <b>Major</b>,
+<b>Minor</b>, and <b>Warning</b>. Beside the grade you can drop
+<b>Send SMS</b> or <b>Create Desktop Alert</b>.</li>
 </ul>
 <p>
 The palette is a short scrolling list for each colour. Drag a block from a
@@ -81,7 +84,7 @@ the built-in alarms, the alarm uses the new number.</p>
 <p>
 The line itself is the syntax, in the form
 <b>WHEN</b> signal comparison threshold <b>FOR</b> how long
-<b>WITH</b> additional condition <b>THEN</b> outcome.
+<b>WITH</b> additional condition <b>THEN</b> alarm.
 When that sentence is complete, and the pieces share a unit, the rule gets
 a green fill and <b>Syntax Correct</b> on a green background under the
 right-hand end. Battery charge is a percentage, spare solar, house load,
@@ -108,14 +111,16 @@ is waiting. <b>Cancel</b>, at the right-hand edge, puts every rule back.
 The <b>Rubbish Bin</b> is on the left: drop a block or a whole rule there.
 That too waits for Commit.</p>
 <p>
-The outcome slot takes two blocks as well: keep the warning or critical
-wording and drop <b>send SMS</b> or <b>create a desktop alert</b> beside it.
+The alarm slot takes two blocks as well: keep the grade and drop
+<b>Send SMS</b> or <b>Create Desktop Alert</b> beside it.
 On a rule that matches a built-in alarm, that is what the alarm then does —
 name only the text and it texts you without a pop-up; name only the alert and
 it pops up without a text. Say nothing about channels and the tick on
 <b>Controls → SMS gateway</b>, plus the desktop tick in Setup &amp; Info,
-decide as before. A channel on its own, with no warning or critical
-wording, is a warning, and only that channel is used.</p>
+decide as before. A channel on its own, with no grade, is a warning, and
+only that channel is used. A built-in alarm still decides its own grade
+in the monitor (for example critical when the pack is very low). The grade
+on the line is the one used for a rule you wrote yourself.</p>
 <p>
 <b>Add rule</b> gives you an empty line, and <b>Reset</b> puts the built-in
 rules back. <b>Alarms page</b> jumps to the live view in Dashboards.</p>

@@ -327,7 +327,7 @@ ALARM_EXTRA_PIECES: dict[str, tuple[str, ...]] = {
         "the inverter is online",
         "Agile is in a cheap slot",
     ),
-    "outcome": ("send SMS", "create a desktop alert", "Warning", "Critical"),
+    "outcome": (),
 }
 
 # What kind of thing each signal is about. Shown in dark grey on the right of
@@ -372,7 +372,11 @@ CONTEXT_SIGNALS: dict[str, tuple[str, ...]] = {
 
 
 def signal_alarm_type(text: str) -> str:
-    return SIGNAL_ALARM_TYPE.get(str(text or "").strip(), "")
+    key = str(text or "").strip()
+    found = SIGNAL_ALARM_TYPE.get(key, "")
+    if found:
+        return found
+    return str((_CUSTOM_SIGNALS.get(key) or {}).get("alarm_type") or "")
 
 
 def alarm_logic_note(pieces: dict[str, str]) -> str:
@@ -406,7 +410,34 @@ def alarm_logic_note(pieces: dict[str, str]) -> str:
 
 # These choose how a rule tells you. They are not a severity, so a built-in
 # rule can keep its warning or critical wording and still name a channel.
-ACTION_OUTCOMES = ("send SMS", "create a desktop alert")
+# The Alarm column. A grade, then the two ways the alarm can tell you.
+# The older channel names are still understood on rules saved before this.
+ALARM_LEVELS: tuple[str, ...] = (
+    "Critical",
+    "Critical because Lesser Alarm repeating",
+    "Major",
+    "Minor",
+    "Warning",
+    "Send SMS",
+    "Create Desktop Alert",
+)
+_LEGACY_OUTCOMES = (
+    "send SMS",
+    "create a desktop alert",
+    "Warning, or critical if the pack is very low",
+    "Warning, or critical if three or more",
+)
+ACTION_OUTCOMES = (
+    "Send SMS",
+    "Create Desktop Alert",
+    "send SMS",
+    "create a desktop alert",
+)
+
+
+def outcome_vocabulary() -> set[str]:
+    """Every alarm-column phrase a saved rule might still contain."""
+    return set(ALARM_LEVELS) | set(_LEGACY_OUTCOMES)
 
 
 # Comparisons are listed by family, not by which alarm used them first.
@@ -540,6 +571,8 @@ def alarm_palette(kind: str) -> tuple[str, ...]:
         return ()
     if kind == "duration":
         return DURATION_CHOICES
+    if kind == "outcome":
+        return ALARM_LEVELS
     out: list[str] = []
     for row in ALARM_BLOCKS:
         text = getattr(row, kind)
@@ -548,6 +581,10 @@ def alarm_palette(kind: str) -> tuple[str, ...]:
     for text in ALARM_EXTRA_PIECES.get(kind, ()):
         if text not in out:
             out.append(text)
+    if kind == "signal":
+        for text in _CUSTOM_SIGNALS:
+            if text not in out:
+                out.append(text)
     if kind != "comparison":
         return tuple(out)
     rank = {text: index for index, text in enumerate(_COMPARISON_ORDER)}
@@ -575,7 +612,7 @@ def split_joined_pieces(text: str, known: set[str]) -> tuple[list[str], str]:
 
 def severity_outcome(text: str) -> str:
     """Outcome wording used to match a built-in rule, without the channels."""
-    parts, _join = split_joined_pieces(text, set(alarm_palette("outcome")))
+    parts, _join = split_joined_pieces(text, outcome_vocabulary())
     kept = [part for part in parts if part not in ACTION_OUTCOMES]
     if len(kept) == 1:
         return kept[0]
@@ -592,11 +629,11 @@ def outcome_channels(text: str) -> set[str] | None:
     ``sms`` and ``desktop`` are the only names. None means both Setup
     choices still apply.
     """
-    parts, _join = split_joined_pieces(text, set(alarm_palette("outcome")))
+    parts, _join = split_joined_pieces(text, outcome_vocabulary())
     chosen: set[str] = set()
-    if "send SMS" in parts:
+    if "Send SMS" in parts or "send SMS" in parts:
         chosen.add("sms")
-    if "create a desktop alert" in parts:
+    if "Create Desktop Alert" in parts or "create a desktop alert" in parts:
         chosen.add("desktop")
     return chosen or None
 
@@ -682,6 +719,124 @@ _THRESHOLD_UNIT = {
     "the solar coming in": "power",
     "Volts": "volts",
 }
+# Signals the householder added on Alarm defs. The name is theirs. The
+# source is either a logging column or an IP address and port. The monitor
+# reads that source; it does not invent a number.
+_CUSTOM_SIGNALS: dict[str, dict[str, str]] = {}
+CUSTOM_ALARM_TYPES: tuple[str, ...] = (
+    "Hardware",
+    "Data flow",
+    "Data ingestion",
+    "Energy",
+    "Forecast",
+    "External service",
+)
+_CUSTOM_NUMBER_UNITS = frozenset({"percent", "power", "volts", "energy"})
+
+
+def _builtin_signal_names() -> set[str]:
+    names = set(_SIGNAL_UNIT)
+    for row in ALARM_BLOCKS:
+        if row.signal:
+            names.add(row.signal)
+    names.update(ALARM_EXTRA_PIECES.get("signal", ()))
+    return names
+
+
+def _ipv4_text(text: str) -> str:
+    parts = str(text or "").strip().split(".")
+    if len(parts) != 4:
+        return ""
+    nums: list[str] = []
+    for part in parts:
+        if not part.isdigit():
+            return ""
+        number = int(part)
+        if number > 255 or (len(part) > 1 and part.startswith("0")):
+            return ""
+        nums.append(str(number))
+    return ".".join(nums)
+
+
+def _clean_custom_signal(name: str, spec: Any) -> tuple[str, dict[str, str]] | None:
+    title = " ".join(str(name or "").split())
+    lowered = title.lower()
+    if (
+        not title
+        or not isinstance(spec, dict)
+        or " and " in lowered
+        or " or " in lowered
+        or title in _builtin_signal_names()
+    ):
+        return None
+    alarm_type = str(spec.get("alarm_type") or "").strip()
+    if alarm_type not in CUSTOM_ALARM_TYPES:
+        alarm_type = "Hardware"
+    source = str(spec.get("source") or "").strip().lower()
+    if source == "database":
+        table = str(spec.get("table") or "").strip()
+        field = str(spec.get("field") or "").strip()
+        unit = str(spec.get("unit") or "").strip()
+        if not table or not field or unit not in _CUSTOM_NUMBER_UNITS:
+            return None
+        return title, {
+            "source": "database",
+            "table": table,
+            "field": field,
+            "unit": unit,
+            "alarm_type": alarm_type,
+        }
+    if source == "ip":
+        ip = _ipv4_text(str(spec.get("ip") or ""))
+        try:
+            port = int(spec.get("port") or 0)
+        except (TypeError, ValueError):
+            return None
+        if not ip or not 1 <= port <= 65535:
+            return None
+        return title, {
+            "source": "ip",
+            "ip": ip,
+            "port": str(port),
+            "unit": "status",
+            "alarm_type": alarm_type,
+        }
+    return None
+
+
+def set_custom_signals(rows: Any) -> None:
+    """Replace the added signals. ``rows`` is ``{name: spec}`` from Alarm defs."""
+    global _CUSTOM_SIGNALS
+    cleaned: dict[str, dict[str, str]] = {}
+    if isinstance(rows, dict):
+        for name, spec in rows.items():
+            item = _clean_custom_signal(str(name), spec)
+            if item is not None:
+                cleaned[item[0]] = item[1]
+    _CUSTOM_SIGNALS = cleaned
+
+
+def custom_signals() -> dict[str, dict[str, str]]:
+    """Copy of the signals added on Alarm defs."""
+    return {name: dict(spec) for name, spec in _CUSTOM_SIGNALS.items()}
+
+
+def custom_signal(name: str) -> dict[str, str]:
+    return dict(_CUSTOM_SIGNALS.get(str(name or "").strip()) or {})
+
+
+def is_custom_signal(name: str) -> bool:
+    return str(name or "").strip() in _CUSTOM_SIGNALS
+
+
+def signal_unit(name: str) -> str:
+    """percent, power, volts, energy, or status. Empty when the signal is unknown."""
+    key = str(name or "").strip()
+    if key in _SIGNAL_UNIT:
+        return _SIGNAL_UNIT[key]
+    return str((_CUSTOM_SIGNALS.get(key) or {}).get("unit") or "")
+
+
 _UNIT_WORDS = {
     "percent": "a percentage",
     "power": "power, in kW",
@@ -730,7 +885,7 @@ def alarm_unit_problem(pieces: dict[str, str]) -> str:
         return ""
     paired: list[tuple[str, str]] = []
     for part in parts:
-        unit = _SIGNAL_UNIT.get(part)
+        unit = signal_unit(part)
         if not unit:
             return ""
         paired.append((part, unit))
@@ -839,10 +994,18 @@ def composed_rule_key(pieces: dict[str, str]) -> str | None:
 
 
 def composed_severity(outcome: str) -> str:
-    """Warning or critical for a sentence the householder wrote."""
+    """Grade for a sentence the householder wrote: critical, major, minor, or warn.
+
+    Critical because a lesser alarm is repeating is still critical. A channel
+    on its own, with no grade, is a warning.
+    """
     text = severity_outcome(outcome).strip().lower()
     if text.startswith("critical"):
         return "critical"
+    if text == "major":
+        return "major"
+    if text == "minor":
+        return "minor"
     return "warn"
 
 
@@ -969,6 +1132,15 @@ def _status_clause(
         return bool(facts.get("mqtt_bad")), str(facts.get("mqtt_detail") or "")
     if signal == "Tasmota device" and comparison == "goes silent":
         return bool(facts.get("plugs_bad")), str(facts.get("plugs_detail") or "")
+    spec = _CUSTOM_SIGNALS.get(signal) or {}
+    if spec.get("source") == "ip" and comparison == "cannot be reached":
+        row = (facts.get("hosts") or {}).get(signal) or {}
+        addr = f"{spec.get('ip')}:{spec.get('port')}"
+        if row.get("pending") or row.get("up") is None:
+            return False, f"{addr} is still being checked."
+        if row.get("up"):
+            return False, f"{addr} answered."
+        return True, f"{addr} did not answer."
     return None
 
 
@@ -1058,7 +1230,7 @@ def _signal_measure(signal: str, facts: dict[str, Any]) -> tuple[float | None, s
     spare solar, and house load can also use the live snapshot when no
     column is chosen. Anything else is not watched until a column is chosen.
     """
-    symbol = _UNIT_SYMBOL.get(_SIGNAL_UNIT.get(signal, ""), "")
+    symbol = _UNIT_SYMBOL.get(signal_unit(signal), "")
     source = str((facts.get("sources") or {}).get(signal) or "").strip()
     if source:
         value = _as_float((facts.get("readings") or {}).get(signal))
@@ -1080,7 +1252,7 @@ def _signal_measure(signal: str, facts: dict[str, Any]) -> tuple[float | None, s
                 "to use a table and field instead."
             )
         return value, spec[1], ""
-    if _SIGNAL_UNIT.get(signal) == "status":
+    if signal_unit(signal) == "status":
         return None, "", ""
     return None, symbol, (
         f"{signal} has no table and field. Right-click it in the signal list "
@@ -1089,7 +1261,7 @@ def _signal_measure(signal: str, facts: dict[str, Any]) -> tuple[float | None, s
 
 
 def _measured_signal(signal: str) -> bool:
-    return _SIGNAL_UNIT.get(signal, "") not in ("", "status")
+    return signal_unit(signal) not in ("", "status")
 
 
 def signal_needs_column(signal: str) -> bool:
@@ -1097,8 +1269,9 @@ def signal_needs_column(signal: str) -> bool:
 
     State of charge, spare solar, and house load already have a live reading.
     A feed or a device (Grott, the inverter, a plug) is not a column.
+    A signal added on Alarm defs already has its database column or its address.
     """
-    if signal in _LIVE_WITHOUT_COLUMN:
+    if signal in _LIVE_WITHOUT_COLUMN or is_custom_signal(signal):
         return False
     return _measured_signal(signal)
 
@@ -1294,8 +1467,13 @@ def alarm_band(key: str, severity: str) -> str:
     line, or one or two plugs have gone quiet). Minor is the house using
     almost all the solar — the inverter is behaving, so it is a note.
     """
-    if str(severity or "").strip() == "critical":
+    grade = str(severity or "").strip().lower()
+    if grade == "critical":
         return "critical"
+    if grade == "minor":
+        return "minor"
+    if grade == "major":
+        return "major"
     if str(key or "").strip() == "load_eats_pv":
         return "minor"
     return "major"
@@ -1669,6 +1847,7 @@ class AlarmMonitor:
             "readings": fact.get("readings") or {},
             "sources": fact.get("sources") or self.signal_source_labels(),
             "readings_pending": bool(fact.get("readings_pending")),
+            "hosts": fact.get("hosts") or {},
             "grott_bad": grott_bad,
             "grott_detail": grott_detail,
             "grott_expected": bool(fact.get("grott_expected")),
@@ -1735,8 +1914,11 @@ class AlarmMonitor:
                 if since is not None:
                     held = max(0.0, now - float(since))
                 full = detail
+                grade = severity_outcome(pieces.get("outcome", ""))
+                if grade == "Critical because Lesser Alarm repeating":
+                    full = "Critical because a lesser alarm kept repeating. " + full
                 if flap is None and hold is not None:
-                    full = f"{detail} True for {_span_words(held)}."
+                    full = f"{full} True for {_span_words(held)}."
                 hit = self._raise(
                     key=key,
                     severity=composed_severity(pieces.get("outcome", "")),
@@ -1806,6 +1988,7 @@ class AlarmMonitor:
         tasmota_offline: list[str] | tuple[str, ...] | None = None,
         signal_readings: dict[str, float | None] | None = None,
         signal_readings_pending: bool = False,
+        signal_hosts: dict[str, dict[str, Any]] | None = None,
     ) -> list[AlarmHit]:
         """Return currently active alarms (empty when healthy or disabled)."""
         if not self.enabled:
@@ -1871,6 +2054,7 @@ class AlarmMonitor:
                 readings=signal_readings or {},
                 sources=self.signal_source_labels(),
                 readings_pending=bool(signal_readings_pending),
+                hosts=signal_hosts or {},
                 diff_volts=self.diff_volts,
             )
 
@@ -2714,7 +2898,7 @@ class AlarmMonitor:
         if not active:
             return ""
         # Prefer the most severe / most specific first.
-        order = {"critical": 0, "warn": 1}
+        order = {"critical": 0, "major": 1, "minor": 2, "warn": 3}
         active = sorted(active, key=lambda h: order.get(h.severity, 9))
         return "  ·  ".join(h.title for h in active)
 
@@ -2874,6 +3058,12 @@ __all__ = [
     "SIGNAL_ALARM_TYPE",
     "CONTEXT_SIGNALS",
     "signal_alarm_type",
+    "signal_unit",
+    "set_custom_signals",
+    "custom_signals",
+    "custom_signal",
+    "is_custom_signal",
+    "CUSTOM_ALARM_TYPES",
     "alarm_logic_note",
     "alarm_blocks_key",
     "alarm_unit_problem",
@@ -2885,6 +3075,8 @@ __all__ = [
     "signal_combo",
     "combo_matches",
     "ACTION_OUTCOMES",
+    "ALARM_LEVELS",
+    "outcome_vocabulary",
     "notify_backoff_interval_s",
     "NOTIFY_BACKOFF_STAGES",
     "NOTIFY_BACKOFF_FINAL_S",

@@ -20,11 +20,25 @@ _FAINT = "#6c7086"
 
 
 def _severity_colour(severity: str) -> str:
-    return _CRITICAL if str(severity).strip() == "critical" else _WARN
+    grade = str(severity).strip().lower()
+    if grade == "critical":
+        return _CRITICAL
+    if grade == "major":
+        return "#fab387"
+    if grade == "minor":
+        return "#f9e2af"
+    return _WARN
 
 
 def _severity_word(severity: str) -> str:
-    return "Critical" if str(severity).strip() == "critical" else "Warning"
+    grade = str(severity).strip().lower()
+    if grade == "critical":
+        return "Critical"
+    if grade == "major":
+        return "Major"
+    if grade == "minor":
+        return "Minor"
+    return "Warning"
 
 
 def alarm_age_text(since_wall: float, now_wall: float | None = None) -> str:

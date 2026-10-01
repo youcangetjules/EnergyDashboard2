@@ -33,6 +33,7 @@ from energy_dashboard.core.alarms import (
     alarm_blocks_key,
     alarm_logic_note,
     alarm_palette,
+    outcome_vocabulary,
     duration_seconds,
     format_duration,
     parse_flap,
@@ -69,7 +70,7 @@ _KIND_LABEL = {
     "threshold": "Threshold",
     "duration": "For how long",
     "context": "With additional Conditions (optional)",
-    "outcome": "Outcome",
+    "outcome": "Alarm",
 }
 _KIND_SHORT = dict(
     _KIND_LABEL, duration="How long", context="With additional Conditions",
@@ -81,7 +82,7 @@ _KIND_WORD = {
     "threshold": "threshold",
     "duration": "how long",
     "context": "condition",
-    "outcome": "outcome",
+    "outcome": "alarm",
 }
 # Dark grey for the alarm type on the right of each signal pill.
 # Light grey disappears on the blue fill.
@@ -93,14 +94,14 @@ _BEFORE = {
     "context": "with",
     "outcome": "then",
 }
-# Reads properly in "Still needs a signal and an outcome."
+# Reads properly in "Still needs a signal and an alarm."
 _KIND_NOUN = dict(
     signal="a signal",
     comparison="a comparison",
     threshold="a threshold",
     duration="a length of time",
     context="an extra condition",
-    outcome="an outcome",
+    outcome="an alarm",
 )
 
 
@@ -156,14 +157,34 @@ def _decode_slot(mime: QMimeData) -> tuple[str, str, int | None]:
     return token, kind, index
 
 
-# A signal slot can watch more than one thing, and an outcome slot can pair a
+# A signal slot can watch more than one thing, and an alarm slot can pair a
 # severity with how it tells you. The rest hold one block.
 _MULTI_KINDS = ("signal", "outcome")
 
 
+_OUTCOME_ALIAS = {
+    "send SMS": "Send SMS",
+    "create a desktop alert": "Create Desktop Alert",
+}
+_ALARM_TIPS = {
+    "Critical": "The alarm is critical.",
+    "Critical because Lesser Alarm repeating": (
+        "Critical because a major, minor, or warning alarm has been repeating."
+    ),
+    "Major": "The alarm is major.",
+    "Minor": "The alarm is minor.",
+    "Warning": "The alarm is a warning.",
+    "Send SMS": "Send a text when this alarm sounds.",
+    "Create Desktop Alert": "Show a desktop alert when this alarm sounds.",
+}
+
+
 def _split_parts(kind: str, text: str) -> tuple[list[str], str]:
     """Blocks on one slot, and whether they are joined by and or or."""
-    return split_joined_pieces(text, set(alarm_palette(kind)))
+    known = set(alarm_palette(kind))
+    if kind == "outcome":
+        known |= outcome_vocabulary()
+    return split_joined_pieces(text, known)
 
 
 def _is_signal_piece(text: str) -> bool:
@@ -980,6 +1001,8 @@ class _PaletteList(QListWidget):
                 )
             elif kind == "duration":
                 tip = f"The condition must stay true for {text}."
+            elif kind == "outcome" and text in _ALARM_TIPS:
+                tip = _ALARM_TIPS[text]
             else:
                 tip = text
             item.setToolTip(tip)
@@ -1269,6 +1292,8 @@ class _Slot(QFrame):
         raw = (text or "").strip()
         if self._multi:
             self._parts, self._join = _split_parts(self.kind, raw)
+            if self.kind == "outcome":
+                self._parts = [_OUTCOME_ALIAS.get(part, part) for part in self._parts]
             self._text = f" {self._join} ".join(self._parts)
         else:
             self._parts = []

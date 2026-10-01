@@ -12,6 +12,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-10-01
+
+### 19:48
+
+- On Alarm defs the red column is called Alarm. The choices are Critical, Critical because Lesser Alarm repeating, Major, Minor, Warning, Send SMS, and Create Desktop Alert. A rule you write uses that grade. A built-in alarm still decides its own grade. Older rules that already say send SMS or create a desktop alert still do.
+
 ## 2026-09-30
 
 ### 21:09

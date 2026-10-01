@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-10-01 — The alarm column is a grade
+
+- **Context:** The red column was called Outcome, and its blocks were the old warning and critical sentences plus a text and a desktop alert.
+- **Decision:** The column is Alarm. The blocks are Critical, Critical because Lesser Alarm repeating, Major, Minor, Warning, Send SMS, and Create Desktop Alert. A rule the householder wrote uses that grade. Critical because a lesser alarm kept repeating is still raised as critical, and the detail says so. Send SMS and Create Desktop Alert still choose how you are told, including the older wording on rules already saved. A built-in alarm still decides its own grade in the monitor.
+- **Consequence:** Do not put the old conditional sentences back in that list. Do not treat Major or Minor as a warning. Do not make a built-in alarm ignore its own grade just because the column changed.
+
 ### 2026-09-30 — Monthly bills are the issued Octopus statements
 
 - **Context:** The battery simulation’s annual pounds are a model. The householder wants each month’s real bill: the kWh Octopus billed and the payment that left the bank.

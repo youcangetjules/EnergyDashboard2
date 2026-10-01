@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.497", "2026-10-01", [
+        "Alarm defs: the Outcome column is now Alarm. The levels are Critical, Critical because Lesser Alarm repeating, Major, Minor, Warning, Send SMS, and Create Desktop Alert.",
+    ]),
     ("2.9.496", "2026-09-30", [
         "Octopus Energy Data can load each month's issued bill: usage in kWh, the charges, and the payment.",
     ]),
