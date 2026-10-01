@@ -1419,10 +1419,49 @@ class EnergyDashboard(QMainWindow):
                     sources = parsed
             except (TypeError, ValueError, json.JSONDecodeError):
                 sources = {}
+        custom = {}
+        raw_custom = s.value("alarms/custom_signals", "")
+        if raw_custom:
+            try:
+                parsed = json.loads(str(raw_custom))
+                if isinstance(parsed, dict):
+                    custom = parsed
+            except (TypeError, ValueError, json.JSONDecodeError):
+                custom = {}
+        from energy_dashboard.core.alarms import custom_signals, set_custom_signals
+        set_custom_signals(custom)
+        for name, spec in custom_signals().items():
+            if spec.get("source") == "database":
+                sources[name] = {"table": spec.get("table"), "field": spec.get("field")}
         if hasattr(self.alarm_monitor, "set_composed_rules"):
             self.alarm_monitor.set_composed_rules(rows)
         if hasattr(self.alarm_monitor, "set_signal_sources"):
             self.alarm_monitor.set_signal_sources(sources)
+
+    def _alarm_host_targets(self) -> dict[str, tuple[str, int]]:
+        """IP signals added on Alarm defs: name → (address, port)."""
+        from energy_dashboard.core.alarms import custom_signals
+        targets: dict[str, tuple[str, int]] = {}
+        for name, spec in custom_signals().items():
+            if spec.get("source") != "ip":
+                continue
+            try:
+                port = int(spec.get("port") or 0)
+            except (TypeError, ValueError):
+                continue
+            ip = str(spec.get("ip") or "").strip()
+            if ip and 1 <= port <= 65535:
+                targets[str(name)] = (ip, port)
+        return targets
+
+    def _alarm_signal_hosts(self) -> dict:
+        """Whether each added IP address answered on the last check."""
+        self._kick_alarm_field_read()
+        targets = self._alarm_host_targets()
+        values = getattr(self, "_alarm_host_values", None) or {}
+        if getattr(self, "_alarm_field_busy", False) and not values:
+            return {name: {"up": None, "pending": True} for name in targets}
+        return {name: values.get(name) or {"up": None, "pending": True} for name in targets}
 
     def _alarm_signal_readings(self) -> tuple[dict, bool]:
         """Latest numbers for signals that have a table and field.
@@ -1439,15 +1478,19 @@ class EnergyDashboard(QMainWindow):
         pairs = {}
         if hasattr(self.alarm_monitor, "signal_source_pairs"):
             pairs = dict(self.alarm_monitor.signal_source_pairs() or {})
-        if not pairs:
+        hosts = self._alarm_host_targets()
+        if not pairs and not hosts:
             self._alarm_field_values = {}
             self._alarm_field_pairs = {}
+            self._alarm_host_values = {}
+            self._alarm_host_targets_held = {}
             return
         if getattr(self, "_alarm_field_busy", False):
             return
         import time as _time_mod
         if (
             getattr(self, "_alarm_field_pairs", None) == pairs
+            and getattr(self, "_alarm_host_targets_held", None) == hosts
             and _time_mod.time() - float(getattr(self, "_alarm_field_at", 0.0) or 0.0) < 12.0
         ):
             return
@@ -1456,6 +1499,7 @@ class EnergyDashboard(QMainWindow):
 
         def work() -> None:
             import time as _time_mod
+            from energy_dashboard.core.host_probe import tcp_host_answers
             from energy_dashboard.db.signal_reading import latest_numeric
             found: dict[str, float | None] = {}
             for signal, spec in pairs.items():
@@ -1464,8 +1508,17 @@ class EnergyDashboard(QMainWindow):
                     found[str(signal)] = latest_numeric(logger, table, field)
                 except Exception:
                     found[str(signal)] = None
+            found_hosts: dict[str, dict] = {}
+            for signal, (ip, port) in hosts.items():
+                try:
+                    up = tcp_host_answers(ip, port)
+                except Exception:
+                    up = False
+                found_hosts[str(signal)] = {"up": up, "pending": False}
             self._alarm_field_values = found
             self._alarm_field_pairs = dict(pairs)
+            self._alarm_host_values = found_hosts
+            self._alarm_host_targets_held = dict(hosts)
             self._alarm_field_at = _time_mod.time()
             self._alarm_field_busy = False
 
@@ -1575,6 +1628,8 @@ class EnergyDashboard(QMainWindow):
         mon = getattr(self, "alarm_monitor", None)
         if mon is not None and getattr(mon, "enabled", True):
             for hit in getattr(mon, "_active", {}).values():
+                if getattr(hit, "suppressed", False):
+                    continue
                 band = alarm_band(
                     str(getattr(hit, "key", "") or ""),
                     str(getattr(hit, "severity", "") or ""),
@@ -1821,6 +1876,7 @@ class EnergyDashboard(QMainWindow):
             (tas_mqtt and tas_mqtt_ok) or ((not tas_mqtt) and tas_known > len(tas_offline))
         )
         signal_readings, signal_pending = self._alarm_signal_readings()
+        signal_hosts = self._alarm_signal_hosts()
         hits = self.alarm_monitor.evaluate(
             soc_pct=live.get("soc", d.get("SOC")),
             pv_kw=live.get("pv_power", d.get("ppv")),
@@ -1848,6 +1904,7 @@ class EnergyDashboard(QMainWindow):
             tasmota_offline=tas_offline,
             signal_readings=signal_readings,
             signal_readings_pending=signal_pending,
+            signal_hosts=signal_hosts,
         )
         self._log_grott_lost_edge(hits, grott_connected, grott_age_s)
         self._apply_alarm_banner(hits)
@@ -1864,6 +1921,8 @@ class EnergyDashboard(QMainWindow):
         except Exception:
             pass
         for hit in hits:
+            if getattr(hit, "suppressed", False):
+                continue
             if hit.should_notify:
                 self._desktop_alarm_notify(hit)
                 self._sms_alarm_notify(hit)
@@ -1921,10 +1980,12 @@ class EnergyDashboard(QMainWindow):
                 btn.setFixedWidth(width)
 
     def _apply_alarm_banner(self, hits):
-        self._active_alarm_count = len(hits or [])
+        shown = [hit for hit in (hits or []) if not getattr(hit, "suppressed", False)]
+        self._active_alarm_count = len(shown)
         self._sync_alarms_caption()
         if not hasattr(self, "_alarm_banner"):
             return
+        hits = shown
         if not hits:
             self._alarm_banner.hide()
             self._alarm_banner.setText("")

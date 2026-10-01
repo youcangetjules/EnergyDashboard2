@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-10-01
 
+### 23:53
+
+- The Alarms page is now a list of rows, like a control-room alarm list. Each row has the rank, the state, the time, how long it has been true, the alarm, and the detail. Critical is red, major amber, minor yellow, and warning blue. Acknowledge means you have seen it and it stops repeating. Suppress shelves it until you unsuppress it, and that shelf is remembered. History on the page is what happened this session.
+
 ### 19:48
 
 - On Alarm defs the red column is called Alarm. The choices are Critical, Critical because Lesser Alarm repeating, Major, Minor, Warning, Send SMS, and Create Desktop Alert. A rule you write uses that grade. A built-in alarm still decides its own grade. Older rules that already say send SMS or create a desktop alert still do.

@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.498", "2026-10-01", [
+        "Alarms are rows with columns: rank colour, state, time, how long, the alarm, and the detail. Acknowledge and Suppress are on each sounding row, and History is on the page.",
+    ]),
     ("2.9.497", "2026-10-01", [
         "Alarm defs: the Outcome column is now Alarm. The levels are Critical, Critical because Lesser Alarm repeating, Major, Minor, Warning, Send SMS, and Create Desktop Alert.",
     ]),

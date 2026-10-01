@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-10-01 — Alarms are a SCADA list
+
+- **Context:** The Alarms page showed each alarm as a paragraph. There was no way to say you had seen it, or to shelf one that should stop repeating.
+- **Decision:** Each alarm is one row: rank, state, time, how long, the alarm, and the detail. Rank colours are critical red, major amber, minor yellow, warning blue. Acknowledge silences that occurrence until it clears and comes back. Suppress shelves that alarm key until Unsuppress, including across a restart, and it is left out of the banner, the Alarms count, and the tray. History on the page is the session log of raised, acknowledged, suppressed, and cleared.
+- **Consequence:** Do not turn the row back into a paragraph. Do not notify a suppressed or acknowledged alarm. Do not forget a shelf when the condition clears. A new occurrence after a clear is unacknowledged again.
+
 ### 2026-10-01 — The alarm column is a grade
 
 - **Context:** The red column was called Outcome, and its blocks were the old warning and critical sentences plus a text and a desktop alert.

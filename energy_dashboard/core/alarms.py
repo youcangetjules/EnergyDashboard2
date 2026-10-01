@@ -1482,12 +1482,14 @@ def alarm_band(key: str, severity: str) -> str:
 @dataclass
 class AlarmHit:
     key: str
-    severity: str  # "warn" | "critical"
+    severity: str  # "warn" | "critical" | "major" | "minor"
     title: str
     detail: str
     since_wall: float
     just_triggered: bool = False
     should_notify: bool = False
+    acknowledged: bool = False
+    suppressed: bool = False
 
 
 @dataclass(frozen=True)
@@ -1542,7 +1544,11 @@ class AlarmMonitor:
     _last_notify_wall: dict[str, float] = field(default_factory=dict, init=False)
     _notify_count: dict[str, int] = field(default_factory=dict, init=False)
     history: list[dict[str, Any]] = field(default_factory=list, init=False)
-    _history_cap: int = field(default=40, init=False)
+    _history_cap: int = field(default=200, init=False)
+    # Keys the operator has shelved. A suppressed alarm stays in the list but
+    # does not notify, and the shelf survives the alarm clearing.
+    _suppressed: set[str] = field(default_factory=set, init=False)
+    _shelved: dict[str, dict[str, Any]] = field(default_factory=dict, init=False)
     _rule_hold_s: dict[str, float] = field(default_factory=dict, init=False)
     _rule_flap: dict[str, FlapSpec] = field(default_factory=dict, init=False)
     _flap_on: dict[str, float] = field(default_factory=dict, init=False)
@@ -1698,9 +1704,117 @@ class AlarmMonitor:
         self._notify_count.clear()
 
     def _drop_alarm(self, key: str) -> None:
-        self._active.pop(key, None)
+        prev = self._active.pop(key, None)
         self._last_notify_wall.pop(key, None)
         self._notify_count.pop(key, None)
+        if prev is not None:
+            self._remember(prev, "cleared", time.time())
+
+    def restore_suppressed(self, keys: Any) -> None:
+        """Shelves remembered from the last session. Does not write them again."""
+        self._suppressed = {str(key) for key in (keys or []) if str(key).strip()}
+        for key, hit in self._active.items():
+            if key in self._suppressed:
+                hit.suppressed = True
+                hit.should_notify = False
+
+    def suppressed_keys(self) -> set[str]:
+        return set(self._suppressed)
+
+    def acknowledge(self, key: str) -> bool:
+        """The operator has seen this occurrence. It stays on the list, silent."""
+        hit = self._active.get(str(key))
+        if hit is None or hit.acknowledged or hit.suppressed:
+            return False
+        hit.acknowledged = True
+        hit.should_notify = False
+        self._remember(hit, "acknowledged", time.time())
+        return True
+
+    def suppress(self, key: str) -> bool:
+        """Shelf this alarm until it is unsuppressed. No further notifications."""
+        key = str(key)
+        hit = self._active.get(key)
+        if hit is None and key in self._suppressed:
+            return False
+        self._suppressed.add(key)
+        if hit is not None:
+            hit.suppressed = True
+            hit.should_notify = False
+            self._shelved[key] = {
+                "title": hit.title,
+                "severity": hit.severity,
+                "detail": hit.detail,
+                "since_wall": hit.since_wall,
+            }
+            self._remember(hit, "suppressed", time.time())
+        return True
+
+    def unsuppress(self, key: str) -> bool:
+        """Take the alarm off the shelf. If it is still true, it is unacknowledged."""
+        key = str(key)
+        if key not in self._suppressed and key not in self._shelved:
+            return False
+        self._suppressed.discard(key)
+        self._shelved.pop(key, None)
+        hit = self._active.get(key)
+        if hit is not None:
+            hit.suppressed = False
+            hit.acknowledged = False
+            hit.should_notify = False
+            self._notify_count.pop(key, None)
+            self._last_notify_wall.pop(key, None)
+            self._remember(hit, "unsuppressed", time.time())
+        else:
+            self.history.insert(0, {
+                "wall": time.time(),
+                "key": key,
+                "severity": "warn",
+                "title": key,
+                "detail": "",
+                "event": "unsuppressed",
+            })
+            del self.history[self._history_cap:]
+        return True
+
+    def shelved_rows(self) -> list[dict[str, Any]]:
+        """Suppressed alarms, including ones that are not sounding right now."""
+        rows = []
+        for key in sorted(self._suppressed):
+            hit = self._active.get(key)
+            saved = self._shelved.get(key) or {}
+            if hit is not None:
+                rows.append({
+                    "key": key,
+                    "severity": hit.severity,
+                    "title": hit.title,
+                    "detail": hit.detail,
+                    "since_wall": hit.since_wall,
+                    "sounding": True,
+                    "acknowledged": hit.acknowledged,
+                })
+            else:
+                rows.append({
+                    "key": key,
+                    "severity": str(saved.get("severity") or "warn"),
+                    "title": str(saved.get("title") or key),
+                    "detail": str(saved.get("detail") or ""),
+                    "since_wall": float(saved.get("since_wall") or 0.0),
+                    "sounding": False,
+                    "acknowledged": False,
+                })
+        return rows
+
+    def _remember(self, hit: AlarmHit, event: str, wall: float) -> None:
+        self.history.insert(0, {
+            "wall": float(wall),
+            "key": hit.key,
+            "severity": hit.severity,
+            "title": hit.title,
+            "detail": hit.detail,
+            "event": event,
+        })
+        del self.history[self._history_cap:]
 
     def set_signal_sources(self, sources: Any) -> None:
         """Table and field for each signal, from Alarm defs.
@@ -2858,8 +2972,10 @@ class AlarmMonitor:
     ) -> AlarmHit:
         prev = self._active.get(key)
         just = prev is None
+        acknowledged = False if just else bool(prev and prev.acknowledged)
+        suppressed = key in self._suppressed
         should_notify = False
-        if self.desktop_enabled:
+        if self.desktop_enabled and not acknowledged and not suppressed:
             sent = int(self._notify_count.get(key, 0))
             interval = notify_backoff_interval_s(sent)
             last = self._last_notify_wall.get(key, 0.0)
@@ -2880,21 +2996,24 @@ class AlarmMonitor:
             since_wall=since_wall,
             just_triggered=just,
             should_notify=should_notify,
+            acknowledged=acknowledged,
+            suppressed=suppressed,
         )
         self._active[key] = hit
-        if just:
-            self.history.insert(0, {
-                "wall": now_wall,
-                "key": key,
-                "severity": severity,
+        if suppressed:
+            self._shelved[key] = {
                 "title": title,
+                "severity": severity,
                 "detail": detail,
-            })
-            del self.history[self._history_cap:]
+                "since_wall": since_wall,
+            }
+        if just:
+            self._remember(hit, "raised", now_wall)
         return hit
 
     def banner_summary(self, hits: list[AlarmHit] | None = None) -> str:
         active = hits if hits is not None else list(self._active.values())
+        active = [hit for hit in active if not getattr(hit, "suppressed", False)]
         if not active:
             return ""
         # Prefer the most severe / most specific first.

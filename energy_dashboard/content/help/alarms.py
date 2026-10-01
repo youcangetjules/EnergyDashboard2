@@ -15,17 +15,28 @@ at the top of the window, and <b>Alarms</b> in the system-tray menu, open this
 page too. The tray menu opens with three rows: <b>Critical Alarms</b> on red,
 <b>Major Alarms</b> on amber, and <b>Minor Alarms</b> on yellow. The number is
 how many of that grade are sounding. Critical is a feed that has died, the
-inverter offline, or the pack very low. Major is a warning that still needs a
-look. Minor is the house using almost all the solar, which is not a fault.</p>
+inverter offline, or the pack very low. Major still needs a look. Minor is
+the house using almost all the solar, which is not a fault. Warning is its
+own grade on this page, in blue.</p>
 <p>
-<b>Sounding now</b> lists every alarm that is currently raised, worst first.
-Each card gives the plain-English reason, and how long the condition has been
-true. A red edge is critical, amber is a warning.</p>
+Each alarm is one row. The columns are <b>Rank</b>, <b>State</b>, <b>Time</b>,
+<b>For</b>, <b>Alarm</b>, and <b>Detail</b>. Rank colours are critical red,
+major amber, minor yellow, and warning blue. Unacknowledged alarms are listed
+first.</p>
 <p>
-<b>Since the app started</b> is the history for this session only. It records
-the moment each alarm was first raised, so you can see that (say) the Grott
-feed dropped at 14:05 even though it has since recovered. Closing the app
-clears it; the window has no long-term alarm log.</p>
+<b>Acknowledge</b> means you have seen it. The alarm stays on the list while
+the condition is still true, and it stops repeating on the desktop and by
+text. A new occurrence, after it has cleared, asks to be acknowledged again.</p>
+<p>
+<b>Suppress</b> shelves that alarm. It leaves the sounding list, it does not
+notify, and it stays shelved — even after it clears and comes back — until
+you press <b>Unsuppress</b>. Shelves are remembered after a restart.
+<b>Suppressed</b> shows what is on the shelf, including an alarm that is not
+sounding right now.</p>
+<p>
+<b>History</b> is this session: raised, acknowledged, suppressed, unsuppressed,
+and cleared, newest first. Closing the app clears that log. The shelf list
+is the part that is kept.</p>
 <p>
 An alarm does not fire the instant a reading looks bad. Most conditions have
 to hold for the <b>hold time</b> in Setup &amp; Info (10 minutes by default),
