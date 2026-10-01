@@ -46,6 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
+| 2026-10-02 | 1 | 1 | 3 |
 | 2026-09-30 | 2 | 2 | 3 |
 | 2026-09-28 | 1 | 2 | 3 |
 | 2026-09-27 | 4 | 4 | 4 |
@@ -120,6 +121,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-084-20261002-01 — Dashboard dies while loading saved alarm rules</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-10-02 00:00 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Alarm rules (`core/alarms.py`) |
+| **Version found** | 2.9.498 |
+| **Version fixed** | 2.9.499 |
+
+**Symptom:** `./run-dashboard.sh` exited straight away. The traceback ended in `alarm_unit_problem` with `UnboundLocalError: cannot access local variable 'signal_unit'`.
+
+**Cause:** The unit check called `signal_unit()` to ask what a signal is measured in, then stored the answer in a variable of the same name. Python treated every use of that name in the function as the local variable, including the call that had not run yet.
+
+**Resolution:** The answer is stored under a different name, so the lookup runs. The saved rules load again. Fixed 2026-10-02 00:01 in 2.9.499. File: `core/alarms.py`.
 
 ### <span style="color:green">BUG-083-20260930-02 — Battery simulation bill had no visible working</span>
 

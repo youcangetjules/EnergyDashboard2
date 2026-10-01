@@ -895,12 +895,12 @@ def alarm_unit_problem(pieces: dict[str, str]) -> str:
             f"{_unit_list(paired)}. Those units don't match, "
             "so they cannot share one comparison."
         )
-    signal_unit = paired[0][1]
+    shared = paired[0][1]
     comparison = p["comparison"]
     threshold = p["threshold"]
     threshold_unit = _THRESHOLD_UNIT.get(threshold, "") if threshold else ""
     if comparison in _MEASURED_COMPARISONS:
-        if signal_unit == "status":
+        if shared == "status":
             return (
                 f"{comparison.capitalize()} compares a measurement, "
                 f"but {paired[0][0]} is a feed, not a number."
@@ -908,19 +908,19 @@ def alarm_unit_problem(pieces: dict[str, str]) -> str:
         if not threshold:
             return (
                 f"{comparison.capitalize()} needs a limit in the same unit "
-                f"({_UNIT_WORDS[signal_unit]})."
+                f"({_UNIT_WORDS[shared]})."
             )
-        if threshold_unit and threshold_unit != signal_unit:
+        if threshold_unit and threshold_unit != shared:
             return (
                 f"{_unit_list(paired)}, but {threshold} is {_UNIT_WORDS[threshold_unit]}. "
                 "The limit has to be in the same unit as the signal."
             )
         return ""
     if comparison in _STATUS_COMPARISONS:
-        if signal_unit != "status":
+        if shared != "status":
             return (
                 f"{comparison.capitalize()} is about a feed going quiet, "
-                f"but {paired[0][0]} is {_UNIT_WORDS[signal_unit]}."
+                f"but {paired[0][0]} is {_UNIT_WORDS[shared]}."
             )
         if threshold_unit:
             return (

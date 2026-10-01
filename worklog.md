@@ -12,6 +12,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-10-02
+
+### 00:01
+
+- Starting the dashboard died immediately with UnboundLocalError while it loaded the saved alarm rules. The unit check used one name both for the lookup and for the answer, so Python refused the lookup. Those are now two names. Logged as BUG-084-20261002-01.
+
 ## 2026-10-01
 
 ### 23:53
