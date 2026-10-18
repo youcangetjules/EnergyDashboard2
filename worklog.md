@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-10-18
 
+### 13:27
+
+- Reading a scanned MCS certificate no longer walks every page of the scan. It reads the first two pages as a smaller picture, and stops after the first page when the kilowatts and the module are already there. A normal PDF with real text is still read as text, and the figures that are printed are the ones that get filled in.
+
 ### 13:23
 
 - The bottom bar has a yellow Hegel button to the left of Alarms. The gap is the same 30px that already sits between Alarms and Refresh Page. The button opens the Hegel page. It does not search other sites.

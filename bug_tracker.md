@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-10-18 | 3 | 3 | 3 |
+| 2026-10-18 | 4 | 4 | 3 |
 | 2026-10-02 | 1 | 1 | 3 |
 | 2026-09-30 | 2 | 2 | 3 |
 | 2026-09-28 | 1 | 2 | 3 |
@@ -122,6 +122,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-088-20261018-04 — Scanned MCS certificate sits on page 1</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-10-18 13:18 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Physical Plant → MCS certificate |
+| **Version found** | 2.9.506 |
+| **Version fixed** | 2.9.509 |
+
+**Symptom:** After uploading a scanned certificate the page stayed on “Reading scanned page 1…”. The form stayed empty and Read certificate stayed grey.
+
+**Cause:** The file is a four-page picture scan with no text layer. The reader turned every page into a large image and then read each picture in turn, including the later consumer pages, so the first page alone took long enough to look stuck.
+
+**Resolution:** A scan is read from the first two pages only, at a smaller picture size, and it stops sooner when the kilowatts and the module row are already on the first page. A digital PDF is still read as text.
 
 ### <span style="color:green">BUG-087-20261018-03 — File window hides a memory stick and clips Cancel</span>
 

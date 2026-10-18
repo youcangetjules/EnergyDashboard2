@@ -66,7 +66,7 @@ def extract_text(path: Path, progress=None) -> tuple[str, bool]:
         if _usable(text):
             return text, False
         if progress:
-            progress("The PDF is a scan. Reading the pages. This can take a minute or two.")
+            progress("The PDF is a scan. Reading the first pages.")
         return _ocr_pdf(path, progress=progress), True
     if progress:
         progress("Reading the photo. This can take a minute or two.")
@@ -632,33 +632,78 @@ def _pdftotext(path: Path) -> str:
     return done.stdout or ""
 
 
+# A certificate scan is a picture. 96 dpi is enough to read the printed figures
+# and is much smaller than 140 dpi, so each page finishes sooner. The figures
+# are on the first two pages; later pages are the consumer notes.
+_SCAN_DPI = "96"
+_SCAN_MAX_PAGES = 2
+
+
 def _ocr_pdf(path: Path, progress=None) -> str:
     if shutil.which("pdftoppm") is None or shutil.which("tesseract") is None:
         return ""
+    page_count = min(_pdf_page_count(path), _SCAN_MAX_PAGES)
     chunks: list[str] = []
     with tempfile.TemporaryDirectory(prefix="mcs-ocr-") as folder:
-        try:
-            subprocess.run(
-                ["pdftoppm", "-gray", "-r", "140", "-png", str(path), str(Path(folder) / "p")],
-                check=False,
-                capture_output=True,
-                timeout=60,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return ""
-        pages = sorted(Path(folder).glob("p*.png"))
-        for index, image in enumerate(pages[:4], start=1):
+        for index in range(1, page_count + 1):
             if progress:
                 progress(f"Reading scanned page {index}…")
+            image = _render_page(path, index, Path(folder))
+            if image is None:
+                break
             chunks.append(_tesseract(image))
-            so_far = "\n".join(chunks)
-            if index >= 2 and re.search(
-                r"Declared Net Capacity|Generation Meter|Consumer Information",
-                so_far,
-                re.IGNORECASE,
-            ):
+            if _scan_enough("\n".join(chunks), index):
                 break
     return "\n".join(chunks)
+
+
+def _pdf_page_count(path: Path) -> int:
+    if shutil.which("pdfinfo") is None:
+        return _SCAN_MAX_PAGES
+    try:
+        done = subprocess.run(
+            ["pdfinfo", str(path)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return _SCAN_MAX_PAGES
+    match = re.search(r"^Pages:\s+(\d+)", done.stdout or "", re.MULTILINE)
+    if not match:
+        return _SCAN_MAX_PAGES
+    try:
+        return max(1, int(match.group(1)))
+    except ValueError:
+        return _SCAN_MAX_PAGES
+
+
+def _render_page(path: Path, index: int, folder: Path) -> Path | None:
+    prefix = folder / f"p{index}"
+    try:
+        subprocess.run(
+            [
+                "pdftoppm", "-gray", "-r", _SCAN_DPI,
+                "-f", str(index), "-l", str(index),
+                "-png", str(path), str(prefix),
+            ],
+            check=False,
+            capture_output=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    images = sorted(folder.glob(f"p{index}*.png"))
+    return images[0] if images else None
+
+
+def _scan_enough(text: str, pages_read: int) -> bool:
+    """Stop once the printed figures are in hand, and never past two pages."""
+    if pages_read >= _SCAN_MAX_PAGES:
+        return True
+    parsed = parse_certificate(text)
+    return bool(parsed.get("kwp") and parsed.get("modules"))
 
 
 def _ocr_image(path: Path) -> str:
@@ -668,23 +713,18 @@ def _ocr_image(path: Path) -> str:
 def _tesseract(image: Path) -> str:
     if shutil.which("tesseract") is None:
         return ""
-    out_base = Path(tempfile.gettempdir()) / f"mcs-ocr-{image.stem}"
     try:
-        subprocess.run(
-            ["tesseract", str(image), str(out_base), "--psm", "6", "--oem", "1", "-l", "eng"],
+        done = subprocess.run(
+            [
+                "tesseract", str(image), "stdout",
+                "--psm", "6", "--oem", "1", "-l", "eng",
+                "-c", "tessedit_do_invert=0",
+            ],
             check=False,
             capture_output=True,
-            timeout=120,
+            text=True,
+            timeout=45,
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""
-    text_path = Path(str(out_base) + ".txt")
-    try:
-        return text_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-    finally:
-        try:
-            text_path.unlink()
-        except OSError:
-            pass
+    return done.stdout or ""

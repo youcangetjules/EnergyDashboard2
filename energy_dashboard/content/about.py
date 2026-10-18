@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.509", "2026-10-18", [
+        "Reading a scanned MCS certificate uses the first two pages at a smaller picture size, so it finishes sooner. A digital PDF is still read as text.",
+    ]),
     ("2.9.508", "2026-10-18", [
         "A yellow Hegel button sits on the bottom bar, 30px to the left of Alarms — the same gap as between Alarms and Refresh Page. It opens the Hegel page.",
     ]),
