@@ -18,6 +18,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from energy_dashboard.common import *
+from energy_dashboard.ui.file_dialog import choose_open_file
 from energy_dashboard.plant.panel_catalog import list_panels, panel_by_id, panel_label
 
 _SETTINGS_KEY = "forecasts/roof_layout"
@@ -2742,7 +2743,7 @@ class RoofLayoutTab(QWidget):
             self._remove_plane()
 
     def _load_image(self):
-        path, _ = QFileDialog.getOpenFileName(
+        path = choose_open_file(
             self,
             "Load Google Earth screenshot",
             str(Path.home()),
@@ -2761,7 +2762,7 @@ class RoofLayoutTab(QWidget):
         self._update_summary()
 
     def _import_kml(self):
-        path, _ = QFileDialog.getOpenFileName(
+        path = choose_open_file(
             self,
             "Import Google Earth KML",
             str(Path.home()),

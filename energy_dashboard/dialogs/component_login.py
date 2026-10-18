@@ -12,6 +12,7 @@ from time import time as _now
 from zoneinfo import ZoneInfo
 
 from energy_dashboard.common import *
+from energy_dashboard.ui.file_dialog import choose_save_file
 
 from datetime import datetime as _datetime
 from energy_dashboard.ui.buttons import _apply_primary_button_style
@@ -791,7 +792,7 @@ class _DatabaseLogin(QWidget):
         return box
 
     def _browse(self, path_edit: QLineEdit) -> None:
-        path, _ = QFileDialog.getSaveFileName(
+        path = choose_save_file(
             self,
             "SQLite database file",
             path_edit.text(),

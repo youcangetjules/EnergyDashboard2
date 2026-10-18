@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-10-18 — File windows list memory sticks, and Cancel stays clear of the resize grip
+
+- **Context:** Upload and Save use Qt’s own file window. On Linux its Computer page only lists `/`, so a stick mounted under `/run/media` or `/media` was invisible. Cancel sits in the bottom-right and the window’s resize grip covered the corner of that button, so the border did not close.
+- **Decision:** `energy_dashboard/ui/file_dialog.py` is the file window for Open and Save. It adds those mounts to the left-hand list and as rows beside `/`. The button box is inset so Cancel clears the grip.
+- **Consequence:** Do not call `QFileDialog.getOpenFileName` or `getSaveFileName` directly. Do not treat `/` as the only drive. Do not put Cancel back on the window’s bottom-right corner.
+
 ### 2026-10-18 — String design checks a series count against typed inverter limits
 
 - **Context:** The householder wants to try string lengths (6 and 6, 7 and 5, and others) and see if that design stays inside the inverter’s voltage window. The inputs that matter are the panel datasheet and how many panels are in series. Measured volts must not be scaled to pass the check.

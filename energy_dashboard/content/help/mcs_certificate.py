@@ -14,6 +14,8 @@ date, and the installer. It is the record of the plant. It is not a
 live voltage, and the app does not scale any chart from it.</p>
 <p>
 <b>Upload certificate</b> copies a PDF or a photo into this app.
+The file window lists a memory stick on the left, and on Computer beside
+the system disk.
 The copy stays on this computer, under your PowerModel settings,
 and it is not part of the program files. <b>Open</b> shows that copy
 in your usual viewer. <b>Remove</b> deletes only the copy kept here.</p>

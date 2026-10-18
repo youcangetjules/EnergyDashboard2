@@ -4,6 +4,7 @@ Energy Dashboard — `tabs/parameters.py` (split from EnergyDashboard2.py).
 from __future__ import annotations
 
 from energy_dashboard.common import *
+from energy_dashboard.ui.file_dialog import choose_save_file
 from energy_dashboard.dialogs.about_history import AboutDialog, HistoryDialog
 from energy_dashboard.db.connect_probe import (
     probe_engine_stages,
@@ -4113,9 +4114,9 @@ class ParametersTab(QWidget):
             self.coral_status_label.setStyleSheet("color: #f38ba8; font-size: 11px;")
 
     def _browse_sqlite(self):
-        path, _ = QFileDialog.getSaveFileName(self, "SQLite database file",
-                                              self.ed_sqlite_path.text(),
-                                              "SQLite (*.db *.sqlite);;All (*)")
+        path = choose_save_file(self, "SQLite database file",
+                                self.ed_sqlite_path.text(),
+                                "SQLite (*.db *.sqlite);;All (*)")
         if path:
             self.ed_sqlite_path.setText(path)
 

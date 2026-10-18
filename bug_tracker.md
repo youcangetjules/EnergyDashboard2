@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-10-18 | 2 | 2 | 3 |
+| 2026-10-18 | 3 | 3 | 3 |
 | 2026-10-02 | 1 | 1 | 3 |
 | 2026-09-30 | 2 | 2 | 3 |
 | 2026-09-28 | 1 | 2 | 3 |
@@ -122,6 +122,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-087-20261018-03 — File window hides a memory stick and clips Cancel</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-10-18 11:54 (Europe/London) |
+| **Status** | fixed |
+| **Area** | File window (MCS certificate upload, and the other Open / Save windows) |
+| **Version found** | 2.9.504 |
+| **Version fixed** | 2.9.505 |
+
+**Symptom:** Upload certificate opened on Computer and the only drive listed was `/`. A memory stick that was plugged in did not appear. Cancel’s green border did not close at the bottom-right corner.
+
+**Cause:** On Linux that Computer page only knows the system disk, `/`. A stick mounted under `/run/media` is a separate drive and was never added. Cancel is the bottom-right button, and the window’s resize grip was drawn over its corner.
+
+**Resolution:** The file window lists those sticks on the left and on Computer next to `/`. The buttons sit further in from the corner so Cancel’s border can close.
 
 ### <span style="color:green">BUG-086-20261018-02 — String voltage treated a high reading as extra panels</span>
 

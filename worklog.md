@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-10-18
 
+### 12:15
+
+- The file window on Upload certificate (and the other Open and Save windows) was only listing the system disk, so a memory stick did not appear. It now shows that stick by its name, on the left and on Computer next to `/`. Cancel’s border was incomplete because the resize corner covered it. The buttons sit further in, so the border closes.
+
 ### 11:49
 
 - Physical Plant now has String design. A scenario is how many panels are in series on each string. It starts with 6 and 6, and with 7 and 5. For the panel in the database it works out the working voltage and the open-circuit voltage. You type the inverter’s lowest MPPT voltage, highest MPPT voltage, and maximum open-circuit voltage from its datasheet. A cold morning is checked only after you type the panel’s Voc temperature coefficient. The measured volts are left alone.

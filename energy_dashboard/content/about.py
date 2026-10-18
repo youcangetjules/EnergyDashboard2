@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.505", "2026-10-18", [
+        "The file window lists a memory stick as well as the system disk, and the Cancel button’s border closes instead of being covered by the resize corner.",
+    ]),
     ("2.9.504", "2026-10-18", [
         "String design tries series lengths, starting with 6 and 6 and with 7 and 5, and says whether that design stays inside the inverter voltage limits you type from the datasheet.",
     ]),

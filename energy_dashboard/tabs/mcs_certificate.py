@@ -13,7 +13,6 @@ from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtPdfWidgets import QPdfView
 from PySide6.QtWidgets import (
-    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -28,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from energy_dashboard.common import *
+from energy_dashboard.ui.file_dialog import choose_open_file
 from energy_dashboard.plant.mcs_certificate import (
     clear_certificate,
     load_record,
@@ -212,7 +212,7 @@ class McsCertificateTab(QWidget):
         self._touch()
 
     def _upload(self):
-        path, _ = QFileDialog.getOpenFileName(
+        path = choose_open_file(
             self,
             "MCS certificate",
             str(Path.home()),

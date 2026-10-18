@@ -4,6 +4,7 @@ Energy Dashboard — `tabs/export_tab.py` (split from EnergyDashboard2.py).
 from __future__ import annotations
 
 from energy_dashboard.common import *
+from energy_dashboard.ui.file_dialog import choose_save_file
 class ExportTab(QWidget):
     """Export a 30-min sliding-window snapshot to .xlsx.
 
@@ -470,7 +471,7 @@ class ExportTab(QWidget):
         default_name = (
             f"powermodel_export_{pd.Timestamp.now(tz='Europe/London'):%Y%m%d_%H%M}.xlsx"
         )
-        path, _ = QFileDialog.getSaveFileName(
+        path = choose_save_file(
             self, "Export 30-min sliding window to .xlsx",
             default_name, "Excel workbook (*.xlsx)",
         )

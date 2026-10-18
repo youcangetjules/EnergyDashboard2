@@ -4,6 +4,7 @@ Energy Dashboard — `tabs/octopus.py` (split from EnergyDashboard2.py).
 from __future__ import annotations
 
 from energy_dashboard.common import *
+from energy_dashboard.ui.file_dialog import choose_save_file
 
 _TREND_COLOUR = "#f9e2af"  # Catppuccin yellow — daily/weekly slope, not a 7-day avg
 
@@ -1185,7 +1186,7 @@ class OctopusTab(QWidget):
     def export_csv(self):
         if self.daily_totals is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export CSV", "energy_data.csv", "CSV files (*.csv)")
+        path = choose_save_file(self, "Export CSV", "energy_data.csv", "CSV files (*.csv)")
         if path:
             self.daily_totals.to_csv(path)
             self.set_status(f"Exported to {path}")
