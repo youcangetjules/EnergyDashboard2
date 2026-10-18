@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-10-18 — An uploaded MCS certificate is read, not only stored
+
+- **Context:** The certificate page kept a PDF or a photo and left the panel count, kilowatts, date, and installer for the householder to type. The certificate already prints those figures, and the product table lists each module on its own row.
+- **Decision:** Upload reads the file. A digital PDF is text. A scan or a photo is read with tesseract, off the interface thread. The page fills only figures that are printed, and says so in plain English. Mounting-rail rows are not panels. A scan whose row count disagrees with the printed kilowatts does not overwrite the panel total. The reading does not change measured volts, does not invent a 6-and-6 or 7-and-5 split, and does not write Vmp, Voc, or Imp.
+- **Consequence:** Do not treat a mounting kit as a module. Do not copy declared net capacity into the array kilowatts. Do not guess a string split from the module total.
+
 ### 2026-10-18 — File windows list memory sticks, and Cancel stays clear of the resize grip
 
 - **Context:** Upload and Save use Qt’s own file window. On Linux its Computer page only lists `/`, so a stick mounted under `/run/media` or `/media` was invisible. Cancel sits in the bottom-right and the window’s resize grip covered the corner of that button, so the border did not close.

@@ -35,6 +35,7 @@ def _blank() -> dict:
         "kwp": None,
         "commissioned": "",
         "installer": "",
+        "reading": "",
     }
 
 
@@ -67,6 +68,7 @@ def load_record() -> dict:
             rec["kwp"] = _num(data.get("kwp"))
             rec["commissioned"] = str(data.get("commissioned") or "")
             rec["installer"] = str(data.get("installer") or "")
+            rec["reading"] = str(data.get("reading") or "")
     path = stored_path(rec)
     if path is None:
         rec["filename"] = ""
@@ -84,6 +86,7 @@ def save_record(rec: dict) -> dict:
     clean["kwp"] = _num(rec.get("kwp"))
     clean["commissioned"] = str(rec.get("commissioned") or "").strip()
     clean["installer"] = str(rec.get("installer") or "").strip()
+    clean["reading"] = str(rec.get("reading") or "").strip()
     if stored_path(clean) is None:
         clean["filename"] = ""
         clean["stored_name"] = ""
@@ -135,6 +138,7 @@ def clear_certificate() -> dict:
     rec = load_record()
     rec["filename"] = ""
     rec["stored_name"] = ""
+    rec["reading"] = ""
     return save_record(rec)
 
 

@@ -6,6 +6,7 @@ installed plant. It is not used to scale live volts.
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QUrl, Qt
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from energy_dashboard.common import *
+from energy_dashboard.core.invoker import Invoker
 from energy_dashboard.ui.file_dialog import choose_open_file
 from energy_dashboard.plant.mcs_certificate import (
     clear_certificate,
@@ -35,6 +37,8 @@ from energy_dashboard.plant.mcs_certificate import (
     store_upload,
     stored_path,
 )
+from energy_dashboard.plant.mcs_read import add_catalog_note, fill_record, interpret
+from energy_dashboard.plant.panel_catalog import list_panels
 
 _LABEL_W = 160
 
@@ -47,6 +51,9 @@ class McsCertificateTab(QWidget):
         self.set_status = status_callback
         self.dash = dash
         self.on_data_updated = None
+        self._inv = Invoker(self)
+        self._reading = False
+        self._auto_read = False
         self._pdf = QPdfDocument(self)
         self.build_ui()
         self.reload()
@@ -59,7 +66,8 @@ class McsCertificateTab(QWidget):
         intro = QLabel(
             "The MCS certificate is the record of what was installed: "
             "the panels, the total power, and the installer. "
-            "Upload the PDF or a photo. The copy stays on this computer. "
+            "Upload the PDF or a photo. The app reads it and fills in the figures it prints. "
+            "The copy stays on this computer. "
             "It is not a live reading, and it is not a multiplier on string voltage."
         )
         intro.setWordWrap(True)
@@ -72,6 +80,12 @@ class McsCertificateTab(QWidget):
         self.btn_upload.setFixedWidth(160)
         self.btn_upload.setToolTip("Copy a PDF or a picture of the MCS certificate into this app.")
         self.btn_upload.clicked.connect(self._upload)
+        self.btn_read = QPushButton("Read certificate")
+        self.btn_read.setFixedWidth(160)
+        self.btn_read.setToolTip(
+            "Read the saved certificate and fill in the number, the panels, the kilowatts, the date, and the installer."
+        )
+        self.btn_read.clicked.connect(self._begin_read)
         self.btn_open = QPushButton("Open")
         self.btn_open.setFixedWidth(110)
         self.btn_open.setToolTip("Open the saved certificate in the usual viewer.")
@@ -80,7 +94,7 @@ class McsCertificateTab(QWidget):
         self.btn_remove.setFixedWidth(110)
         self.btn_remove.setToolTip("Remove the saved certificate file from this app.")
         self.btn_remove.clicked.connect(self._remove)
-        for btn in (self.btn_upload, self.btn_open, self.btn_remove):
+        for btn in (self.btn_upload, self.btn_read, self.btn_open, self.btn_remove):
             _apply_primary_button_style(btn)
             bar.addWidget(btn)
         bar.addStretch(1)
@@ -90,6 +104,16 @@ class McsCertificateTab(QWidget):
         self.lbl_file.setWordWrap(True)
         self.lbl_file.setStyleSheet(f"color: {_DARK_SUBTEXT}; font-size: 12px;")
         root.addWidget(self.lbl_file)
+
+        self.lbl_reading = QLabel("")
+        self.lbl_reading.setWordWrap(True)
+        self.lbl_reading.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.lbl_reading.setStyleSheet(
+            "color: #cdd6f4; font-size: 12px; "
+            "background: #181825; border: 1px solid #313244; border-radius: 6px; padding: 8px;"
+        )
+        self.lbl_reading.hide()
+        root.addWidget(self.lbl_reading)
 
         form = QVBoxLayout()
         form.setSpacing(6)
@@ -126,7 +150,7 @@ class McsCertificateTab(QWidget):
         save_row.setContentsMargins(_LABEL_W + 12, 0, 0, 0)
         self.btn_save = QPushButton("Save details")
         self.btn_save.setFixedWidth(130)
-        self.btn_save.setToolTip("Keep the figures you typed from the certificate.")
+        self.btn_save.setToolTip("Keep the figures. A read fills these from the certificate; you can still change them.")
         self.btn_save.clicked.connect(self._save_details)
         _apply_primary_button_style(self.btn_save)
         save_row.addWidget(self.btn_save)
@@ -173,7 +197,12 @@ class McsCertificateTab(QWidget):
         self.spin_kwp.setValue(float(rec["kwp"] or 0.0))
         self.ed_date.setText(rec.get("commissioned") or "")
         self.ed_installer.setText(rec.get("installer") or "")
+        reading = (rec.get("reading") or "").strip()
+        self.lbl_reading.setVisible(bool(reading) or self._reading)
+        if reading:
+            self.lbl_reading.setText(reading)
         path = stored_path(rec)
+        self.btn_read.setEnabled(path is not None and not self._reading)
         self.btn_open.setEnabled(path is not None)
         self.btn_remove.setEnabled(path is not None)
         if path is None:
@@ -228,10 +257,72 @@ class McsCertificateTab(QWidget):
         except OSError as exc:
             QMessageBox.warning(self, "MCS certificate", f"Could not keep that file.\n{exc}")
             return
-        save_record(self._details_from_form(rec))
+        save_record(rec)
         self.reload()
         if self.set_status:
             self.set_status(f"MCS certificate kept: {Path(path).name}")
+        self._touch()
+        self._begin_read()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._auto_read or self._reading:
+            return
+        rec = load_record()
+        if stored_path(rec) is None or (rec.get("reading") or "").strip():
+            return
+        self._auto_read = True
+        self._begin_read()
+
+    def _begin_read(self):
+        path = stored_path()
+        if path is None or self._reading:
+            return
+        self._reading = True
+        self.btn_read.setEnabled(False)
+        self.btn_upload.setEnabled(False)
+        self.lbl_reading.setText("Reading the certificate…")
+        self.lbl_reading.show()
+        if self.set_status:
+            self.set_status("Reading the MCS certificate…")
+
+        def work():
+            try:
+                result = interpret(path, progress=self._progress)
+            except Exception as exc:
+                result = {
+                    "ok": False,
+                    "text": f"The certificate could not be read.\n{exc}",
+                }
+            self._inv.invoke(lambda found=result: self._finish_read(found))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _progress(self, message: str):
+        self._inv.invoke(lambda text=message: self._show_progress(text))
+
+    def _show_progress(self, message: str):
+        if self._reading:
+            self.lbl_reading.setText(message)
+            self.lbl_reading.show()
+
+    def _finish_read(self, result: dict):
+        self._reading = False
+        self.btn_upload.setEnabled(True)
+        result = add_catalog_note(result, list_panels())
+        if result.get("ok"):
+            rec = fill_record(load_record(), result)
+            save_record(rec)
+        else:
+            rec = load_record()
+            rec["reading"] = result.get("text") or "The certificate could not be read."
+            save_record(rec)
+        self.reload()
+        if self.set_status:
+            if result.get("ok"):
+                self.set_status("MCS certificate read.")
+            else:
+                self.set_status("The certificate could not be interpreted.")
         self._touch()
 
     def _open_external(self):

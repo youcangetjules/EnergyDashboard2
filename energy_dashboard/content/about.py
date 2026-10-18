@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.506", "2026-10-18", [
+        "Uploading an MCS certificate reads it: the number, the panels, the kilowatts, the commissioning date, and the installer are filled from what the certificate prints.",
+    ]),
     ("2.9.505", "2026-10-18", [
         "The file window lists a memory stick as well as the system disk, and the Cancel button’s border closes instead of being covered by the resize corner.",
     ]),
