@@ -18,6 +18,8 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QSettings
 
+from energy_dashboard.plant.mcs_certificate import certificate_note
+
 _ROOF_KEY = "forecasts/roof_layout"
 _DARK_BELOW = 50.0
 _MIN_SAMPLES = 30
@@ -238,7 +240,12 @@ def _layout_sentence(verdicts: list[StringVerdict]) -> str:
     def word(ok):
         return "fits the measured volts" if ok else "does not fit the measured volts"
 
-    return f"A 6-and-6 pair {word(six)}. A 7-and-5 pair {word(seven)}."
+    return (
+        f"Against the measured volts, a 6-and-6 pair {word(six)}. "
+        f"A 7-and-5 pair {word(seven)}. "
+        "That check does not change how many panels are installed, "
+        "and it does not multiply the measured volts."
+    )
 
 
 def verdict_paragraph(verdicts: list[StringVerdict], *, recent: bool = True) -> str:
@@ -285,8 +292,12 @@ def verdict_paragraph(verdicts: list[StringVerdict], *, recent: bool = True) -> 
         face_bits = [_face_phrase(v.nominal) for v in verdicts]
         lines.append(
             "Roof layout says " + ", and ".join(face_bits) + ". "
-            "Panels in series add their voltages."
+            "Panels in series add their voltages. "
+            "That count is the installation. It is not worked out by dividing the measured volts."
         )
+        note = certificate_note()
+        if note:
+            lines.append(note)
     for verdict in verdicts:
         nom = verdict.nominal
         panel = nom.panel
@@ -309,25 +320,18 @@ def verdict_paragraph(verdicts: list[StringVerdict], *, recent: bool = True) -> 
             f"and the high end is {_fmt_v(verdict.high)}."
         )
         if verdict.saved_in_line:
-            lines.append(f"{expect} {measured} That is in line with {nom.count} panels.")
-        elif verdict.closest_count and verdict.closest_count != nom.count:
-            lines.append(
-                f"{expect} {measured} That is not {nom.count} panels. "
-                f"It matches {verdict.closest_count} of these panels "
-                f"(about {_fmt_v(series_vmp(verdict.closest_count, panel))} working, "
-                f"{_fmt_v(series_voc(verdict.closest_count, panel))} open-circuit)."
-            )
+            lines.append(f"{expect} {measured} That is in line with the {nom.count} panels on that string.")
         else:
             lines.append(
-                f"{expect} {measured} That does not sit on the {nom.count}-panel datasheet, "
-                "and no count from 1 to 16 holds both the middle and the high end."
+                f"{expect} {measured} Those measured volts sit off the datasheet for the "
+                f"{nom.count} panels on that string. The chart still shows the inverter's volts, "
+                "with no extra multiplier."
             )
     layout = _layout_sentence(verdicts)
     if layout:
         lines.append(layout)
     lines.append(
-        "Amber dashed lines are the roof datasheet. A dotted line is the count the "
-        "measured volts actually match. Neither line is a measurement. "
-        "Volts under 50 V are the dark string and are left out of this check."
+        "Amber dashed lines are the roof datasheet for the panels that are installed. "
+        "They are not a measurement. Volts under 50 V are the dark string and are left out of this check."
     )
     return " ".join(lines)

@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.502", "2026-10-18", [
+        "Physical Plant has an MCS certificate page. Upload keeps the PDF or photo on this computer, and you can type the panel count from it. String voltage no longer turns a high reading into a different panel count.",
+    ]),
     ("2.9.501", "2026-10-18", [
         "String voltage compares the measured volts with the panel datasheet and the roof counts, including 6-and-6 against 7-and-5. A gap in the log is left blank instead of a straight line to the next reading.",
     ]),

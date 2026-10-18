@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-10-18
 
+### 11:04
+
+- Physical Plant now has an MCS certificate page. Upload keeps a PDF or a photo of the certificate on this computer, and the panel count, kilowatts, date, and installer can be typed from it. That record is the installation. String voltage no longer says a high reading means a different number of panels, and it does not multiply the volts the inverter reported. The house is 12 panels, 6 and 6, which the certificate agrees with.
+
 ### 10:34
 
 - String voltage now sets the panel datasheet beside the measured line. The roof is 6 panels on string 1 and 6 on string 2 (5 and 1), all DAH DHM72x10, 550 W, 42.4 V at full power, 50.2 V open circuit, 12.97 A. Six of those should work near 254 V. The measured string 2 does. String 1 is much higher and matches about 9 of the same panel, so neither a 6-and-6 pair nor a 7-and-5 pair fits both strings. A hole in the log is left blank instead of a straight line down to the next reading.

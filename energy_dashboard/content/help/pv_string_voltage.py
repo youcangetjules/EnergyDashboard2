@@ -37,8 +37,9 @@ layout says how many panels are in series on each string, and Panel database
 holds that module’s rated power (Wp), its voltage at that power (Vmp), its
 open-circuit voltage (Voc), and its current at that power (Imp). A series
 string adds the voltages, so six panels at 42.4 V work near 254 V and sit
-near 301 V with almost no current. The page says whether that matches the
-measured volts, and whether a 6-and-6 pair or a 7-and-5 pair fits. Volts
-under 50 V are a dark string and are left out of that check. A dotted line,
-when you see one, is the panel count the measured volts actually match.</p>
+near 301 V with almost no current. The page says whether the measured volts
+sit on that installed count. It does not invent a different panel count,
+and it does not multiply the inverter's volts. The MCS certificate, when
+you have uploaded it, is the installation record. Volts under 50 V are a
+dark string and are left out of this check.</p>
 """

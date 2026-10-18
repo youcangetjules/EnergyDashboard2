@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-10-18 | 1 | 1 | 3 |
+| 2026-10-18 | 2 | 2 | 3 |
 | 2026-10-02 | 1 | 1 | 3 |
 | 2026-09-30 | 2 | 2 | 3 |
 | 2026-09-28 | 1 | 2 | 3 |
@@ -122,6 +122,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-086-20261018-02 — String voltage treated a high reading as extra panels</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-10-18 10:54 (Europe/London) |
+| **Status** | fixed |
+| **Area** | String voltage |
+| **Version found** | 2.9.501 |
+| **Version fixed** | 2.9.502 |
+
+**Symptom:** String 1's volts were described as a string of 9 panels, with a dotted line for that count. The installation is 12 panels, 6 and 6, and the MCS certificate agrees. It looked as if the chart had multiplied the reading.
+
+**Cause:** The page inferred a panel count from the measured volts and drew it as if it were the plant. No multiplier was applied to the stored volts. The inference was still the wrong thing to show.
+
+**Resolution:** The installed count stays the roof and the MCS certificate. A reading that sits off the datasheet is described as a reading. Physical Plant has a page to upload the certificate. The measured line is not rescaled.
 
 ### <span style="color:green">BUG-085-20261018-01 — String voltage draws a straight line across a gap</span>
 

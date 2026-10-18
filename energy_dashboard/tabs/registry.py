@@ -35,6 +35,7 @@ _MAIN_TAB_BAR_REGISTRY = (
     ("pot_issues", "pot_issues_tab", "  Potential Issues  ", "physical_plant", True),
     ("roof_layout", "roof_layout_tab", "  Roof layout  ", "physical_plant", False),
     ("panel_database", "panel_database_tab", "  Panel database  ", "physical_plant", False),
+    ("mcs_certificate", "mcs_certificate_tab", "  MCS certificate  ", "physical_plant", False),
     ("forecasts", "forecasts_tab", "  Forecasts  ", "forecasts", True),
     ("agile_prices", "agile_prices_tab", "  Agile Spot Prices  ", "forecasts", True),
     ("agile_year", "agile_year_tab", "  Agile Year  ", "forecasts", True),

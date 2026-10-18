@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-10-18 — The MCS certificate is the installed plant, not a voltage scale
+
+- **Context:** The house has 12 panels, and the MCS certificate agrees. String voltage had treated a high reading as a different panel count. That looked like the chart had multiplied the volts.
+- **Decision:** Physical Plant has an MCS certificate page. The file is copied onto this computer and is not part of the git tree. The panel count typed from the certificate is the installation record. String voltage keeps drawing the inverter's volts, and the amber lines stay the roof datasheet for the panels that are installed. A reading that sits off that datasheet is described as a reading, not as extra panels.
+- **Consequence:** Do not multiply vPv1 or vPv2 to land on the certificate. Do not replace the roof count with a count inferred from volts. Do not commit the certificate file.
+
 ### 2026-10-18 — String voltage shows the datasheet beside the measurement
 
 - **Context:** The string-voltage chart is measured MPPT volts only. The householder needs to see whether those volts match the panel datasheet (Wp, Vmp, Voc, Imp) and the series counts on the roof, including a 6-and-6 pair against a 7-and-5 pair. A gap in the log was being drawn as a straight line to the next point, including a later live 0 V.

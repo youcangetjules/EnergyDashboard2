@@ -94,17 +94,6 @@ def _datasheet_lines(verdicts):
             c = verdict.nominal.count
             lines.append((y_vmp, color, "--", f"String {n} roof {c} × Vmp ({y_vmp:.0f} V)"))
             lines.append((y_voc, color, "--", f"String {n} roof {c} × Voc ({y_voc:.0f} V)"))
-    for verdict in usable:
-        closest = verdict.closest_count
-        if verdict.saved_in_line or closest is None or closest == verdict.nominal.count:
-            continue
-        panel = verdict.nominal.panel
-        color = _COL_S1 if verdict.nominal.number == 1 else _COL_S2
-        y_vmp = series_vmp(closest, panel)
-        y_voc = series_voc(closest, panel)
-        n = verdict.nominal.number
-        lines.append((y_vmp, color, (0, (1, 1.2)), f"String {n} as {closest} × Vmp ({y_vmp:.0f} V)"))
-        lines.append((y_voc, color, (0, (1, 1.2)), f"String {n} as {closest} × Voc ({y_voc:.0f} V)"))
     return lines
 
 
