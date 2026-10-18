@@ -6,10 +6,15 @@ Blank voltage cells stay blank. Roof layout’s panel list reads this table.
 """
 from __future__ import annotations
 
+import threading
 import uuid
+from pathlib import Path
 
 from energy_dashboard.common import *
+from energy_dashboard.core.invoker import Invoker
+from energy_dashboard.plant.datasheet_read import read_datasheet
 from energy_dashboard.plant.panel_catalog import list_panels, save_panels
+from energy_dashboard.ui.file_dialog import choose_open_file
 
 _COLS = ("Maker", "Model", "Wp", "Vmp", "Voc", "Imp", "Width m", "Height m")
 _KEYS = ("maker", "model", "wp", "vmp", "voc", "imp", "w_m", "h_m")
@@ -42,6 +47,8 @@ class PanelDatabaseTab(QWidget):
         self.on_data_updated = None
         self._rows: list[dict] = []
         self._suppress = False
+        self._reading = False
+        self._inv = Invoker(self)
         self.build_ui()
         self.reload()
 
@@ -70,12 +77,19 @@ class PanelDatabaseTab(QWidget):
         self.btn_remove.setToolTip("Remove the selected module.")
         self.btn_remove.clicked.connect(self._remove_row)
         bar.addWidget(self.btn_remove)
+        self.btn_import = QPushButton("Import from Spec Sheet")
+        self.btn_import.setToolTip(
+            "Read a module datasheet, PDF or photo, and fill a row from what it prints. "
+            "A figure that is not on the sheet stays blank. Press Save to keep the row."
+        )
+        self.btn_import.clicked.connect(self._import_sheet)
+        bar.addWidget(self.btn_import)
         bar.addStretch(1)
         self.btn_save = QPushButton("Save")
         self.btn_save.setToolTip("Keep this list. Roof layout picks panels from it.")
         self.btn_save.clicked.connect(self.save)
         bar.addWidget(self.btn_save)
-        for btn in (self.btn_add, self.btn_remove, self.btn_save):
+        for btn in (self.btn_add, self.btn_remove, self.btn_import, self.btn_save):
             _apply_primary_button_style(btn)
         root.addLayout(bar)
 
@@ -165,6 +179,92 @@ class PanelDatabaseTab(QWidget):
         if 0 <= row < len(self._rows):
             del self._rows[row]
         self._fill()
+
+    def _import_sheet(self):
+        if self._reading:
+            return
+        path = choose_open_file(
+            self,
+            "Module spec sheet",
+            str(Path.home()),
+            "Spec sheet (*.pdf *.png *.jpg *.jpeg *.webp *.tif *.tiff)",
+        )
+        if not path:
+            return
+        self._reading = True
+        for btn in (self.btn_add, self.btn_remove, self.btn_import, self.btn_save):
+            btn.setEnabled(False)
+        self.lbl_detail.setText("Reading the spec sheet…")
+        if self.set_status:
+            self.set_status("Reading the module spec sheet…")
+
+        def work():
+            try:
+                result = read_datasheet(Path(path), progress=self._progress)
+            except Exception as exc:
+                result = {
+                    "ok": False,
+                    "note": f"The spec sheet could not be read.\n{exc}",
+                }
+            self._inv.invoke(lambda found=result: self._finish_import(found))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _progress(self, message: str):
+        self._inv.invoke(lambda text=message: self._show_progress(text))
+
+    def _show_progress(self, message: str):
+        if self._reading:
+            self.lbl_detail.setText(message)
+
+    def _finish_import(self, found: dict):
+        self._reading = False
+        for btn in (self.btn_add, self.btn_remove, self.btn_import, self.btn_save):
+            btn.setEnabled(True)
+        note = str(found.get("note") or "The spec sheet could not be read.")
+        self.lbl_detail.setText(note)
+        if self.set_status:
+            self.set_status(note.split("\n", 1)[0])
+        if not found.get("ok"):
+            return
+        self._rows = self._read_table()
+        index = self._place_sheet(found)
+        self._fill()
+        if 0 <= index < self.table.rowCount():
+            self.table.selectRow(index)
+        self.lbl_detail.setText(note)
+
+    def _place_sheet(self, found: dict) -> int:
+        model = str(found.get("model") or "").strip().lower()
+        index = None
+        if model:
+            for i, row in enumerate(self._rows):
+                if str(row.get("model") or "").strip().lower() == model:
+                    index = i
+                    break
+        if index is None:
+            self._rows.append({
+                "id": str(uuid.uuid4()),
+                "maker": "",
+                "model": "",
+                "wp": None,
+                "vmp": None,
+                "voc": None,
+                "imp": None,
+                "w_m": None,
+                "h_m": None,
+            })
+            index = len(self._rows) - 1
+        row = self._rows[index]
+        for key in _KEYS:
+            incoming = found.get(key)
+            if incoming in (None, ""):
+                continue
+            current = row.get(key)
+            if current not in (None, ""):
+                continue
+            row[key] = incoming
+        return index
 
     def save(self):
         self._rows = save_panels(self._read_table())

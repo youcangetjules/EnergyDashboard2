@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-10-18
 
+### 15:09
+
+- Panel database has an Import from Spec Sheet button. It reads a module datasheet, a normal PDF as text or a scan as a picture, and fills a row with the maker, model, watts, working voltage, open-circuit voltage, current, and size that the sheet actually prints. Anything the sheet does not print stays blank. Save is still what keeps the list.
+
 ### 13:27
 
 - Reading a scanned MCS certificate no longer walks every page of the scan. It reads the first two pages as a smaller picture, and stops after the first page when the kilowatts and the module are already there. A normal PDF with real text is still read as text, and the figures that are printed are the ones that get filled in.

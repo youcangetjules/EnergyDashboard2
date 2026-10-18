@@ -19,7 +19,13 @@ A blank is not stored as 0 V, and the live string voltage from the inverter
 is not copied into this table.</p>
 <p>
 <b>Add panel</b> starts a blank row. <b>Remove</b> deletes the selected
-row. <b>Save</b> keeps the list. Roof layout’s panel menu uses these rows,
+row. <b>Import from Spec Sheet</b> reads a module datasheet — a PDF, or a
+photo of the page — and fills a row from what that sheet prints: the maker,
+the model, the watts, Vmp, Voc, Imp, and the width and height. A figure that
+is not on the sheet stays blank. If that model is already in the list, only
+the empty cells are filled. A scan can take a little while; the line under
+the table says which page is being read. <b>Save</b> keeps the list. Roof
+layout’s panel menu uses these rows,
 so a face’s kilowatts follow the watts you typed here. Until you save your
 own list, the page shows the generic wattage presets Roof layout already used.</p>
 """
