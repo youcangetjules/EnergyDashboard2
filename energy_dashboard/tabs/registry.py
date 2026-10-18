@@ -15,6 +15,7 @@ _MAIN_TAB_GROUPS = (
     ("forecasts", "Energy Forecasts"),
     ("calculators", "Calculators"),
     ("controls", "Controls"),
+    ("hegel", "Hegel"),
 )
 
 # Main window tab bar:
@@ -58,7 +59,18 @@ _MAIN_TAB_BAR_REGISTRY = (
     ("bug_tracker", "bug_tracker_tab", "  Bug Tracker  ", "controls", False),
     (None, "parameters_tab", "  Setup & Info  ", "controls", False),
     ("license", "license_tab", "  License  ", "controls", False),
+    ("hegel", "hegel_tab", "  Hegel  ", "hegel", False),
 )
+
+# Pages that stay off the bar until Setup & Info ticks them.
+_MAIN_TAB_HIDDEN_BY_DEFAULT = frozenset({"hegel"})
+
+
+def main_tab_visible_default(key: str | None) -> bool:
+    """Unchecked on a new install. None means the page cannot be hidden."""
+    if key is None:
+        return True
+    return key not in _MAIN_TAB_HIDDEN_BY_DEFAULT
 
 
 def _main_tab_is_updateable(attr: str) -> bool:

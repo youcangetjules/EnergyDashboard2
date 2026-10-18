@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-10-18
 
+### 13:10
+
+- Hegel now has its own PostgreSQL database, named hegel, on the same server as the plant log. The plant log is left in its database. The database owner creates hegel with hegel_postgres.sql. The Hegel page stays off the tab bar until you tick it in Setup, and Check inventory is the only thing that opens that database. It does not look up PVOutput or any other site yet. Chinnor is stored as a 5 km circle. OX39 is only the name of the postcode district.
+
 ### 12:40
 
 - Uploading an MCS certificate now reads it. A normal PDF is read as text. A scan or a photo is read as a picture, which takes a minute or two, and the page stays usable while that happens. The number, the installer, the commissioning date, the kilowatts, and the modules are filled from what is printed. Mounting rails are not counted as panels. If a scan’s product table is only partly readable, the panel total is the printed kilowatts divided by the module wattage, and the page says so. The certificate does not say how the panels are split between the two strings, and it does not print the panel voltages, so those are left alone.

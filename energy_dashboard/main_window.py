@@ -38,6 +38,7 @@ from energy_dashboard.tabs.device_import_costs import DeviceImportCostsTab
 from energy_dashboard.tabs.export_tab import ExportTab
 from energy_dashboard.tabs.forecasts import ForecastsTab
 from energy_dashboard.tabs.growatt import GrowattTab, growatt_format_live_kw
+from energy_dashboard.tabs.hegel import HegelTab
 from energy_dashboard.tabs.grott_api_align import GrottApiAlignTab
 from energy_dashboard.tabs.grott_setup import GrottSetupTab
 from energy_dashboard.tabs.license import LicenseTab
@@ -476,10 +477,35 @@ class EnergyDashboard(QMainWindow):
             strip.set_active_group(group_id)
         self._rebuild_main_tab_bar()
 
+    def _sync_main_tab_group_visibility(self, settings):
+        """Hide a group whose pages are all unticked. Hegel starts that way."""
+        strip = getattr(self, "_tab_group_strip", None)
+        if strip is None:
+            return
+        visible = []
+        for key, _attr, _title, gid, _upd in _MAIN_TAB_BAR_REGISTRY:
+            if key is None:
+                shown = True
+            else:
+                shown = settings.value(
+                    f"tabs/visible/{key}",
+                    main_tab_visible_default(key),
+                    type=bool,
+                )
+            if shown and gid not in visible:
+                visible.append(gid)
+        for gid, _label in _MAIN_TAB_GROUPS:
+            strip.set_group_shown(gid, gid in visible)
+        active = getattr(self, "_active_tab_group", None)
+        if visible and active not in visible:
+            self._active_tab_group = visible[0]
+            strip.set_active_group(visible[0])
+
     def _rebuild_main_tab_bar(self):
         """Rebuild page tabs for the active group from registry + QSettings."""
         self._ensure_main_tab_group_strip()
         s = QSettings("PowerModel", "EnergyDashboard2")
+        self._sync_main_tab_group_visibility(s)
         group_id = getattr(self, "_active_tab_group", None)
         if not group_id:
             group_id = _MAIN_TAB_GROUPS[0][0]
@@ -499,7 +525,11 @@ class EnergyDashboard(QMainWindow):
                 if key is None:
                     visible = True
                 else:
-                    visible = s.value(f"tabs/visible/{key}", True, type=bool)
+                    visible = s.value(
+                        f"tabs/visible/{key}",
+                        main_tab_visible_default(key),
+                        type=bool,
+                    )
                 if visible:
                     w = getattr(self, attr)
                     bar.addTab(w, title)
@@ -908,6 +938,8 @@ class EnergyDashboard(QMainWindow):
         self.parameters_tab = ParametersTab(self)
 
         self.license_tab = LicenseTab()
+
+        self.hegel_tab = HegelTab(self)
 
         # GrottTab connects at construct time — re-apply after Setup has healed
         # empty grott_mqtt_host from EMQX / Tasmota MQTT credentials.

@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.507", "2026-10-18", [
+        "Hegel keeps a community energy inventory in its own PostgreSQL database, named hegel, separate from the plant log. The page stays hidden until you show it, and it does not search PVOutput or other sites.",
+    ]),
     ("2.9.506", "2026-10-18", [
         "Uploading an MCS certificate reads it: the number, the panels, the kilowatts, the commissioning date, and the installer are filled from what the certificate prints.",
     ]),

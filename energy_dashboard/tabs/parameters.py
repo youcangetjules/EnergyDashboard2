@@ -672,7 +672,9 @@ class ParametersTab(QWidget):
         rows_per_col = (n + _tab_cols - 1) // _tab_cols
         for idx, (key, title) in enumerate(_toggleable):
             cb = QCheckBox(title.strip())
-            cb.setChecked(s_vis.value(f"tabs/visible/{key}", True, type=bool))
+            cb.setChecked(s_vis.value(
+                f"tabs/visible/{key}", main_tab_visible_default(key), type=bool,
+            ))
             self._tab_visibility_checks[key] = cb
             row = idx % rows_per_col
             col = idx // rows_per_col

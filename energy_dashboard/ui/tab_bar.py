@@ -80,6 +80,12 @@ class MainTabGroupStrip(QWidget):
             btn.blockSignals(False)
         return group_id
 
+    def set_group_shown(self, group_id, shown):
+        """Hide a group button when that group has no visible pages."""
+        btn = self._buttons.get(group_id)
+        if btn is not None:
+            btn.setVisible(bool(shown))
+
     def active_group(self):
         for gid, btn in self._buttons.items():
             if btn.isChecked():
