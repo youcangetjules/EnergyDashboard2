@@ -12,6 +12,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-10-18
+
+### 10:34
+
+- String voltage now sets the panel datasheet beside the measured line. The roof is 6 panels on string 1 and 6 on string 2 (5 and 1), all DAH DHM72x10, 550 W, 42.4 V at full power, 50.2 V open circuit, 12.97 A. Six of those should work near 254 V. The measured string 2 does. String 1 is much higher and matches about 9 of the same panel, so neither a 6-and-6 pair nor a 7-and-5 pair fits both strings. A hole in the log is left blank instead of a straight line down to the next reading.
+
 ## 2026-10-02
 
 ### 00:29

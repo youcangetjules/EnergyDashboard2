@@ -27,6 +27,18 @@ line is hidden then.</p>
 Samples are 2-minute lots in <code>pv_string_voltage</code>. A lot is
 written while the dashboard is open and Growatt Live Status has a reading.
 Days before that logging started are empty. A missing string is left blank.
-It is not stored as 0 V. On PostgreSQL the table has to be created by the
+It is not stored as 0 V. A gap of more than a few minutes is left blank on
+the chart as well, so the line is not drawn straight across the hole to the
+next reading. On PostgreSQL the table has to be created by the
 Setup script, run as the database owner.</p>
+<p>
+The amber dashed lines are the panel datasheet, not a measurement. Roof
+layout says how many panels are in series on each string, and Panel database
+holds that module’s rated power (Wp), its voltage at that power (Vmp), its
+open-circuit voltage (Voc), and its current at that power (Imp). A series
+string adds the voltages, so six panels at 42.4 V work near 254 V and sit
+near 301 V with almost no current. The page says whether that matches the
+measured volts, and whether a 6-and-6 pair or a 7-and-5 pair fits. Volts
+under 50 V are a dark string and are left out of that check. A dotted line,
+when you see one, is the panel count the measured volts actually match.</p>
 """

@@ -46,6 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
+| 2026-10-18 | 1 | 1 | 3 |
 | 2026-10-02 | 1 | 1 | 3 |
 | 2026-09-30 | 2 | 2 | 3 |
 | 2026-09-28 | 1 | 2 | 3 |
@@ -121,6 +122,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-085-20261018-01 — String voltage draws a straight line across a gap</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-10-18 10:18 (Europe/London) |
+| **Status** | fixed |
+| **Area** | String voltage |
+| **Version found** | 2.9.500 |
+| **Version fixed** | 2.9.501 |
+
+**Symptom:** The string-voltage chart showed a flat stretch and then a straight fall to 0 V at the now line, as if the afternoon had not been logged.
+
+**Cause:** The chart joined every point with one stroke, including a live reading hours after the last stored lot. That stroke is not a measurement.
+
+**Resolution:** A gap longer than five minutes breaks the line. The page also sets the panel datasheet (roof count times Vmp and Voc) beside the measured volts and says whether 6-and-6 or 7-and-5 matches. The measured series is not rescaled.
 
 ### <span style="color:green">BUG-084-20261002-01 — Dashboard dies while loading saved alarm rules</span>
 

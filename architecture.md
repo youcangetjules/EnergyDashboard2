@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-10-18 — String voltage shows the datasheet beside the measurement
+
+- **Context:** The string-voltage chart is measured MPPT volts only. The householder needs to see whether those volts match the panel datasheet (Wp, Vmp, Voc, Imp) and the series counts on the roof, including a 6-and-6 pair against a 7-and-5 pair. A gap in the log was being drawn as a straight line to the next point, including a later live 0 V.
+- **Decision:** Physical Plant → String voltage reads the roof counts and the panel catalogue and draws those nominal voltages as labelled lines. The measured series is unchanged. Samples under 50 V are the dark string and stay out of the comparison. A hole longer than five minutes breaks the stroke. The nominal lines are not written back into Vmp, and they are not stored as measurements.
+- **Consequence:** Do not rescale vPv1 or vPv2 to land on the datasheet. Do not fill a blank Vmp from the live volts. Do not join the stroke across a gap.
+
 ### 2026-10-01 — Alarms are a SCADA list
 
 - **Context:** The Alarms page showed each alarm as a paragraph. There was no way to say you had seen it, or to shelf one that should stop repeating.

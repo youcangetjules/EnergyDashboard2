@@ -17,6 +17,13 @@ from PySide6.QtCore import QDate
 
 from energy_dashboard.common import *
 from energy_dashboard.db.pv_string_voltage import query_pv_string_voltage
+from energy_dashboard.plant.string_nominal import (
+    judge_string,
+    load_string_nominals,
+    series_vmp,
+    series_voc,
+    verdict_paragraph,
+)
 from energy_dashboard.tabs.pv_string_charge import (
     _LondonDayPicker,
     _aware_utc,
@@ -27,11 +34,78 @@ from energy_dashboard.tabs.pv_string_charge import (
 _COL_S1 = "#89b4fa"
 _COL_S2 = "#a6e3a1"
 _COL_NOW = "#94e2d5"
+_COL_SHEET = "#f9e2af"
+# One missed 2-minute lot still joins. A longer hole is left blank.
+_GAP = timedelta(minutes=5)
 _MODE_TODAY = 0
 _MODE_ROLLING = 1
 # 22:00 on a midnight-to-midnight chart is 22/24 of the width.
 _ROLL_BEHIND = timedelta(hours=22)
 _ROLL_AHEAD = timedelta(hours=2)
+
+
+def _break_gaps(times, v1, v2):
+    """Drop the stroke across a hole so two distant readings are not joined."""
+    if len(times) < 2:
+        return times, v1, v2
+    out_t = [times[0]]
+    out_1 = [v1[0]]
+    out_2 = [v2[0]]
+    for i in range(1, len(times)):
+        if times[i] - times[i - 1] > _GAP:
+            out_t.append(times[i])
+            out_1.append(float("nan"))
+            out_2.append(float("nan"))
+        out_t.append(times[i])
+        out_1.append(v1[i])
+        out_2.append(v2[i])
+    return out_t, out_1, out_2
+
+
+def _datasheet_lines(verdicts):
+    """Horizontal datasheet marks. Amber is the roof count. Dotted is a closer count."""
+    usable = []
+    for verdict in verdicts or []:
+        panel = verdict.nominal.panel
+        if panel is None or not panel.usable() or verdict.nominal.count <= 0:
+            continue
+        usable.append(verdict)
+    lines = []
+    saved = {}
+    for verdict in usable:
+        panel = verdict.nominal.panel
+        key = (
+            round(series_vmp(verdict.nominal.count, panel), 1),
+            round(series_voc(verdict.nominal.count, panel), 1),
+        )
+        saved.setdefault(key, []).append(verdict)
+    if len(saved) == 1:
+        (y_vmp, y_voc), group = next(iter(saved.items()))
+        count = group[0].nominal.count
+        lines.append((y_vmp, _COL_SHEET, "--", f"Roof {count} × Vmp ({y_vmp:.0f} V)"))
+        lines.append((y_voc, _COL_SHEET, "--", f"Roof {count} × Voc ({y_voc:.0f} V)"))
+    else:
+        for verdict in usable:
+            panel = verdict.nominal.panel
+            color = _COL_S1 if verdict.nominal.number == 1 else _COL_S2
+            y_vmp = series_vmp(verdict.nominal.count, panel)
+            y_voc = series_voc(verdict.nominal.count, panel)
+            n = verdict.nominal.number
+            c = verdict.nominal.count
+            lines.append((y_vmp, color, "--", f"String {n} roof {c} × Vmp ({y_vmp:.0f} V)"))
+            lines.append((y_voc, color, "--", f"String {n} roof {c} × Voc ({y_voc:.0f} V)"))
+    for verdict in usable:
+        closest = verdict.closest_count
+        if verdict.saved_in_line or closest is None or closest == verdict.nominal.count:
+            continue
+        panel = verdict.nominal.panel
+        color = _COL_S1 if verdict.nominal.number == 1 else _COL_S2
+        y_vmp = series_vmp(closest, panel)
+        y_voc = series_voc(closest, panel)
+        n = verdict.nominal.number
+        lines.append((y_vmp, color, (0, (1, 1.2)), f"String {n} as {closest} × Vmp ({y_vmp:.0f} V)"))
+        lines.append((y_voc, color, (0, (1, 1.2)), f"String {n} as {closest} × Voc ({y_voc:.0f} V)"))
+    return lines
 
 
 def _volts(val):
@@ -56,6 +130,8 @@ class PvStringVoltageTab(QWidget):
         self.set_status = status_callback
         self.on_data_updated = None
         self._lots = deque()
+        self._verdict_cache = []
+        self._verdict_recent = False
         self._view_day = _london_today()
         self._pinned_day = False
         self._live = (None, None)
@@ -274,6 +350,7 @@ class PvStringVoltageTab(QWidget):
         for row in rows:
             self._lots.append(row)
         self._read_live()
+        self._refresh_verdicts()
         if self._rolling():
             label = "the rolling 24 h"
         elif self._viewing_today():
@@ -300,6 +377,37 @@ class PvStringVoltageTab(QWidget):
         if v is None:
             return "—"
         return f"{v:.0f} V"
+
+    def _refresh_verdicts(self):
+        """Compare the datasheet with about a fortnight of stored volts.
+
+        One morning on the chart is not enough to decide the panel count.
+        If that history cannot be read, the lots on screen are used instead.
+        """
+        rows = list(self._lots)
+        self._verdict_recent = False
+        if self.data_logger is not None:
+            end = datetime.now(timezone.utc)
+            start = end - timedelta(days=14)
+            try:
+                fetched = query_pv_string_voltage(
+                    self.data_logger,
+                    start_utc=start,
+                    end_utc=end,
+                )
+            except Exception:
+                fetched = []
+            if fetched:
+                rows = fetched
+                self._verdict_recent = True
+        by = {}
+        for row in rows:
+            by.setdefault(1, []).append(row.get("v1"))
+            by.setdefault(2, []).append(row.get("v2"))
+        self._verdict_cache = [
+            judge_string(nominal, by.get(nominal.number, []))
+            for nominal in load_string_nominals()
+        ]
 
     def _paint_cards(self):
         s1 = self._series_stats("v1")
@@ -351,17 +459,24 @@ class PvStringVoltageTab(QWidget):
                 times.append(now)
                 v1.append(live1)
                 v2.append(live2)
+        verdicts = self._verdict_cache
+        times, v1, v2 = _break_gaps(times, v1, v2)
         if times:
             ax.plot(times, v1, color=_COL_S1, linewidth=1.4, label="String 1")
             ax.plot(times, v2, color=_COL_S2, linewidth=1.4, label="String 2")
-            finite = [v for v in v1 + v2 if v is not None]
-            peak = max(finite) if finite else 0.0
+        refs = _datasheet_lines(verdicts)
+        for y, color, style, label in refs:
+            ax.axhline(y, color=color, linestyle=style, linewidth=1.0, label=label, zorder=2)
+        finite = [v for v in v1 + v2 if v is not None and v == v]
+        ref_ys = [y for y, *_rest in refs]
+        if finite or ref_ys:
+            peak = max(finite + ref_ys) if (finite or ref_ys) else 0.0
             ax.set_ylim(0.0, max(10.0, peak * 1.12))
             ax.legend(
                 loc="upper left", fontsize=8, framealpha=0.6,
                 facecolor=_DARK_FACE, edgecolor=_DARK_GRID, labelcolor=_DARK_TEXT,
             )
-        else:
+        if not times:
             ax.text(
                 0.5, 0.5,
                 "No stored voltage in this window" if self._rolling()
@@ -369,7 +484,8 @@ class PvStringVoltageTab(QWidget):
                 ha="center", va="center", transform=ax.transAxes,
                 color=_DARK_SUBTEXT, fontsize=11,
             )
-            ax.set_ylim(0.0, 10.0)
+            if not ref_ys:
+                ax.set_ylim(0.0, 10.0)
         import matplotlib.dates as mdates
         ax.set_xlim(start, end)
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=london))
@@ -395,13 +511,19 @@ class PvStringVoltageTab(QWidget):
             self.lbl_detail.setText(
                 f"{len(self._lots)} stored lot(s) from 22 hours ago up to now. "
                 "The chart runs two hours past now, so the teal line sits where "
-                "22:00 sits on a day chart. A missing string is left blank, not 0 V."
+                "22:00 sits on a day chart. A missing string is left blank, not 0 V. "
+                "A gap longer than a few minutes is left blank too."
             )
         else:
             self.lbl_detail.setText(
                 f"{len(self._lots)} stored lot(s). Each point is the average "
-                "volts in that 2-minute slot. A missing string is left blank, not 0 V."
+                "volts in that 2-minute slot. A missing string is left blank, not 0 V. "
+                "A gap longer than a few minutes is left blank too, so the line is not "
+                "drawn across the hole."
             )
+        nominal = verdict_paragraph(verdicts, recent=self._verdict_recent)
+        if nominal:
+            self.lbl_detail.setText(self.lbl_detail.text() + "\n" + nominal)
         self.lbl_updated.setText(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
 
     def _label_beside_now(self, ax, now, day_end, v1, v2):
@@ -410,7 +532,7 @@ class PvStringVoltageTab(QWidget):
         for values, color in ((v1, _COL_S1), (v2, _COL_S2)):
             reading = None
             for item in reversed(values):
-                if item is not None:
+                if item is not None and item == item:
                     reading = item
                     break
             if reading is not None:
