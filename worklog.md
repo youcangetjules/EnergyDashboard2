@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-10-18
 
+### 11:49
+
+- Physical Plant now has String design. A scenario is how many panels are in series on each string. It starts with 6 and 6, and with 7 and 5. For the panel in the database it works out the working voltage and the open-circuit voltage. You type the inverter’s lowest MPPT voltage, highest MPPT voltage, and maximum open-circuit voltage from its datasheet. A cold morning is checked only after you type the panel’s Voc temperature coefficient. The measured volts are left alone.
+
 ### 11:32
 
 - The Close button at the bottom right now offers three choices. Minimise hides the window and leaves the energy-collector daemon running. Restart restarts that daemon and then the app. Close stops the daemon and quits the app. If the daemon cannot be stopped or restarted, the app stays open.

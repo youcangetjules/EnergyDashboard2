@@ -47,6 +47,7 @@ from energy_dashboard.tabs.optimiser import OptimiserTab
 from energy_dashboard.tabs.pot_issues import PotIssuesTab
 from energy_dashboard.tabs.pv_string_charge import PvStringChargeTab
 from energy_dashboard.tabs.pv_string_voltage import PvStringVoltageTab
+from energy_dashboard.tabs.string_design import StringDesignTab
 from energy_dashboard.tabs.panel_database import PanelDatabaseTab
 from energy_dashboard.tabs.mcs_certificate import McsCertificateTab
 from energy_dashboard.tabs.roof_layout import RoofLayoutTab
@@ -777,6 +778,10 @@ class EnergyDashboard(QMainWindow):
         )
         self.pv_string_voltage_tab.on_data_updated = (
             lambda: self.mark_tab_fresh(self.pv_string_voltage_tab)
+        )
+        self.string_design_tab = StringDesignTab(self.set_status, dash=self)
+        self.string_design_tab.on_data_updated = (
+            lambda: self.mark_tab_fresh(self.string_design_tab)
         )
 
         self.combined_tab = CombinedTab(self.growatt_tab, self.octopus_tab, self.set_status)

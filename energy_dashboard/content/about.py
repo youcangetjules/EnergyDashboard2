@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.504", "2026-10-18", [
+        "String design tries series lengths, starting with 6 and 6 and with 7 and 5, and says whether that design stays inside the inverter voltage limits you type from the datasheet.",
+    ]),
     ("2.9.503", "2026-10-18", [
         "The bottom-right Close button asks whether to minimise and leave the system daemon running, restart the app and the daemon, or close the app and stop the daemon.",
     ]),

@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-10-18 — String design checks a series count against typed inverter limits
+
+- **Context:** The householder wants to try string lengths (6 and 6, 7 and 5, and others) and see if that design stays inside the inverter’s voltage window. The inputs that matter are the panel datasheet and how many panels are in series. Measured volts must not be scaled to pass the check.
+- **Decision:** Physical Plant → String design calculates N times Vmp and N times Voc for each scenario. Inverter limits (MPPT lowest, MPPT highest, maximum open-circuit) stay blank until typed from the inverter datasheet. A cold-morning check runs only when the panel’s Voc temperature coefficient and a cell temperature are typed. The page does not read or rewrite `vPv1` / `vPv2`.
+- **Consequence:** Do not fill a blank inverter limit from a guessed model. Do not treat a design as safe on a cold morning until the coefficient is present. Do not copy the result onto the measured string-voltage chart.
+
 ### 2026-10-18 — Close asks whether the daemon should stay
 
 - **Context:** The bottom-right Close button hid the window and left the energy-collector daemon running. There was no choice on that button to restart both, or to stop the daemon as well.
