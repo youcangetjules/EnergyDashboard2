@@ -77,6 +77,29 @@ _ALARMS_BTN_QSS = (
     "}"
 )
 
+# Bottom-bar Hegel only. Same footprint as Alarms, yellow fill, dark text.
+_BTN_HEGEL_BG = "#f9e2af"
+_BTN_HEGEL_BG_HOVER = "#ffe9a8"
+_BTN_HEGEL_BG_PRESS = "#e6cf8a"
+_HEGEL_BTN_QSS = (
+    "QPushButton {"
+    f"  background-color: {_BTN_HEGEL_BG};"
+    "  color: #1e1e2e;"
+    "  border: 1px solid rgba(249, 226, 175, 220);"
+    "  border-radius: 3px;"
+    "  padding: 4px 14px;"
+    "  font-weight: normal;"
+    "}"
+    "QPushButton:hover {"
+    f"  background-color: {_BTN_HEGEL_BG_HOVER};"
+    "  color: #1e1e2e;"
+    "}"
+    "QPushButton:pressed {"
+    f"  background-color: {_BTN_HEGEL_BG_PRESS};"
+    "  padding-top: 5px; padding-bottom: 3px; padding-left: 13px; padding-right: 13px;"
+    "}"
+)
+
 # Live-banner auto-refresh cycle pill (two-line status, same green motif).
 _BANNER_REFRESH_CYCLE_QSS = (
     "QFrame#bannerRefreshCyclePill {"

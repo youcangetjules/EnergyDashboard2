@@ -719,7 +719,7 @@ class EnergyDashboard(QMainWindow):
         # ── Bottom-right action cluster ────────────────────────────────
         # addPermanentWidget appends to the right-hand group in
         # left-to-right order:
-        # [ Alarms ] 30px [ Refresh Page ] [ Refresh All ] [ Help ] [ Close ]
+        # [ Hegel ] 30px [ Alarms ] 30px [ Refresh Page ] [ Refresh All ] [ Help ] [ Close ]
         # Machine CPU / RAM / DB ingest live in the two-line strip above this bar.
         _ACTION_BTN_WIDTH = 110
 
@@ -730,6 +730,17 @@ class EnergyDashboard(QMainWindow):
         )
         refresh_page_btn.setFixedWidth(_ACTION_BTN_WIDTH)
         refresh_page_btn.clicked.connect(self._refresh_current_tab)
+
+        hegel_btn = QPushButton("Hegel")
+        hegel_btn.setToolTip(
+            "Open the Hegel page: the community energy inventory for Chinnor. "
+            "It does not search other sites until you ask."
+        )
+        hegel_btn.setFixedWidth(_ACTION_BTN_WIDTH)
+        hegel_btn.setProperty(PRIMARY_BUTTON_EXEMPT, True)
+        hegel_btn.setStyleSheet(_HEGEL_BTN_QSS)
+        hegel_btn.clicked.connect(self._show_hegel_page)
+        self._hegel_btn = hegel_btn
 
         alarms_btn = QPushButton("Alarms (0)")
         alarms_btn.setToolTip(
@@ -746,6 +757,8 @@ class EnergyDashboard(QMainWindow):
         refresh_pair_row = QHBoxLayout(refresh_pair)
         refresh_pair_row.setContentsMargins(0, 0, 0, 0)
         refresh_pair_row.setSpacing(0)
+        refresh_pair_row.addWidget(hegel_btn)
+        refresh_pair_row.addSpacing(30)
         refresh_pair_row.addWidget(alarms_btn)
         refresh_pair_row.addSpacing(30)
         refresh_pair_row.addWidget(refresh_page_btn)
@@ -2250,6 +2263,24 @@ class EnergyDashboard(QMainWindow):
             self._show_alarms_page()
             return True
         return super().eventFilter(obj, event)
+
+    def _show_hegel_page(self):
+        """Open Hegel. The yellow button is the instruction to show that page."""
+        page = getattr(self, "hegel_tab", None)
+        if page is None:
+            return
+        settings = QSettings("PowerModel", "EnergyDashboard2")
+        if not settings.value("tabs/visible/hegel", main_tab_visible_default("hegel"), type=bool):
+            settings.setValue("tabs/visible/hegel", True)
+            try:
+                settings.sync()
+            except Exception:
+                pass
+            checks = getattr(getattr(self, "parameters_tab", None), "_tab_visibility_checks", None)
+            box = checks.get("hegel") if isinstance(checks, dict) else None
+            if box is not None:
+                box.setChecked(True)
+        self.show_main_page(page)
 
     def _show_alarms_page(self):
         """Open the Alarms page in Dashboards (replaces the old popup)."""
