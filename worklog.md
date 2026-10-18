@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-10-18
 
+### 11:32
+
+- The Close button at the bottom right now offers three choices. Minimise hides the window and leaves the energy-collector daemon running. Restart restarts that daemon and then the app. Close stops the daemon and quits the app. If the daemon cannot be stopped or restarted, the app stays open.
+
 ### 11:04
 
 - Physical Plant now has an MCS certificate page. Upload keeps a PDF or a photo of the certificate on this computer, and the panel count, kilowatts, date, and installer can be typed from it. That record is the installation. String voltage no longer says a high reading means a different number of panels, and it does not multiply the volts the inverter reported. The house is 12 panels, 6 and 6, which the certificate agrees with.

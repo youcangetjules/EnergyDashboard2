@@ -166,6 +166,8 @@ class EnergyDashboard(QMainWindow):
         self.alarm_monitor = AlarmMonitor()
         self._alarm_tray = None
         self._tray_quit = False
+        self._restart_after_quit = False
+        self._restart_hooked = False
         self._tray_hide_hinted = False
         self._tray_broker_status = None
         self._tray_broker_busy = False
@@ -737,9 +739,14 @@ class EnergyDashboard(QMainWindow):
         self.status_bar.addPermanentWidget(help_btn)
 
         close_btn = QPushButton("Close")
-        close_btn.setToolTip("Close the dashboard window")
-        close_btn.clicked.connect(self.close)
+        close_btn.setToolTip(
+            "Minimise the app and leave the system daemon running, "
+            "restart both, or close the app and stop the daemon."
+        )
+        close_btn.clicked.connect(self._show_close_menu)
         close_btn.setFixedWidth(_ACTION_BTN_WIDTH)
+        self._close_btn = close_btn
+        self._close_action_busy = False
         self.status_bar.addPermanentWidget(close_btn)
 
         # ── Main tabs: construct in dependency order; add in grouped order below.
@@ -1794,6 +1801,126 @@ class EnergyDashboard(QMainWindow):
     def _tray_show_alarms(self):
         self._tray_ensure_visible()
         self._show_alarms_page()
+
+    def _show_close_menu(self):
+        """Three ways to leave, anchored on the bottom-right Close button."""
+        if self._close_action_busy:
+            return
+        from PySide6.QtCore import QPoint
+
+        from energy_dashboard.ui.tray_icon import style_tray_info
+
+        menu = QMenu(self._close_btn)
+        menu.addAction(
+            "Close (Minimise App) — System Daemon remains running",
+            self._close_minimise,
+        )
+        menu.addAction(
+            "Restart App and System Daemon",
+            self._close_restart_both,
+        )
+        menu.addAction(
+            "Close App and System Daemon",
+            self._close_stop_both,
+        )
+        style_tray_info(menu)
+        menu.adjustSize()
+        hint = menu.sizeHint()
+        pos = self._close_btn.mapToGlobal(
+            QPoint(self._close_btn.width() - hint.width(), -hint.height())
+        )
+        menu.exec(pos)
+
+    def _close_minimise(self):
+        """Hide the window. The energy-collector daemon is left running."""
+        self.close()
+
+    def _close_restart_both(self):
+        self._close_with_daemon("restart")
+
+    def _close_stop_both(self):
+        self._close_with_daemon("stop")
+
+    def _close_with_daemon(self, action: str):
+        if self._close_action_busy:
+            return
+        self._close_action_busy = True
+        self._close_btn.setEnabled(False)
+        if action == "restart":
+            self.set_status("Restarting the system daemon, then the app…")
+        else:
+            self.set_status("Stopping the system daemon, then closing the app…")
+
+        def work():
+            from energy_dashboard.services.systemd_status import (
+                collect_collector_service_status,
+                control_collector_service,
+            )
+            url = ""
+            try:
+                url = self.parameters_tab.ed_broker_url.text().strip()
+            except Exception:
+                url = ""
+            try:
+                status = collect_collector_service_status(url or None)
+                installed = any(
+                    (status.get(key) or {}).get("installed")
+                    for key in ("system_unit", "user_unit")
+                )
+                if not installed:
+                    ok, msg, missing = True, "", True
+                else:
+                    ok, msg = control_collector_service(action, status)
+                    missing = False
+            except Exception as exc:
+                ok, msg, missing = False, str(exc), False
+            self._tray_inv.invoke(
+                lambda o=ok, m=msg, a=action, miss=missing: self._close_daemon_done(a, o, m, miss)
+            )
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _close_daemon_done(self, action: str, ok: bool, msg: str, missing: bool = False):
+        self._close_action_busy = False
+        self._close_btn.setEnabled(True)
+        if not ok:
+            self.set_status(msg or "The system daemon did not change.")
+            QMessageBox.warning(
+                self,
+                "System daemon",
+                msg or "The energy-collector daemon did not change, so the app was left open.",
+            )
+            return
+        if action == "stop":
+            self._tray_quit_app()
+            return
+        if missing:
+            QMessageBox.information(
+                self,
+                "System daemon",
+                "The system daemon is not installed, so only the app will restart.",
+            )
+        elif msg:
+            self.set_status(msg)
+        self._quit_and_restart()
+
+    def _quit_and_restart(self):
+        self._restart_after_quit = True
+        self._tray_quit = True
+        app = QApplication.instance()
+        if app is not None and not getattr(self, "_restart_hooked", False):
+            app.aboutToQuit.connect(self._exec_dashboard_restart)
+            self._restart_hooked = True
+        if app is not None:
+            app.quit()
+
+    def _exec_dashboard_restart(self):
+        import os
+
+        from energy_dashboard.app_entry import dashboard_restart_argv
+
+        argv = dashboard_restart_argv()
+        os.execv(argv[0], argv)
 
     def _tray_quit_app(self):
         self._tray_quit = True

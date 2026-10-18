@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.503", "2026-10-18", [
+        "The bottom-right Close button asks whether to minimise and leave the system daemon running, restart the app and the daemon, or close the app and stop the daemon.",
+    ]),
     ("2.9.502", "2026-10-18", [
         "Physical Plant has an MCS certificate page. Upload keeps the PDF or photo on this computer, and you can type the panel count from it. String voltage no longer turns a high reading into a different panel count.",
     ]),

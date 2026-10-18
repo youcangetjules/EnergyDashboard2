@@ -42,6 +42,7 @@ Every ordinary `QPushButton` uses the **muted green** motif (same as “Refresh 
 **Do**
 
 - Use primary green for Save, Fetch, Test, Apply, Refresh, Close on action rows.
+- The bottom-right **Close** button stays that green button. It opens three choices: minimise the app and leave the system daemon running, restart the app and the daemon, or close the app and stop the daemon. Do not turn Close into a single quit.
 - Keep button width fixed when aligning under a spin (often `130` or `110` px) so a row of Save + Test looks even.
 
 **Do not**

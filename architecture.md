@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-10-18 — Close asks whether the daemon should stay
+
+- **Context:** The bottom-right Close button hid the window and left the energy-collector daemon running. There was no choice on that button to restart both, or to stop the daemon as well.
+- **Decision:** Close opens three choices. Minimise hides the window and leaves the daemon running. Restart restarts the energy-collector daemon, then starts this app again. Close App stops that daemon and quits. The window’s own close control still hides to the tray. A daemon command that fails leaves the app open.
+- **Consequence:** Do not make Close quit on the first click. Do not stop the daemon when the choice is minimise. Do not quit the app after a failed stop or restart of the daemon.
+
 ### 2026-10-18 — The MCS certificate is the installed plant, not a voltage scale
 
 - **Context:** The house has 12 panels, and the MCS certificate agrees. String voltage had treated a high reading as a different panel count. That looked like the chart had multiplied the volts.
