@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.511", "2026-10-20", [
+        "On Alarm defs, each comparison shows on the right which signal it belongs to — one name, Multiple, or All — the same way signals show their alarm type.",
+    ]),
     ("2.9.510", "2026-10-18", [
         "Panel database has Import from Spec Sheet. A PDF or a photo of a module datasheet fills the maker, model, watts, voltages, current, and size from what the sheet prints. A figure that is not printed stays blank.",
     ]),

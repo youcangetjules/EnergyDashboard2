@@ -993,9 +993,36 @@ def comparison_fits(signal: str, comparison: str) -> bool:
     unit = signal_unit(signal)
     if op in ("stays below", "stays above", "is at least"):
         return unit in _CUSTOM_NUMBER_UNITS
+    if op == "has a differential of":
+        return unit == "volts"
+    if op == "uses almost all of":
+        return signal == "House load"
     if unit != "status":
         return False
     return _status_pair_known(signal, op)
+
+
+def comparison_subjects(comparison: str) -> tuple[str, ...]:
+    """Signals this comparison is meant for, in palette order."""
+    key = str(comparison or "").strip()
+    if not key:
+        return ()
+    return tuple(
+        name for name in alarm_palette("signal") if comparison_fits(name, key)
+    )
+
+
+def comparison_subject_label(comparison: str) -> str:
+    """Short label for the right of a comparison pill: one signal, Multiple, or All."""
+    subjects = comparison_subjects(comparison)
+    if not subjects:
+        return ""
+    if len(subjects) == 1:
+        return subjects[0]
+    all_signals = alarm_palette("signal")
+    if all_signals and len(subjects) == len(all_signals):
+        return "All"
+    return "Multiple"
 
 
 def _clamp_threshold(unit: str, value: Any) -> float | None:
@@ -3553,6 +3580,8 @@ __all__ = [
     "set_custom_threshold_value",
     "comparison_op",
     "comparison_fits",
+    "comparison_subjects",
+    "comparison_subject_label",
     "threshold_unit",
     "context_applies_to",
     "format_threshold_amount",

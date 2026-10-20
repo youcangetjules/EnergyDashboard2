@@ -53,6 +53,8 @@ from energy_dashboard.core.alarms import (
     builtin_piece_names,
     comparison_fits,
     comparison_op,
+    comparison_subject_label,
+    comparison_subjects,
     custom_pieces,
     custom_signal,
     custom_signals,
@@ -774,6 +776,21 @@ def _signal_palette_tip(text: str) -> str:
     return "\n".join(lines)
 
 
+def _comparison_palette_tip(text: str) -> str:
+    lines = [text]
+    subjects = comparison_subjects(text)
+    label = comparison_subject_label(text)
+    if label == "All":
+        lines.append("Applies to: All signals.")
+    elif label == "Multiple":
+        lines.append("Applies to: " + ", ".join(subjects) + ".")
+    elif label:
+        lines.append(f"Applies to: {label}.")
+    else:
+        lines.append("This test is not paired with a signal yet.")
+    return "\n".join(lines)
+
+
 def _edit_custom_duration(parent) -> str | None:
     """Ask for a length of time. Returns the chip phrase, or None if cancelled."""
     dlg = QDialog(parent)
@@ -968,11 +985,16 @@ class _PaletteDelegate(QStyledItemDelegate):
         painter.setBrush(self._fill)
         painter.drawRoundedRect(rect, 3, 3)
         text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
-        alarm_type = signal_alarm_type(text) if self._kind == "signal" else ""
+        if self._kind == "signal":
+            right = signal_alarm_type(text)
+        elif self._kind == "comparison":
+            right = comparison_subject_label(text)
+        else:
+            right = ""
         painter.setPen(self._ink)
-        if alarm_type:
+        if right:
             metrics = option.fontMetrics
-            type_w = metrics.horizontalAdvance(alarm_type)
+            type_w = metrics.horizontalAdvance(right)
             right_pad = 8
             gap = 12
             name_width = max(24, rect.width() - 6 - gap - type_w - right_pad)
@@ -986,7 +1008,7 @@ class _PaletteDelegate(QStyledItemDelegate):
             painter.drawText(
                 rect.adjusted(0, 0, -right_pad, 0),
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
-                alarm_type,
+                right,
             )
         else:
             shown = option.fontMetrics.elidedText(
@@ -1045,6 +1067,8 @@ class _PaletteList(QListWidget):
             item.setData(Qt.ItemDataRole.UserRole, text)
             if kind == "signal":
                 tip = _signal_palette_tip(text)
+            elif kind == "comparison":
+                tip = _comparison_palette_tip(text)
             elif kind == "duration" and text == "is seen":
                 tip = "As soon as it is seen. No wait."
             elif kind == "duration" and text == "custom value":

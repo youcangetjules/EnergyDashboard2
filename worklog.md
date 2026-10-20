@@ -12,6 +12,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-10-20
+
+### 09:57
+
+- On Alarm defs, each comparison in the green list now shows on the right which signal that test is for. One name means that feed only. Multiple means more than one. All means every signal. Hover still lists the names when it says Multiple.
+
 ## 2026-10-18
 
 ### 15:09

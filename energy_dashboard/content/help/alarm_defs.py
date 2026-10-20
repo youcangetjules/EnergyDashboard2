@@ -21,7 +21,10 @@ Data flow (the Grott and Tasmota MQTT feeds), Data ingestion (the logging
 database), Energy (battery, spare solar, house load), Forecast, or
 External service (PVOutput.org, Octopus).</li>
 <li><b>Comparison</b> (green) — what it does: stays below, is at least, drops,
-goes silent.</li>
+goes silent. On the right of each comparison, in dark grey, is the
+<b>signal it belongs to</b>. One name means that feed or reading only.
+<b>Multiple</b> means more than one signal can use it.
+<b>All</b> means every signal in the list.</li>
 <li><b>Threshold</b> (amber) — what it is compared against, such as the
 low-battery line or the spare-solar minimum. Some alarms have nothing to
 compare against, so this box can stay empty.</li>
