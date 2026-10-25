@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.9.512", "2026-10-25", [
+        "Octopus Live no longer crashes on the UK clock-change night when the cost cards floor meter readings into half-hour slots.",
+    ]),
     ("2.9.511", "2026-10-20", [
         "On Alarm defs, each comparison shows on the right which signal it belongs to — one name, Multiple, or All — the same way signals show their alarm type.",
     ]),

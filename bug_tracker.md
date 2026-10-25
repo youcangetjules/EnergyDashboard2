@@ -46,6 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
+| 2026-10-25 | 1 | 1 | 3 |
 | 2026-10-18 | 4 | 4 | 3 |
 | 2026-10-02 | 1 | 1 | 3 |
 | 2026-09-30 | 2 | 2 | 3 |
@@ -122,6 +123,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-089-20261025-01 — Octopus Live cost cards crash on clock-change night</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-10-25 23:13 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Dashboards → Octopus Live |
+| **Version found** | 2.9.511 |
+| **Version fixed** | 2.9.512 |
+
+**Symptom:** Refreshing Octopus Live raised `ValueError: Cannot infer dst time from 2026-10-25 01:00:00` while updating the cost cards.
+
+**Cause:** UK clocks went back that night, so 01:00 local time happens twice. Flooring London timestamps into half-hour slots called pandas without saying which hour to keep.
+
+**Resolution:** Slot flooring now passes the same clock-change rules already used when localising timestamps (`ambiguous="infer"`, `nonexistent="shift_forward"`), on the cost path and the other Octopus Live slot floors.
 
 ### <span style="color:green">BUG-088-20261018-04 — Scanned MCS certificate sits on page 1</span>
 

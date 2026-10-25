@@ -10,6 +10,7 @@ from energy_dashboard.tabs.octopus_live_cost import (
     COST_REFRESH_S,
     compose_cost_view,
     energy_slots_from_frames,
+    floor_to_slot,
     rest_half_hour_slots,
     scales_from_history,
     summarise_days,
@@ -111,7 +112,7 @@ class OctopusLiveTab(QWidget):
         out = df[['interval_start', 'consumption']].copy()
         out['interval_start'] = pd.to_datetime(out['interval_start'])
         out['consumption'] = pd.to_numeric(out['consumption'], errors='coerce').fillna(0)
-        slot = out['interval_start'].dt.floor(f'{int(slot_minutes)}min')
+        slot = floor_to_slot(out['interval_start'], slot_minutes)
         return (
             out.assign(_slot=slot)
             .groupby('_slot', as_index=False)['consumption']
@@ -214,7 +215,7 @@ class OctopusLiveTab(QWidget):
         out = out.dropna(subset=['demand_w'])
         if out.empty:
             return pd.DataFrame(columns=cols)
-        slot = out['interval_start'].dt.floor(f'{int(slot_min)}min')
+        slot = floor_to_slot(out['interval_start'], slot_min)
         grouped = (
             out.assign(_slot=slot)
             .groupby('_slot', as_index=False)['demand_w']
@@ -280,7 +281,7 @@ class OctopusLiveTab(QWidget):
         out = pd.DataFrame({'interval_start': ts, 'pv_kw': pv}).dropna()
         if out.empty:
             return pd.DataFrame(columns=cols)
-        slot = out['interval_start'].dt.floor(f'{int(slot_minutes)}min')
+        slot = floor_to_slot(out['interval_start'], slot_minutes)
         hrs = float(slot_minutes) / 60.0
         grouped = (
             out.assign(interval_start=slot)
@@ -326,8 +327,8 @@ class OctopusLiveTab(QWidget):
         else:
             pv['interval_start'] = pv['interval_start'].dt.tz_convert(london)
         # Match slot floors used on the import side.
-        out['_slot'] = out['interval_start'].dt.floor(f'{int(slot_minutes)}min')
-        pv['_slot'] = pv['interval_start'].dt.floor(f'{int(slot_minutes)}min')
+        out['_slot'] = floor_to_slot(out['interval_start'], slot_minutes)
+        pv['_slot'] = floor_to_slot(pv['interval_start'], slot_minutes)
         pv_map = pv.groupby('_slot', as_index=True)['pv_kwh'].sum()
         out['pv_kwh'] = out['_slot'].map(pv_map).fillna(0.0)
         out['cum_pv_kwh'] = OctopusLiveTab._cumsum_reset_each_london_day(
@@ -360,7 +361,7 @@ class OctopusLiveTab(QWidget):
         if out.empty:
             return pd.DataFrame(columns=cols)
         slot_min = OctopusLiveTab._slot_minutes(src, granularity_id)
-        slot = out['interval_start'].dt.floor(f'{int(slot_min)}min')
+        slot = floor_to_slot(out['interval_start'], slot_min)
         grouped = (
             out.assign(_slot=slot)
             .groupby('_slot', as_index=False)['demand_w']

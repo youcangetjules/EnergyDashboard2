@@ -42,6 +42,24 @@ def to_london(timestamps):
     return ts.tz_convert(_LONDON)
 
 
+def floor_to_slot(timestamps, minutes: int):
+    """Round each timestamp down to the slot start.
+
+    On the UK clock-change night the same wall time happens twice. Pandas
+    needs an explicit rule for that hour; without it, Octopus Live crashes
+    when flooring meter slots.
+    """
+    series = pd.to_datetime(timestamps)
+    if not isinstance(series, pd.Series):
+        series = pd.Series(series)
+    freq = f"{max(1, int(minutes))}min"
+    if series.dt.tz is None:
+        return series.dt.floor(freq)
+    return series.dt.floor(
+        freq, ambiguous="infer", nonexistent="shift_forward",
+    )
+
+
 def _as_utc_index(timestamps) -> pd.DatetimeIndex:
     london = to_london(pd.Series(pd.to_datetime(timestamps)))
     return pd.DatetimeIndex(london.dt.tz_convert("UTC"))
@@ -54,7 +72,7 @@ def _floor_sum(df, slot_minutes: int, value_col: str) -> pd.DataFrame:
     out = df[["interval_start", value_col]].copy()
     out["interval_start"] = to_london(out["interval_start"])
     out[value_col] = pd.to_numeric(out[value_col], errors="coerce").fillna(0.0)
-    slot = out["interval_start"].dt.floor(f"{int(slot_minutes)}min")
+    slot = floor_to_slot(out["interval_start"], slot_minutes)
     grouped = (
         out.assign(interval_start=slot)
         .groupby("interval_start", as_index=False)[value_col]
@@ -127,7 +145,7 @@ def _demand_kwh_slots(imp_df, slot_minutes: int) -> pd.DataFrame:
     out = out.dropna(subset=["demand_w"])
     if out.empty:
         return pd.DataFrame(columns=cols)
-    slot = out["interval_start"].dt.floor(f"{int(slot_minutes)}min")
+    slot = floor_to_slot(out["interval_start"], slot_minutes)
     grouped = (
         out.assign(interval_start=slot)
         .groupby("interval_start", as_index=False)["demand_w"]
@@ -355,14 +373,14 @@ def compose_cost_view(
         # London wall time before day/bucket keys so UTC REST and London live match.
         stated_p["interval_start"] = to_london(stated_p["interval_start"])
         stated_p["_day"] = _day_key(stated_p["interval_start"])
-        stated_p["_bucket"] = stated_p["interval_start"].dt.floor("30min")
+        stated_p["_bucket"] = floor_to_slot(stated_p["interval_start"], 30)
         stated_keep = stated_p[stated_p["_day"] < today].copy()
 
     if not live_p.empty:
         live_p = live_p.copy()
         live_p["interval_start"] = to_london(live_p["interval_start"])
         live_p["_day"] = _day_key(live_p["interval_start"])
-        live_p["_bucket"] = live_p["interval_start"].dt.floor("30min")
+        live_p["_bucket"] = floor_to_slot(live_p["interval_start"], 30)
         if not stated_keep.empty and export_known:
             keys = stated_keep[["_day", "_bucket"]].drop_duplicates()
             keys["_settled"] = True

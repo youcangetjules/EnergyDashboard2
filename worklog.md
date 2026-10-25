@@ -12,6 +12,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-10-25
+
+### 23:13
+
+- Octopus Live cost cards crashed on the night the UK clocks went back, when a meter reading fell in the repeated 1am hour. Slot flooring now keeps both hours instead of asking pandas to guess.
+
 ## 2026-10-20
 
 ### 09:57
