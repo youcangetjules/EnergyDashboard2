@@ -50,6 +50,7 @@ _MAIN_TAB_BAR_REGISTRY = (
     ("shadow_trial", "shadow_trial_tab", "  Shadow Trial  ", "calculators", True),
     ("maximiser", "maximiser_tab", "  Maximiser  ", "calculators", True),
     ("grott_align", "grott_align_tab", "  Grott / API Align  ", "calculators", True),
+    ("flexible_chart", "flexible_chart_tab", "  Flexible Chart  ", "calculators", False),
     ("alarm_defs", "alarm_defs_tab", "  Alarm defs  ", "controls", False),
     ("sms_gateway", "sms_gateway_tab", "  SMS gateway  ", "controls", False),
     ("connectivity", "connectivity_tab", "  Connectivity Status  ", "controls", False),

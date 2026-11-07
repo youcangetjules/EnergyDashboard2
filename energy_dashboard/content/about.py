@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.7", "2026-11-07", [
+        "Flexible Chart tab in Calculators: query any database table with Builder or raw SQL mode, assign columns to X/Y axes, and draw Line/Scatter/Bar/Step/Area charts. Includes 10 preset templates for common queries like daily spend, SOC history, and PV vs load.",
+    ]),
     ("2.10.6", "2026-11-07", [
         "Fix crash on launch: Tasmota 24 hr Profile used QListWidget which is not exported from deps; replaced with QTextEdit. Historical Profile used QAbstractItemView directly; switched to QTableWidget.",
     ]),

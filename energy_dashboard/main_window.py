@@ -36,6 +36,7 @@ from energy_dashboard.tabs.dump_logs import DumpLogsTab
 from energy_dashboard.tabs.database_viewer import DatabaseViewerTab
 from energy_dashboard.tabs.device_import_costs import DeviceImportCostsTab
 from energy_dashboard.tabs.export_tab import ExportTab
+from energy_dashboard.tabs.flexible_chart import FlexibleChartTab
 from energy_dashboard.tabs.forecasts import ForecastsTab
 from energy_dashboard.tabs.growatt import GrowattTab, growatt_format_live_kw
 from energy_dashboard.tabs.imara import ImaraTab
@@ -933,6 +934,8 @@ class EnergyDashboard(QMainWindow):
         self.command_sim_tab = CommandSimTab(self.set_status)
 
         self.db_viewer_tab = DatabaseViewerTab(self)
+
+        self.flexible_chart_tab = FlexibleChartTab(self)
 
         self.export_tab = ExportTab(
             self.app_params, self.data_logger, self.set_status,
