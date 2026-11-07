@@ -8,9 +8,11 @@
 -- Already in psql:  \c powermon
 --                  \i postgres_reset_schema.sql
 --
--- From shell:
---   psql "postgresql://USER:PASS@HOST:PORT/powermon" -f postgres_reset_schema.sql
---   PGPASSWORD=... psql -h HOST -p PORT -U USER -d powermon -f postgres_reset_schema.sql
+-- From shell (with GRANTs for the dashboard login):
+--   psql -v dashboard_login=YOUR_ROLE "postgresql://USER:PASS@HOST:PORT/powermon" -f postgres_reset_schema.sql
+--   PGPASSWORD=... psql -h HOST -p PORT -U USER -d powermon -v dashboard_login=YOUR_ROLE -f postgres_reset_schema.sql
+--
+-- Omit -v dashboard_login=... to skip the GRANT block (tables still created).
 
 BEGIN;
 
@@ -191,3 +193,11 @@ CREATE TABLE pv_string_voltage (
 );
 
 COMMIT;
+
+-- Grant the dashboard login access to the freshly created tables.
+-- Pass -v dashboard_login=ROLE on the psql command line to enable this.
+\if :{?dashboard_login}
+GRANT USAGE ON SCHEMA public TO :"dashboard_login";
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"dashboard_login";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"dashboard_login";
+\endif
