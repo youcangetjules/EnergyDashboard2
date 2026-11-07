@@ -30,14 +30,17 @@ DEFAULT_TASMOTA_MQTT_HOLD_S = 30.0
 DEFAULT_TASMOTA_STALE_S = 8 * 60
 
 # System-tray re-notify while an alarm stays active:
-# 4× every 5 min, 4× every 10 min, 4× every 30 min, then hourly.
-# First notify is immediate (interval 0); stages apply to subsequent gaps.
-NOTIFY_BACKOFF_STAGES: tuple[tuple[int, float], ...] = (
-    (4, 5 * 60),
-    (4, 10 * 60),
-    (4, 30 * 60),
-)
-NOTIFY_BACKOFF_FINAL_S = 60 * 60
+# First notify is immediate (interval 0).  For the first ~10 minutes the
+# interval is a fixed 5 min.  After that each gap doubles (10→20→40 min),
+# capped at 60 min.  Backoff resets when the alarm clears.
+_INITIAL_INTERVAL_S = 5 * 60        # 5 min for the first ~10 min
+_INITIAL_COUNT       = 2            # how many 5-min gaps before doubling
+_DOUBLING_START_S    = 10 * 60      # first doubled interval
+_MAX_INTERVAL_S      = 60 * 60      # 60 min ceiling
+
+# Legacy names kept in __all__ for any external callers.
+NOTIFY_BACKOFF_STAGES = ((_INITIAL_COUNT, _INITIAL_INTERVAL_S),)
+NOTIFY_BACKOFF_FINAL_S = _MAX_INTERVAL_S
 
 
 def _span_words(seconds: float) -> str:
@@ -54,16 +57,21 @@ def _span_words(seconds: float) -> str:
 
 
 def notify_backoff_interval_s(notifies_already_sent: int) -> float:
-    """Seconds to wait before the next tray notify given how many were already sent."""
+    """Seconds to wait before the next tray notify given how many were already sent.
+
+    Schedule: immediate → 5 min × 2 → 10 → 20 → 40 → 60 (cap).
+    After the first ~10 minutes each interval doubles, capped at 60 min.
+    """
     sent = max(0, int(notifies_already_sent))
     if sent <= 0:
         return 0.0
-    consumed = 0
-    for count, interval in NOTIFY_BACKOFF_STAGES:
-        if sent < consumed + count:
-            return float(interval)
-        consumed += count
-    return float(NOTIFY_BACKOFF_FINAL_S)
+    # Fixed 5-min phase
+    if sent <= _INITIAL_COUNT:
+        return float(_INITIAL_INTERVAL_S)
+    # Doubling phase
+    doublings = sent - _INITIAL_COUNT - 1
+    interval = _DOUBLING_START_S * (2 ** doublings)
+    return float(min(interval, _MAX_INTERVAL_S))
 
 
 @dataclass(frozen=True)

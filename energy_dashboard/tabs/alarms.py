@@ -335,9 +335,9 @@ class AlarmsTab(QWidget):
             f"An alarm needs the condition to hold for {float(mon.hold_minutes):.0f} "
             f"minutes before it sounds, and spare solar counts from "
             f"{float(mon.pv_min_kw):.1f} kW. Desktop pop-ups repeat immediately, "
-            "then four times every 5 minutes, four times every 10, four times "
-            "every 30, then hourly. Thresholds live in Setup & Info; the rules "
-            "themselves are on Alarm defs in Controls."
+            "then every 5 min for the first 10 minutes, then each interval "
+            "doubles (10 → 20 → 40 → 60 min cap). Thresholds live in "
+            "Setup & Info; the rules themselves are on Alarm defs in Controls."
         )
 
     def _clear_body(self) -> None:

@@ -806,8 +806,9 @@ class ParametersTab(QWidget):
         self.chk_alarm_desktop.setChecked(s_al.value("alarms/desktop", True, type=bool))
         self.chk_alarm_desktop.setToolTip(
             "System-tray notifications while an alarm is active: first notify "
-            "immediately, then 4× every 5 min, 4× every 10 min, 4× every 30 min, "
-            "then hourly. Backoff resets when the alarm clears."
+            "immediately, then every 5 min for the first 10 minutes, then each "
+            "interval doubles (10 → 20 → 40 → 60 min cap). "
+            "Backoff resets when the alarm clears."
         )
         self.sp_alarm_hold = QDoubleSpinBox()
         self.sp_alarm_hold.setRange(1, 180)

@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.1", "2026-11-07", [
+        "Alarm tray notifications now double in interval after the first 10 minutes: 5 min twice, then 10, 20, 40, 60 min cap. Backoff resets when the alarm clears.",
+    ]),
     ("2.10.0", "2026-11-07", [
         "Solar forecast timestamps from Forecast.Solar are now correctly localised to Europe/London before conversion to UTC, so the forecast curve no longer shifts one hour early during British Summer Time.",
     ]),
