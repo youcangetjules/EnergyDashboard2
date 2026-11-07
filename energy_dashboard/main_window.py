@@ -65,6 +65,8 @@ from energy_dashboard.ui.tray_icon import (
 from energy_dashboard.ui.work_area import client_cap, fit_window_to_work_area
 from energy_dashboard.tabs.smart_advisor import SmartAdvisorTab
 from energy_dashboard.tabs.tasmota import TasmotaTab
+from energy_dashboard.tabs.tasmota_24h_profile import Tasmota24hProfileTab
+from energy_dashboard.tabs.tasmota_historical import TasmotaHistoricalTab
 from energy_dashboard.ui.tab_bar import (
     BannerRefreshCyclePill,
     BannerTabScrollHold,
@@ -802,6 +804,9 @@ class EnergyDashboard(QMainWindow):
 
         self.tasmota_tab = TasmotaTab(self.set_status, dashboard=self)
         self.tasmota_tab.on_data_updated = self._on_tasmota_data_updated
+
+        self.tasmota_24h_profile_tab = Tasmota24hProfileTab(self.set_status, dashboard=self)
+        self.tasmota_historical_tab = TasmotaHistoricalTab(self.set_status, dashboard=self)
 
         self.device_costs_tab = DeviceImportCostsTab(
             self.octopus_tab, self.tasmota_tab, self.app_params, self.set_status

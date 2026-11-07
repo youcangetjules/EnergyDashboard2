@@ -29,6 +29,8 @@ _MAIN_TAB_BAR_REGISTRY = (
     ("device_costs", "device_costs_tab", "  Daily import costs  ", "import_export", True),
     (None, "growatt_tab", "  Growatt Live Status  ", "usage", True),
     ("tasmota", "tasmota_tab", "  Tasmota Devices  ", "tasmota_group", True),
+    ("tasmota_24h_profile", "tasmota_24h_profile_tab", "  Tasmota 24 hr Profile  ", "tasmota_group", False),
+    ("tasmota_historical", "tasmota_historical_tab", "  Tasmota Historical Profile  ", "tasmota_group", False),
     ("combined", "combined_tab", "  Combined Dashboard  ", "usage", True),
     ("alarms", "alarms_tab", "  Alarms (0)  ", "usage", True),
     ("battery", "battery_tab", "  Battery Analysis  ", "physical_plant", True),

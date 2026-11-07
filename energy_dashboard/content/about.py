@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.5", "2026-11-07", [
+        "Two new Tasmota tabs: 24 hr Profile shows an averaged daily power curve with P10\u2013P90 envelope and outlier detection, Historical Profile shows cumulative or daily kWh per device with a summary table.",
+    ]),
     ("2.10.4", "2026-11-07", [
         "A new Tasmota tab group sits after Dashboards in the group strip. Tasmota Devices moves from Dashboards into it.",
     ]),
