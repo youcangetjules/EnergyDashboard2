@@ -67,10 +67,11 @@ class Tasmota24hProfileTab(QWidget):
         self.outlier_label.setStyleSheet("color: #cdd6f4; font-weight: bold;")
         layout.addWidget(self.outlier_label)
 
-        self.outlier_list = QListWidget()
+        self.outlier_list = QTextEdit()
+        self.outlier_list.setReadOnly(True)
         self.outlier_list.setMaximumHeight(120)
         self.outlier_list.setStyleSheet(
-            "QListWidget { background: #1e1e2e; color: #cdd6f4; border: 1px solid #3a3a4c; }"
+            "QTextEdit { background: #1e1e2e; color: #cdd6f4; border: 1px solid #3a3a4c; }"
         )
         layout.addWidget(self.outlier_list)
 
@@ -226,13 +227,12 @@ class Tasmota24hProfileTab(QWidget):
         self.canvas.draw()
 
         # Outlier list
-        self.outlier_list.clear()
         if outliers:
             self.outlier_label.setText(f"Outlier days ({len(outliers)}):")
-            for day_key in sorted(outliers):
-                self.outlier_list.addItem(day_key)
+            self.outlier_list.setPlainText("\n".join(sorted(outliers)))
         else:
             self.outlier_label.setText("No outlier days detected.")
+            self.outlier_list.clear()
         self.set_status(
             f"Profile drawn from {len(day_curves)} days, {len(outliers)} outlier(s)."
         )

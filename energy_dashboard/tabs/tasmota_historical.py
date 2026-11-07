@@ -89,7 +89,7 @@ class TasmotaHistoricalTab(QWidget):
             ["Device", "Total kWh", "Avg daily kWh", "First seen", "Last seen"]
         )
         self.summary_table.horizontalHeader().setStretchLastSection(True)
-        self.summary_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.summary_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.summary_table.setStyleSheet(
             "QTableWidget { background: #1e1e2e; color: #cdd6f4; gridline-color: #3a3a4c; }"
             "QHeaderView::section { background: #2a2a3c; color: #cdd6f4; border: 1px solid #3a3a4c; }"
