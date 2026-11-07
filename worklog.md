@@ -12,6 +12,26 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-11-07
+
+- **2.10.0 – Solar forecast timezone fix.** Forecast.Solar timestamps were parsed as naive, so during BST the curve shifted an hour. Now localised to Europe/London then converted to UTC before merge.
+
+- **2.10.1 – Alarm tray notifications double after 10 minutes.** Replaced the old stage-based backoff (4×5 min, 4×10 min, …) with: 5-min intervals for the first 10 minutes, then each interval doubles (10→20→40) capped at 60 min.
+
+- **2.10.2 – PostgreSQL reset script includes GRANTs.** `postgres_reset_schema.sql` now has a conditional `\if :{?dashboard_login}` block that grants SELECT/INSERT/UPDATE/DELETE on all tables. Run with `-v dashboard_login=ROLE` to apply.
+
+- **2.10.3 – Hegel renamed to Imara-RDC everywhere.** The yellow button, the tab, the database tables, the SQL script, the help text, and theme constants all changed. QSettings from the old "hegel" key are migrated automatically on startup. All 15 Imara tests pass.
+
+- **2.10.4 – Tasmota tab group.** A new "Tasmota" group sits after Dashboards in the group strip. Tasmota Devices moves from Dashboards into it.
+
+- **2.10.5 – Tasmota 24 hr Profile and Historical Profile tabs.** Two new analysis tabs in the Tasmota group. The 24 hr Profile shows an averaged daily power curve per device with P10–P90 envelope and outlier detection. The Historical Profile shows cumulative or daily kWh per device with a summary table.
+
+- **2.10.6 – Fix crash on launch in Tasmota profile tabs.** `QListWidget` is not exported from `deps.py`; replaced with `QTextEdit` in the 24 hr Profile. `QAbstractItemView` replaced with `QTableWidget` in the Historical Profile.
+
+- **2.10.7 – Flexible Chart tab.** A new general-purpose chart view in the Calculators group. Builder mode picks table/columns/WHERE/ORDER/LIMIT; SQL mode accepts raw SELECT queries. Ten preset templates for common queries (daily spend, SOC history, PV vs load, etc.). Result columns assigned to X/Y axes with Line, Scatter, Bar, Step, or Area chart types.
+
+- **2.10.8 – Database writing alarm fires on permission-denied.** The "Database writing stops" alarm had a blind spot: when missing GRANTs caused the row-count query to fail (`db_rows_15m=None`), the `is not None` check silently treated it as "no problem." Now `None` is treated the same as zero rows, so the alarm fires as expected.
+
 ## 2026-10-25
 
 ### 23:13
