@@ -2295,12 +2295,15 @@ class AlarmMonitor:
         tasmota_writing: bool,
     ) -> bool:
         expect_write = bool(growatt_writing or tasmota_writing)
+        # db_rows_15m is None when the count query itself failed (e.g.
+        # missing GRANTs → "no table access").  That is at least as bad
+        # as zero rows, so treat it the same way.
+        no_rows = db_rows_15m is None or int(db_rows_15m) <= 0
         ingest_dry = (
             bool(db_logging_enabled)
             and db_connected is True
             and expect_write
-            and db_rows_15m is not None
-            and int(db_rows_15m) <= 0
+            and no_rows
         )
         uptime = now - float(self._started_wall or now)
         past_grace = self._ingest_seen_ok or uptime >= DEFAULT_INGEST_STARTUP_GRACE_S
@@ -3195,12 +3198,12 @@ class AlarmMonitor:
         expect_write = bool(growatt_writing or tasmota_writing)
         if db_connected and db_rows_15m is not None and int(db_rows_15m) > 0:
             self._ingest_seen_ok = True
+        no_rows = db_rows_15m is None or int(db_rows_15m) <= 0
         ingest_dry = (
             bool(db_logging_enabled)
             and db_connected is True
             and expect_write
-            and db_rows_15m is not None
-            and int(db_rows_15m) <= 0
+            and no_rows
         )
         uptime = now - float(self._started_wall or now)
         past_grace = self._ingest_seen_ok or uptime >= DEFAULT_INGEST_STARTUP_GRACE_S
