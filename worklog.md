@@ -36,11 +36,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ### 13:23
 
-- The bottom bar has a yellow Hegel button to the left of Alarms. The gap is the same 30px that already sits between Alarms and Refresh Page. The button opens the Hegel page. It does not search other sites.
+- The bottom bar has a yellow Imara-RDC button to the left of Alarms. The gap is the same 30px that already sits between Alarms and Refresh Page. The button opens the Imara-RDC page. It does not search other sites.
 
 ### 13:10
 
-- Hegel now has its own PostgreSQL database, named hegel, on the same server as the plant log. The plant log is left in its database. The database owner creates hegel with hegel_postgres.sql. The Hegel page stays off the tab bar until you tick it in Setup, and Check inventory is the only thing that opens that database. It does not look up PVOutput or any other site yet. Chinnor is stored as a 5 km circle. OX39 is only the name of the postcode district.
+- Imara-RDC now has its own PostgreSQL database, named imara, on the same server as the plant log. The plant log is left in its database. The database owner creates imara with imara_postgres.sql. The Imara-RDC page stays off the tab bar until you tick it in Setup, and Check inventory is the only thing that opens that database. It does not look up PVOutput or any other site yet. Chinnor is stored as a 5 km circle. OX39 is only the name of the postcode district.
 
 ### 12:40
 

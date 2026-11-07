@@ -15,7 +15,7 @@ _MAIN_TAB_GROUPS = (
     ("forecasts", "Energy Forecasts"),
     ("calculators", "Calculators"),
     ("controls", "Controls"),
-    ("hegel", "Hegel"),
+    ("imara", "Imara-RDC"),
 )
 
 # Main window tab bar:
@@ -59,11 +59,11 @@ _MAIN_TAB_BAR_REGISTRY = (
     ("bug_tracker", "bug_tracker_tab", "  Bug Tracker  ", "controls", False),
     (None, "parameters_tab", "  Setup & Info  ", "controls", False),
     ("license", "license_tab", "  License  ", "controls", False),
-    ("hegel", "hegel_tab", "  Hegel  ", "hegel", False),
+    ("imara", "imara_tab", "  Imara-RDC  ", "imara", False),
 )
 
 # Pages that stay off the bar until Setup & Info ticks them.
-_MAIN_TAB_HIDDEN_BY_DEFAULT = frozenset({"hegel"})
+_MAIN_TAB_HIDDEN_BY_DEFAULT = frozenset({"imara"})
 
 
 def main_tab_visible_default(key: str | None) -> bool:

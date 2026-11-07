@@ -107,11 +107,11 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
-### 2026-10-18 — Hegel uses its own PostgreSQL database
+### 2026-10-18 — Imara-RDC uses its own PostgreSQL database
 
-- **Context:** Hegel needs a community inventory for a place (first: Chinnor). The plant log already uses PostgreSQL database `powermon`. That login must not create tables, and community sites are not this house’s inverter readings.
-- **Decision:** Database `hegel` is created by the owner script `hegel_postgres.sql` on the same server. The app connects with the existing host, port, and login, and the database name `hegel`. It does not create the database or the tables. The page is hidden until Setup shows it, and it reads the database only when Check inventory is pressed.
-- **Consequence:** Do not put Hegel tables in `powermon` or in `full_schema.py`. Do not `CREATE DATABASE` from the dashboard login. Do not start a search when the window opens.
+- **Context:** Imara-RDC needs a community inventory for a place (first: Chinnor). The plant log already uses PostgreSQL database `powermon`. That login must not create tables, and community sites are not this house’s inverter readings.
+- **Decision:** Database `imara` is created by the owner script `imara_postgres.sql` on the same server. The app connects with the existing host, port, and login, and the database name `imara`. It does not create the database or the tables. The page is hidden until Setup shows it, and it reads the database only when Check inventory is pressed.
+- **Consequence:** Do not put Imara-RDC tables in `powermon` or in `full_schema.py`. Do not `CREATE DATABASE` from the dashboard login. Do not start a search when the window opens.
 
 ### 2026-10-18 — An uploaded MCS certificate is read, not only stored
 

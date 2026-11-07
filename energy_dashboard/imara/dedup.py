@@ -8,8 +8,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import replace
 
-from energy_dashboard.hegel.geo import coord_key, distance_m
-from energy_dashboard.hegel.models import Observation, Resource, verification_rank
+from energy_dashboard.imara.geo import coord_key, distance_m
+from energy_dashboard.imara.models import Observation, Resource, verification_rank
 
 # Two site pins closer than this, of the same kind and similar size, are one site.
 MATCH_METRES = 150.0

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from energy_dashboard.hegel.models import Resource
+from energy_dashboard.imara.models import Resource
 
 
 @dataclass(frozen=True)

@@ -1,20 +1,20 @@
-"""PostgreSQL objects for the hegel database.
+"""PostgreSQL objects for the imara database.
 
 The plant log stays in its own database (powermon). These statements run
-only inside the database named hegel, and only when the owner applies
-``hegel_postgres.sql``. The dashboard login does not create them.
+only inside the database named imara, and only when the owner applies
+``imara_postgres.sql``. The dashboard login does not create them.
 """
 from __future__ import annotations
 
-HEGEL_TABLES = (
-    "hegel_pod",
-    "hegel_observation",
-    "hegel_resource",
-    "hegel_resource_source",
+IMARA_TABLES = (
+    "imara_pod",
+    "imara_observation",
+    "imara_resource",
+    "imara_resource_source",
 )
 
 POD_DDL = """
-CREATE TABLE IF NOT EXISTS hegel_pod (
+CREATE TABLE IF NOT EXISTS imara_pod (
     pod_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     centre_lat DOUBLE PRECISION NOT NULL,
@@ -26,9 +26,9 @@ CREATE TABLE IF NOT EXISTS hegel_pod (
 """.strip()
 
 OBSERVATION_DDL = """
-CREATE TABLE IF NOT EXISTS hegel_observation (
+CREATE TABLE IF NOT EXISTS imara_observation (
     observation_id BIGSERIAL PRIMARY KEY,
-    pod_id TEXT NOT NULL REFERENCES hegel_pod (pod_id),
+    pod_id TEXT NOT NULL REFERENCES imara_pod (pod_id),
     source TEXT NOT NULL,
     source_record_id TEXT NOT NULL,
     resource_type TEXT NOT NULL,
@@ -47,9 +47,9 @@ CREATE TABLE IF NOT EXISTS hegel_observation (
 """.strip()
 
 RESOURCE_DDL = """
-CREATE TABLE IF NOT EXISTS hegel_resource (
+CREATE TABLE IF NOT EXISTS imara_resource (
     resource_id TEXT PRIMARY KEY,
-    pod_id TEXT NOT NULL REFERENCES hegel_pod (pod_id),
+    pod_id TEXT NOT NULL REFERENCES imara_pod (pod_id),
     resource_type TEXT NOT NULL,
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
@@ -64,9 +64,9 @@ CREATE TABLE IF NOT EXISTS hegel_resource (
 """.strip()
 
 LINK_DDL = """
-CREATE TABLE IF NOT EXISTS hegel_resource_source (
-    resource_id TEXT NOT NULL REFERENCES hegel_resource (resource_id) ON DELETE CASCADE,
-    observation_id BIGINT NOT NULL REFERENCES hegel_observation (observation_id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS imara_resource_source (
+    resource_id TEXT NOT NULL REFERENCES imara_resource (resource_id) ON DELETE CASCADE,
+    observation_id BIGINT NOT NULL REFERENCES imara_observation (observation_id) ON DELETE CASCADE,
     PRIMARY KEY (resource_id, observation_id)
 )
 """.strip()

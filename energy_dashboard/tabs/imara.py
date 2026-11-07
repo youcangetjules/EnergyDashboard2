@@ -1,11 +1,11 @@
-"""Hegel pod page. Hidden until Setup shows it. Reads the database only on the button."""
+"""Imara-RDC pod page. Hidden until Setup shows it. Reads the database only on the button."""
 from __future__ import annotations
 
 from energy_dashboard.common import *
-from energy_dashboard.hegel.models import chinnor_pod
+from energy_dashboard.imara.models import chinnor_pod
 
 
-class HegelTab(QWidget):
+class ImaraTab(QWidget):
     """Community inventory. Does not search external sites."""
 
     def __init__(self, parent=None):
@@ -15,14 +15,14 @@ class HegelTab(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        title = QLabel("Hegel — Chinnor")
+        title = QLabel("Imara-RDC \u2014 Chinnor")
         title.setStyleSheet("font-size: 15px; font-weight: bold; color: #cdd6f4;")
         layout.addWidget(title)
 
         intro = QLabel(
-            "This is the community inventory for a Hegel pod. "
-            "It lives in a PostgreSQL database named hegel, "
-            "separate from this house’s plant log. "
+            "This is the community inventory for an Imara-RDC pod. "
+            "It lives in a PostgreSQL database named imara, "
+            "separate from this house's plant log. "
             "Nothing is searched, and the database is not opened, "
             "until you press Check inventory."
         )
@@ -51,7 +51,7 @@ class HegelTab(QWidget):
         row = QHBoxLayout()
         self.check_btn = QPushButton("Check inventory")
         self.check_btn.setToolTip(
-            "Open the hegel database and count rows. Does not contact PVOutput or other sites."
+            "Open the imara database and count rows. Does not contact PVOutput or other sites."
         )
         self.check_btn.clicked.connect(self.check_inventory)
         row.addWidget(self.check_btn)
@@ -60,16 +60,16 @@ class HegelTab(QWidget):
         layout.addStretch(1)
 
     def check_inventory(self):
-        from energy_dashboard.hegel.repository import HegelDbError, inventory_snapshot
+        from energy_dashboard.imara.repository import ImaraDbError, inventory_snapshot
 
-        self.status.setText("Checking the hegel database…")
+        self.status.setText("Checking the imara database\u2026")
         try:
             snap = inventory_snapshot()
-        except HegelDbError as exc:
+        except ImaraDbError as exc:
             self.status.setText(str(exc))
             return
         except Exception:
-            self.status.setText("The hegel database could not be read.")
+            self.status.setText("The imara database could not be read.")
             return
         self.status.setText(snap.detail)
 

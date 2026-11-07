@@ -1,4 +1,4 @@
-"""Inventory records for one Hegel pod.
+"""Inventory records for one Imara-RDC pod.
 
 Missing numbers stay missing. A blank capacity is not zero.
 """

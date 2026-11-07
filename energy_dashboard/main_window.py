@@ -38,7 +38,7 @@ from energy_dashboard.tabs.device_import_costs import DeviceImportCostsTab
 from energy_dashboard.tabs.export_tab import ExportTab
 from energy_dashboard.tabs.forecasts import ForecastsTab
 from energy_dashboard.tabs.growatt import GrowattTab, growatt_format_live_kw
-from energy_dashboard.tabs.hegel import HegelTab
+from energy_dashboard.tabs.imara import ImaraTab
 from energy_dashboard.tabs.grott_api_align import GrottApiAlignTab
 from energy_dashboard.tabs.grott_setup import GrottSetupTab
 from energy_dashboard.tabs.license import LicenseTab
@@ -478,7 +478,7 @@ class EnergyDashboard(QMainWindow):
         self._rebuild_main_tab_bar()
 
     def _sync_main_tab_group_visibility(self, settings):
-        """Hide a group whose pages are all unticked. Hegel starts that way."""
+        """Hide a group whose pages are all unticked. Imara-RDC starts that way."""
         strip = getattr(self, "_tab_group_strip", None)
         if strip is None:
             return
@@ -719,7 +719,7 @@ class EnergyDashboard(QMainWindow):
         # ── Bottom-right action cluster ────────────────────────────────
         # addPermanentWidget appends to the right-hand group in
         # left-to-right order:
-        # [ Hegel ] 30px [ Alarms ] 30px [ Refresh Page ] [ Refresh All ] [ Help ] [ Close ]
+        # [ Imara-RDC ] 30px [ Alarms ] 30px [ Refresh Page ] [ Refresh All ] [ Help ] [ Close ]
         # Machine CPU / RAM / DB ingest live in the two-line strip above this bar.
         _ACTION_BTN_WIDTH = 110
 
@@ -731,16 +731,16 @@ class EnergyDashboard(QMainWindow):
         refresh_page_btn.setFixedWidth(_ACTION_BTN_WIDTH)
         refresh_page_btn.clicked.connect(self._refresh_current_tab)
 
-        hegel_btn = QPushButton("Hegel")
-        hegel_btn.setToolTip(
-            "Open the Hegel page: the community energy inventory for Chinnor. "
+        imara_btn = QPushButton("Imara-RDC")
+        imara_btn.setToolTip(
+            "Open the Imara-RDC page: the community energy inventory for Chinnor. "
             "It does not search other sites until you ask."
         )
-        hegel_btn.setFixedWidth(_ACTION_BTN_WIDTH)
-        hegel_btn.setProperty(PRIMARY_BUTTON_EXEMPT, True)
-        hegel_btn.setStyleSheet(_HEGEL_BTN_QSS)
-        hegel_btn.clicked.connect(self._show_hegel_page)
-        self._hegel_btn = hegel_btn
+        imara_btn.setFixedWidth(_ACTION_BTN_WIDTH)
+        imara_btn.setProperty(PRIMARY_BUTTON_EXEMPT, True)
+        imara_btn.setStyleSheet(_IMARA_BTN_QSS)
+        imara_btn.clicked.connect(self._show_imara_page)
+        self._imara_btn = imara_btn
 
         alarms_btn = QPushButton("Alarms (0)")
         alarms_btn.setToolTip(
@@ -757,7 +757,7 @@ class EnergyDashboard(QMainWindow):
         refresh_pair_row = QHBoxLayout(refresh_pair)
         refresh_pair_row.setContentsMargins(0, 0, 0, 0)
         refresh_pair_row.setSpacing(0)
-        refresh_pair_row.addWidget(hegel_btn)
+        refresh_pair_row.addWidget(imara_btn)
         refresh_pair_row.addSpacing(30)
         refresh_pair_row.addWidget(alarms_btn)
         refresh_pair_row.addSpacing(30)
@@ -952,7 +952,7 @@ class EnergyDashboard(QMainWindow):
 
         self.license_tab = LicenseTab()
 
-        self.hegel_tab = HegelTab(self)
+        self.imara_tab = ImaraTab(self)
 
         # GrottTab connects at construct time — re-apply after Setup has healed
         # empty grott_mqtt_host from EMQX / Tasmota MQTT credentials.
@@ -2264,20 +2264,24 @@ class EnergyDashboard(QMainWindow):
             return True
         return super().eventFilter(obj, event)
 
-    def _show_hegel_page(self):
-        """Open Hegel. The yellow button is the instruction to show that page."""
-        page = getattr(self, "hegel_tab", None)
+    def _show_imara_page(self):
+        """Open Imara-RDC. The yellow button is the instruction to show that page."""
+        page = getattr(self, "imara_tab", None)
         if page is None:
             return
         settings = QSettings("PowerModel", "EnergyDashboard2")
-        if not settings.value("tabs/visible/hegel", main_tab_visible_default("hegel"), type=bool):
-            settings.setValue("tabs/visible/hegel", True)
+        # Migrate old QSettings key from the former "Hegel" name.
+        if settings.contains("tabs/visible/hegel") and not settings.contains("tabs/visible/imara"):
+            settings.setValue("tabs/visible/imara", settings.value("tabs/visible/hegel", type=bool))
+            settings.remove("tabs/visible/hegel")
+        if not settings.value("tabs/visible/imara", main_tab_visible_default("imara"), type=bool):
+            settings.setValue("tabs/visible/imara", True)
             try:
                 settings.sync()
             except Exception:
                 pass
             checks = getattr(getattr(self, "parameters_tab", None), "_tab_visibility_checks", None)
-            box = checks.get("hegel") if isinstance(checks, dict) else None
+            box = checks.get("imara") if isinstance(checks, dict) else None
             if box is not None:
                 box.setChecked(True)
         self.show_main_page(page)

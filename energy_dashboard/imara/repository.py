@@ -1,16 +1,16 @@
-"""Read and write the hegel database. Does not create the database or tables."""
+"""Read and write the imara database. Does not create the database or tables."""
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 
-from energy_dashboard.hegel import HEGEL_DBNAME
-from energy_dashboard.hegel.dedup import deduplicate
-from energy_dashboard.hegel.models import Observation, Pod, Resource
+from energy_dashboard.imara import IMARA_DBNAME
+from energy_dashboard.imara.dedup import deduplicate
+from energy_dashboard.imara.models import Observation, Pod, Resource
 
 
-class HegelDbError(Exception):
-    """The hegel database could not be used. The message is safe to show."""
+class ImaraDbError(Exception):
+    """The imara database could not be used. The message is safe to show."""
 
 
 @dataclass(frozen=True)
@@ -35,18 +35,18 @@ def connection_settings() -> dict[str, object]:
         "port": port,
         "user": str(settings.value("db/pg_user", "") or "").strip(),
         "password": str(settings.value("db/pg_pass", "") or ""),
-        "dbname": HEGEL_DBNAME,
+        "dbname": IMARA_DBNAME,
     }
 
 
 def connect():
-    """Open hegel. Raises HegelDbError. Does not create anything."""
+    """Open imara. Raises ImaraDbError. Does not create anything."""
     from energy_dashboard.db.connect_probe import postgresql_connect
 
     cfg = connection_settings()
     if not cfg["user"]:
-        raise HegelDbError(
-            "PostgreSQL has no user yet. Set it under Setup & Info → Database, "
+        raise ImaraDbError(
+            "PostgreSQL has no user yet. Set it under Setup & Info \u2192 Database, "
             "then check the inventory again."
         )
     try:
@@ -59,7 +59,7 @@ def connect():
             timeout=3,
         )
     except Exception as exc:
-        raise HegelDbError(_public_connect_error(exc, cfg)) from exc
+        raise ImaraDbError(_public_connect_error(exc, cfg)) from exc
 
 
 def inventory_snapshot() -> InventorySnapshot:
@@ -70,18 +70,18 @@ def inventory_snapshot() -> InventorySnapshot:
             cur.execute(
                 """
                 SELECT pod_id, name, centre_lat, centre_lon, radius_km, locality_label
-                FROM hegel_pod
+                FROM imara_pod
                 ORDER BY pod_id
                 LIMIT 1
                 """
             )
             row = cur.fetchone()
-            cur.execute("SELECT COUNT(*) FROM hegel_observation")
+            cur.execute("SELECT COUNT(*) FROM imara_observation")
             observations = int(cur.fetchone()[0])
-            cur.execute("SELECT COUNT(*) FROM hegel_resource")
+            cur.execute("SELECT COUNT(*) FROM imara_resource")
             resources = int(cur.fetchone()[0])
     except Exception as exc:
-        raise HegelDbError(_public_query_error(exc)) from exc
+        raise ImaraDbError(_public_query_error(exc)) from exc
     finally:
         conn.close()
     pod = None
@@ -95,7 +95,7 @@ def inventory_snapshot() -> InventorySnapshot:
             locality_label=row[5] or "",
         )
     if pod is None:
-        detail = "The hegel database is there, and it has no pod row yet."
+        detail = "The imara database is there, and it has no pod row yet."
     else:
         detail = (
             f"{pod.name} is a {pod.radius_km:g} km circle around "
@@ -121,7 +121,7 @@ def replace_pod_inventory(pod: Pod, rows: list[Observation]) -> int:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO hegel_pod (
+                    INSERT INTO imara_pod (
                         pod_id, name, centre_lat, centre_lon, radius_km, locality_label, updated_at
                     ) VALUES (%s, %s, %s, %s, %s, %s, now())
                     ON CONFLICT (pod_id) DO UPDATE SET
@@ -142,20 +142,20 @@ def replace_pod_inventory(pod: Pod, rows: list[Observation]) -> int:
                     ),
                 )
                 cur.execute(
-                    "DELETE FROM hegel_resource WHERE pod_id = %s",
+                    "DELETE FROM imara_resource WHERE pod_id = %s",
                     (pod.pod_id,),
                 )
                 cur.execute(
-                    "DELETE FROM hegel_observation WHERE pod_id = %s",
+                    "DELETE FROM imara_observation WHERE pod_id = %s",
                     (pod.pod_id,),
                 )
                 id_by_key: dict[tuple[str, str], int] = {}
                 for row in rows:
                     if row.pod_id != pod.pod_id:
-                        raise HegelDbError("A source row names a different pod from the one being saved.")
+                        raise ImaraDbError("A source row names a different pod from the one being saved.")
                     cur.execute(
                         """
-                        INSERT INTO hegel_observation (
+                        INSERT INTO imara_observation (
                             pod_id, source, source_record_id, resource_type,
                             latitude, longitude, location_accuracy,
                             installed_capacity_kwp, storage_capacity_kwh,
@@ -189,10 +189,10 @@ def replace_pod_inventory(pod: Pod, rows: list[Observation]) -> int:
                     id_by_key[(row.source, row.source_record_id)] = int(cur.fetchone()[0])
                 for resource in resources:
                     _insert_resource(cur, resource, id_by_key)
-    except HegelDbError:
+    except ImaraDbError:
         raise
     except Exception as exc:
-        raise HegelDbError(_public_query_error(exc)) from exc
+        raise ImaraDbError(_public_query_error(exc)) from exc
     finally:
         conn.close()
     return len(resources)
@@ -201,7 +201,7 @@ def replace_pod_inventory(pod: Pod, rows: list[Observation]) -> int:
 def _insert_resource(cur, resource: Resource, id_by_key: dict[tuple[str, str], int]) -> None:
     cur.execute(
         """
-        INSERT INTO hegel_resource (
+        INSERT INTO imara_resource (
             resource_id, pod_id, resource_type, latitude, longitude,
             location_accuracy, installed_capacity_kwp, storage_capacity_kwh,
             equipment_metadata, confidence, verification_status, updated_at
@@ -231,7 +231,7 @@ def _insert_resource(cur, resource: Resource, id_by_key: dict[tuple[str, str], i
             continue
         cur.execute(
             """
-            INSERT INTO hegel_resource_source (resource_id, observation_id)
+            INSERT INTO imara_resource_source (resource_id, observation_id)
             VALUES (%s, %s)
             """,
             (resource.resource_id, observation_id),
@@ -242,10 +242,10 @@ def _public_connect_error(exc: BaseException, cfg: dict) -> str:
     text = str(exc).lower()
     host = cfg["host"]
     port = cfg["port"]
-    if "does not exist" in text and HEGEL_DBNAME in text:
+    if "does not exist" in text and IMARA_DBNAME in text:
         return (
-            f"PostgreSQL on {host}:{port} has no database named {HEGEL_DBNAME} yet. "
-            "The database owner runs hegel_postgres.sql. The plant database is left as it is."
+            f"PostgreSQL on {host}:{port} has no database named {IMARA_DBNAME} yet. "
+            "The database owner runs imara_postgres.sql. The plant database is left as it is."
         )
     if "password" in text or "authentication" in text or "auth" in text:
         return (
@@ -254,19 +254,19 @@ def _public_connect_error(exc: BaseException, cfg: dict) -> str:
         )
     if "timeout" in text or "could not connect" in text or "connection refused" in text:
         return f"PostgreSQL on {host}:{port} did not answer."
-    return f"Could not open the {HEGEL_DBNAME} database on {host}:{port}."
+    return f"Could not open the {IMARA_DBNAME} database on {host}:{port}."
 
 
 def _public_query_error(exc: BaseException) -> str:
     text = str(exc).lower()
-    if "hegel_pod" in text or "hegel_observation" in text or "does not exist" in text:
+    if "imara_pod" in text or "imara_observation" in text or "does not exist" in text:
         return (
-            "The hegel database is missing its tables. "
-            "The database owner runs hegel_postgres.sql."
+            "The imara database is missing its tables. "
+            "The database owner runs imara_postgres.sql."
         )
     if "permission" in text or "privilege" in text:
         return (
-            "The dashboard login can see PostgreSQL, but it cannot read the hegel tables. "
+            "The dashboard login can see PostgreSQL, but it cannot read the imara tables. "
             "The owner script grants that login SELECT, INSERT, UPDATE, and DELETE."
         )
-    return "The hegel database refused the inventory read."
+    return "The imara database refused the inventory read."

@@ -4,17 +4,17 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from energy_dashboard.hegel.aggregate import aggregate
-from energy_dashboard.hegel.dedup import deduplicate, prepare_observations
-from energy_dashboard.hegel.geo import distance_m, in_radius
-from energy_dashboard.hegel.models import (
+from energy_dashboard.imara.aggregate import aggregate
+from energy_dashboard.imara.dedup import deduplicate, prepare_observations
+from energy_dashboard.imara.geo import distance_m, in_radius
+from energy_dashboard.imara.models import (
     CHINNOR_LAT,
     CHINNOR_LON,
     Observation,
     chinnor_pod,
     optional_float,
 )
-from energy_dashboard.hegel.schema import HEGEL_TABLES
+from energy_dashboard.imara.schema import IMARA_TABLES
 
 
 def _pv(**kwargs) -> Observation:
@@ -161,13 +161,13 @@ class AggregateTests(unittest.TestCase):
 
 
 class SchemaFileTests(unittest.TestCase):
-    def test_owner_script_creates_a_database_named_hegel_and_its_tables(self):
-        sql = Path(__file__).resolve().parents[3].joinpath("hegel_postgres.sql").read_text()
-        self.assertIn("CREATE DATABASE hegel", sql)
+    def test_owner_script_creates_a_database_named_imara_and_its_tables(self):
+        sql = Path(__file__).resolve().parents[3].joinpath("imara_postgres.sql").read_text()
+        self.assertIn("CREATE DATABASE imara", sql)
         self.assertNotIn("\\c powermon", sql)
         code = "\n".join(line for line in sql.splitlines() if not line.strip().startswith("--"))
         self.assertNotIn("DROP", code.upper())
-        for name in HEGEL_TABLES:
+        for name in IMARA_TABLES:
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {name}", sql)
 
 
