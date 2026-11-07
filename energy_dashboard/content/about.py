@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.9", "2026-11-07", [
+        "Tasmota profile tabs now show friendly device names instead of raw IP addresses. If tasmota_readings only has the IP, the tabs query tasmota_devices for the proper name.",
+    ]),
     ("2.10.8", "2026-11-07", [
         "Database writing alarm now fires when the row-count query itself fails (e.g. missing GRANTs causing 'no table access'). Previously db_rows_15m=None silently bypassed the check.",
     ]),

@@ -10,6 +10,30 @@ _PALETTE = ('#a6e3a1', '#89b4fa', '#f38ba8', '#f9e2af', '#cba6f7',
             '#94e2d5', '#fab387', '#74c7ec', '#f5c2e7', '#b4befe')
 
 
+def _enrich_device_names(logger, names: dict[str, str]) -> None:
+    """Replace IP-only labels with friendly names from tasmota_devices."""
+    need = [ip for ip, label in names.items() if label == ip]
+    if not need or logger is None:
+        return
+    try:
+        be = logger._primary_storage_backend()
+        if not be:
+            return
+        df = logger._query_pl(
+            be,
+            "SELECT device_ip, device_name FROM tasmota_devices "
+            "WHERE device_name IS NOT NULL",
+            (),
+        )
+        for row in df.iter_rows(named=True):
+            ip = row["device_ip"]
+            dn = row["device_name"]
+            if ip in names and dn and dn != ip:
+                names[ip] = dn
+    except Exception:
+        pass
+
+
 class Tasmota24hProfileTab(QWidget):
     """Averaged 24-hour power profile for a single Tasmota device."""
 
@@ -90,8 +114,15 @@ class Tasmota24hProfileTab(QWidget):
             return
         names: dict[str, str] = {}
         for _ts, ip, name, _pw in rows:
-            if ip and ip not in names:
-                names[ip] = name or ip
+            if not ip:
+                continue
+            # Prefer a non-IP-looking name; keep the best one seen so far.
+            cur = names.get(ip)
+            candidate = name or ip
+            if cur is None or (cur == ip and candidate != ip):
+                names[ip] = candidate
+        # Enrich from tasmota_devices for any IP still without a friendly name.
+        _enrich_device_names(logger, names)
         prev = self.device_combo.currentData()
         self.device_combo.blockSignals(True)
         self.device_combo.clear()

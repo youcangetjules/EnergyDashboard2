@@ -18,6 +18,30 @@ _RANGE_OPTIONS = (
 )
 
 
+def _enrich_device_names(logger, names: dict[str, str]) -> None:
+    """Replace IP-only labels with friendly names from tasmota_devices."""
+    need = [ip for ip, label in names.items() if label == ip]
+    if not need or logger is None:
+        return
+    try:
+        be = logger._primary_storage_backend()
+        if not be:
+            return
+        df = logger._query_pl(
+            be,
+            "SELECT device_ip, device_name FROM tasmota_devices "
+            "WHERE device_name IS NOT NULL",
+            (),
+        )
+        for row in df.iter_rows(named=True):
+            ip = row["device_ip"]
+            dn = row["device_name"]
+            if ip in names and dn and dn != ip:
+                names[ip] = dn
+    except Exception:
+        pass
+
+
 class TasmotaHistoricalTab(QWidget):
     """Cumulative and daily kWh per Tasmota device over time."""
 
@@ -134,13 +158,19 @@ class TasmotaHistoricalTab(QWidget):
         for ts_str, ip, name, power_w in rows:
             if not ip:
                 continue
-            device_labels[ip] = name or ip
+            cur = device_labels.get(ip)
+            candidate = name or ip
+            if cur is None or (cur == ip and candidate != ip):
+                device_labels[ip] = candidate
             try:
                 ts = datetime.strptime(str(ts_str)[:19], "%Y-%m-%d %H:%M:%S")
             except (ValueError, TypeError):
                 continue
             day_key = ts.strftime("%Y-%m-%d")
             device_days[ip][day_key].append((ts, float(power_w or 0)))
+
+        # Enrich any IP-only labels from the tasmota_devices table.
+        _enrich_device_names(self._logger(), device_labels)
 
         # Update device checkboxes
         self._update_device_checks(device_labels)
