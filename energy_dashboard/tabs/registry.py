@@ -10,6 +10,7 @@ _MAIN_TAB_GROUPS = (
     # Dashboards is the landing group: first in the strip, and the
     # window always opens here (see main_window startup).
     ("usage", "Dashboards"),
+    ("tasmota_group", "Tasmota"),
     ("physical_plant", "Physical Plant"),
     ("import_export", "Import/Export"),
     ("forecasts", "Energy Forecasts"),
@@ -27,7 +28,7 @@ _MAIN_TAB_BAR_REGISTRY = (
     (None, "octopus_tab", "  Octopus Energy Data  ", "import_export", True),
     ("device_costs", "device_costs_tab", "  Daily import costs  ", "import_export", True),
     (None, "growatt_tab", "  Growatt Live Status  ", "usage", True),
-    ("tasmota", "tasmota_tab", "  Tasmota Devices  ", "usage", True),
+    ("tasmota", "tasmota_tab", "  Tasmota Devices  ", "tasmota_group", True),
     ("combined", "combined_tab", "  Combined Dashboard  ", "usage", True),
     ("alarms", "alarms_tab", "  Alarms (0)  ", "usage", True),
     ("battery", "battery_tab", "  Battery Analysis  ", "physical_plant", True),

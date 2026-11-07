@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.4", "2026-11-07", [
+        "A new Tasmota tab group sits after Dashboards in the group strip. Tasmota Devices moves from Dashboards into it.",
+    ]),
     ("2.10.3", "2026-11-07", [
         "Hegel is now Imara-RDC everywhere: the yellow button, the tab, the database, the SQL script, and the help text. QSettings from the old name are migrated automatically.",
     ]),
