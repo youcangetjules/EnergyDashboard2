@@ -7,8 +7,8 @@ from energy_dashboard.deps import *
 # Semantic version (major.minor.patch). Default: increment APP_VERSION_PATCH for
 # each routine update. Bump minor or major only when explicitly requested.
 APP_VERSION_MAJOR = 2
-APP_VERSION_MINOR = 9
-APP_VERSION_PATCH = 512
+APP_VERSION_MINOR = 10
+APP_VERSION_PATCH = 0
 APP_VERSION = f"{APP_VERSION_MAJOR}.{APP_VERSION_MINOR}.{APP_VERSION_PATCH}"
 
 

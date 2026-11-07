@@ -271,7 +271,18 @@ def _fetch_solar_forecast_forecast_solar(lat, lon, declination, azimuth, kwp):
     watts = data.get('result', {}).get('watts', {})
     if not watts:
         return pd.DataFrame(), "No forecast data returned"
-    records = [{'timestamp': pd.to_datetime(ts_str), 'watts': w} for ts_str, w in watts.items()]
+    # Forecast.Solar returns timestamps in the location's local time
+    # (Europe/London for the UK).  Localise then normalise to UTC so
+    # the downstream chart code and the Open-Meteo backup are consistent.
+    import pytz
+    _london = pytz.timezone('Europe/London')
+    records = []
+    for ts_str, w in watts.items():
+        ts = pd.to_datetime(ts_str)
+        if ts.tzinfo is None:
+            ts = _london.localize(ts)
+        ts = ts.tz_convert(pytz.utc)
+        records.append({'timestamp': ts, 'watts': w})
     df = pd.DataFrame(records)
     df['kW'] = df['watts'] / 1000.0
     df = df.sort_values('timestamp').reset_index(drop=True)
@@ -403,6 +414,15 @@ def fetch_solar_forecast_planes(lat, lon, planes):
     if not frames:
         detail = "; ".join(msgs) if msgs else "no enabled faces"
         return pd.DataFrame(), f"Multi-plane solar: {detail}"
+
+    # Normalise all frames to UTC so mixed Forecast.Solar (local-tz) and
+    # Open-Meteo (UTC) sources merge cleanly on the timestamp column.
+    for i, frame in enumerate(frames):
+        col = frame['timestamp']
+        if hasattr(col.dt, 'tz') and col.dt.tz is None:
+            frames[i] = frame.assign(timestamp=col.dt.tz_localize('UTC'))
+        elif hasattr(col.dt, 'tz') and col.dt.tz is not None:
+            frames[i] = frame.assign(timestamp=col.dt.tz_convert('UTC'))
 
     merged = frames[0]
     for extra in frames[1:]:

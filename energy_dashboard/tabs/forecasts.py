@@ -744,6 +744,13 @@ class ForecastsTab(QWidget):
             # From start of today through end of the selected window (not the
             # full 16-day Forecast.Solar / Open-Meteo tail).
             mask_fc = (t_london >= today_local) & (t_london < window_end)
+            if not mask_fc.any() and len(sdf) > 0:
+                _log.warn(
+                    "Forecasts",
+                    f"Solar forecast has {len(sdf)} rows but none in chart window "
+                    f"{today_local} – {window_end}; "
+                    f"ts range {t_london.min()} – {t_london.max()}",
+                )
             if mask_fc.any():
                 fc = sdf.loc[mask_fc].copy()
                 ts_fc = t_london.loc[mask_fc].to_numpy()

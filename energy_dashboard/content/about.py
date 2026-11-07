@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.0", "2026-11-07", [
+        "Solar forecast timestamps from Forecast.Solar are now correctly localised to Europe/London before conversion to UTC, so the forecast curve no longer shifts one hour early during British Summer Time.",
+    ]),
     ("2.9.512", "2026-10-25", [
         "Octopus Live no longer crashes on the UK clock-change night when the cost cards floor meter readings into half-hour slots.",
     ]),
