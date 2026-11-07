@@ -32,6 +32,8 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 - **2.10.8 – Database writing alarm fires on permission-denied.** The "Database writing stops" alarm had a blind spot: when missing GRANTs caused the row-count query to fail (`db_rows_15m=None`), the `is not None` check silently treated it as "no problem." Now `None` is treated the same as zero rows, so the alarm fires as expected.
 
+- **2.10.9 – Tasmota profile tabs show device names instead of IPs.** Both the 24 hr Profile and Historical Profile were showing raw IP addresses (e.g. "222.20.20.101") when `tasmota_readings` had no friendly name. Now they prefer the best non-IP name seen in readings, and fall back to querying the `tasmota_devices` table for the proper device name.
+
 ## 2026-10-25
 
 ### 23:13
