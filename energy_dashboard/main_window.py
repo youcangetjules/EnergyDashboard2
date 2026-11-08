@@ -42,6 +42,7 @@ from energy_dashboard.tabs.growatt import GrowattTab, growatt_format_live_kw
 from energy_dashboard.tabs.imara import ImaraTab
 from energy_dashboard.tabs.grott_api_align import GrottApiAlignTab
 from energy_dashboard.tabs.grott_setup import GrottSetupTab
+from energy_dashboard.tabs.hub import HubTab
 from energy_dashboard.tabs.license import LicenseTab
 from energy_dashboard.tabs.octopus import OctopusTab
 from energy_dashboard.tabs.octopus_live import OctopusLiveTab
@@ -797,6 +798,8 @@ class EnergyDashboard(QMainWindow):
         self.status_bar.addPermanentWidget(close_btn)
 
         # ── Main tabs: construct in dependency order; add in grouped order below.
+        self.hub_tab = HubTab(self.set_status, dashboard=self)
+
         self.growatt_tab = GrowattTab(self.set_status, self.app_params, dash=self)
         self.growatt_tab.on_data_updated = self._on_growatt_data_updated
 

@@ -7,6 +7,7 @@ from energy_dashboard.deps import *
 
 # Group strip (left of the main tab bar). Order is left-to-right; always visible.
 _MAIN_TAB_GROUPS = (
+    ("hub", "Hub"),
     # Dashboards is the landing group: first in the strip, and the
     # window always opens here (see main_window startup).
     ("usage", "Dashboards"),
@@ -24,6 +25,7 @@ _MAIN_TAB_GROUPS = (
 #  tab title, group id, updateable).
 # updateable=True → solid green page tab; False → solid blue (static pages).
 _MAIN_TAB_BAR_REGISTRY = (
+    (None, "hub_tab", "  Hub  ", "hub", False),
     ("octopus_live", "octopus_live_tab", "  Octopus Live  ", "import_export", True),
     (None, "octopus_tab", "  Octopus Energy Data  ", "import_export", True),
     ("device_costs", "device_costs_tab", "  Daily import costs  ", "import_export", True),
