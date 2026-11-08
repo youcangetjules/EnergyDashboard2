@@ -29,6 +29,7 @@ _MAIN_TAB_BAR_REGISTRY = (
     ("octopus_live", "octopus_live_tab", "  Octopus Live  ", "import_export", True),
     (None, "octopus_tab", "  Octopus Energy Data  ", "import_export", True),
     ("device_costs", "device_costs_tab", "  Daily import costs  ", "import_export", True),
+    ("avg_spot_price", "avg_spot_price_tab", "  Avg. spot price  ", "import_export", False),
     (None, "growatt_tab", "  Growatt Live Status  ", "usage", True),
     ("tasmota", "tasmota_tab", "  Tasmota Devices  ", "tasmota_group", True),
     ("tasmota_24h_profile", "tasmota_24h_profile_tab", "  Tasmota 24 hr Profile  ", "tasmota_group", False),

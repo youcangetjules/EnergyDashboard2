@@ -25,6 +25,7 @@ from energy_dashboard.planner.maximiser import MaximiserTab
 from energy_dashboard.tabs.agile_prices import AgileSpotPricesTab
 from energy_dashboard.tabs.agile_year import AgileYearTab
 from energy_dashboard.tabs.analytics import AnalyticsTab
+from energy_dashboard.tabs.avg_spot_price import AvgSpotPriceTab
 from energy_dashboard.tabs.battery_analysis import BatteryAnalysisTab
 from energy_dashboard.tabs.alarm_defs import AlarmDefsTab
 from energy_dashboard.tabs.alarms import AlarmsTab
@@ -868,6 +869,8 @@ class EnergyDashboard(QMainWindow):
         self.agile_year_tab.on_data_updated = (
             lambda: self.mark_tab_fresh(self.agile_year_tab)
         )
+
+        self.avg_spot_price_tab = AvgSpotPriceTab(self.set_status, dashboard=self)
 
         self.roof_layout_tab = RoofLayoutTab(
             self.forecasts_tab, self.set_status, dash=self,
