@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.10", "2026-11-08", [
+        "Combined Dashboard cleanup: right chart vertical grid lines thinned to 1px, left chart shows live (solid), last-hour (faded), and last-24h (very faded) power bars layered on top of each other, and a date range combo lets you set the viewing period for the trends chart independently.",
+    ]),
     ("2.10.9", "2026-11-07", [
         "Tasmota profile tabs now show friendly device names instead of raw IP addresses. If tasmota_readings only has the IP, the tabs query tasmota_devices for the proper name.",
     ]),

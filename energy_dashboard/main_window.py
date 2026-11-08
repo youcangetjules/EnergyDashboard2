@@ -833,7 +833,7 @@ class EnergyDashboard(QMainWindow):
             lambda: self.mark_tab_fresh(self.string_design_tab)
         )
 
-        self.combined_tab = CombinedTab(self.growatt_tab, self.octopus_tab, self.set_status)
+        self.combined_tab = CombinedTab(self.growatt_tab, self.octopus_tab, self.set_status, dashboard=self)
 
         self.battery_tab = BatteryAnalysisTab(
             self.growatt_tab, self.set_status, self.app_params, dash=self,

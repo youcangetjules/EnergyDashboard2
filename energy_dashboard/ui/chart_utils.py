@@ -68,7 +68,8 @@ def _resolve_axis_day_range(ax, london):
 def _draw_6h_vertical_grid(ax, london=None, *, max_days=120,
                            primary_hours=(0, 6, 12, 18),
                            secondary_hours=(3, 9, 15, 21),
-                           force_intraday_secondary=False):
+                           force_intraday_secondary=False,
+                           day_lw=2.0, primary_lw=1.4, secondary_lw=1.0):
     """Draw vertical reference grids on a datetime x-axis.
 
     By default London midnight (00:00) is a solid day-boundary line; 06:00 /
@@ -128,18 +129,18 @@ def _draw_6h_vertical_grid(ax, london=None, *, max_days=120,
                 # Solid day boundary at London midnight — stronger than the
                 # dotted 06/12/18 guides so multi-day charts read clearly.
                 ax.axvline(
-                    xn, color='#9aa8c7', linewidth=2.0, linestyle='-',
+                    xn, color='#9aa8c7', linewidth=day_lw, linestyle='-',
                     alpha=0.9, zorder=0,
                 )
             elif hh in PRIMARY_HOURS:
                 ax.axvline(
-                    xn, color='#7a8aab', linewidth=1.4, linestyle=':',
+                    xn, color='#7a8aab', linewidth=primary_lw, linestyle=':',
                     alpha=0.75, zorder=0,
                 )
             else:
                 # Fainter than primary 00/06/12/18 — still visible on dark axes.
                 ax.axvline(
-                    xn, color='#566483', linewidth=1.0, linestyle=(0, (1, 5)),
+                    xn, color='#566483', linewidth=secondary_lw, linestyle=(0, (1, 5)),
                     alpha=0.45, zorder=0,
                 )
 
