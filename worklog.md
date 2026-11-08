@@ -12,6 +12,14 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-11-08
+
+- **2.10.10 – Combined Dashboard cleanup.** Thinned vertical grid lines on the right chart, added layered power bars (live solid, 1h faded, 24h very faded) to the left chart, and added a date range combo for the trends chart.
+
+- **2.10.11 – Hub tab group with Battery SOC tile.** New "Hub" group at the leftmost position in the group strip. First tile: Battery SOC — shows current charge percentage (colour-coded green/amber/pink) and battery power state. Click to jump to Battery Analysis.
+
+- **2.10.12 – Avg. Spot Price tab.** New tab in the Import/Export group showing daily average Agile prices as a vertical bar chart. Bars are colour-coded by price band. Default 90-day view with date range selector and import/export toggle. Uses the pre-aggregated `agile_year_daily` table.
+
 ## 2026-11-07
 
 - **2.10.0 – Solar forecast timezone fix.** Forecast.Solar timestamps were parsed as naive, so during BST the curve shifted an hour. Now localised to Europe/London then converted to UTC before merge.
