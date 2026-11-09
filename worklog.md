@@ -20,6 +20,8 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 - **2.10.12 – Avg. Spot Price tab.** New tab in the Import/Export group showing daily average Agile prices as a vertical bar chart. Bars are colour-coded by price band. Default 90-day view with date range selector and import/export toggle. Uses the pre-aggregated `agile_year_daily` table.
 
+- **2.10.13 – All tabs refresh at startup and every 15 minutes.** A bulk refresh fires 3 seconds after startup (once connections have settled), then repeats every 15 minutes via a QTimer. Also fixed QSS stylesheet parse errors in the Hub and Avg. Spot Price tabs (double `}}` in non-f-string continuations).
+
 ## 2026-11-07
 
 - **2.10.0 – Solar forecast timezone fix.** Forecast.Solar timestamps were parsed as naive, so during BST the curve shifted an hour. Now localised to Europe/London then converted to UTC before merge.
