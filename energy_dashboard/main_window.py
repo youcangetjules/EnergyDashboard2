@@ -101,6 +101,8 @@ _TAB_REFRESH_TARGETS = (
     ('grott_align_tab', 'compare_now'),
     ('connectivity_tab', 'refresh_status'),
     ('grott_setup_tab', 'refresh_status'),
+    ('hub_tab', 'refresh'),
+    ('avg_spot_price_tab', 'refresh'),
 )
 
 
@@ -334,6 +336,12 @@ class EnergyDashboard(QMainWindow):
         self.octopus_live_tab.auto_start()
         self.tasmota_tab.auto_start()
         self.apply_auto_refresh_from_params()
+        # Refresh every tab once at startup, then every 15 minutes.
+        QTimer.singleShot(3000, self._refresh_all_tabs)
+        self._bulk_refresh_timer = QTimer(self)
+        self._bulk_refresh_timer.setInterval(15 * 60 * 1000)
+        self._bulk_refresh_timer.timeout.connect(self._refresh_all_tabs)
+        self._bulk_refresh_timer.start()
         _log.info("App", "All services started")
 
     def _auto_refresh_timers(self):

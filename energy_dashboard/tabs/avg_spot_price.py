@@ -76,11 +76,11 @@ class AvgSpotPriceTab(QWidget):
     def _style_toggle_buttons(self):
         active_qss = (
             f"QPushButton {{ background: {_BTN_GREEN_BG}; color: #cdd6f4; "
-            "border: 1px solid #a6e3a1; border-radius: 4px; padding: 4px; font-weight: bold; }}"
+            "border: 1px solid #a6e3a1; border-radius: 4px; padding: 4px; font-weight: bold; }"
         )
         inactive_qss = (
             f"QPushButton {{ background: {_DARK_SURFACE_BG}; color: #6c7086; "
-            "border: 1px solid #313244; border-radius: 4px; padding: 4px; }}"
+            "border: 1px solid #313244; border-radius: 4px; padding: 4px; }"
         )
         self._import_btn.setStyleSheet(active_qss if self._view == "import" else inactive_qss)
         self._export_btn.setStyleSheet(active_qss if self._view == "export" else inactive_qss)

@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.13", "2026-11-08", [
+        "All tabs are refreshed once at startup (after a short delay for connections to settle) and then automatically every 15 minutes.",
+    ]),
     ("2.10.12", "2026-11-08", [
         "New Avg. Spot Price tab in the Import/Export group — vertical bar chart of daily average Agile prices (p/kWh inc. VAT), colour-coded by price band. Default 90-day view with date range selector and import/export toggle.",
     ]),

@@ -11,7 +11,7 @@ from energy_dashboard.common import *
 _TILE_QSS = (
     f"QGroupBox {{ background: {_DARK_SURFACE_BG}; border: 1px solid #313244; "
     "border-radius: 8px; margin-top: 0; padding: 12px; "
-    "color: #cdd6f4; font-weight: bold; }}"
+    "color: #cdd6f4; font-weight: bold; }"
 )
 
 _SOC_GREEN = "#a6e3a1"
