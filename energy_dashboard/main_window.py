@@ -56,6 +56,7 @@ from energy_dashboard.tabs.panel_database import PanelDatabaseTab
 from energy_dashboard.tabs.mcs_certificate import McsCertificateTab
 from energy_dashboard.tabs.roof_layout import RoofLayoutTab
 from energy_dashboard.tabs.parameters import ParametersTab
+from energy_dashboard.tabs.resources import ResourcesTab
 from energy_dashboard.tabs.shadow_trial import ShadowTrialTab
 from energy_dashboard.tabs.sms_gateway import SmsGatewayTab
 from energy_dashboard.ui.system_status_bar import tray_database_lines
@@ -959,6 +960,8 @@ class EnergyDashboard(QMainWindow):
         self.console_tab = ConsoleTab(self)
 
         self.dump_logs_tab = DumpLogsTab(self)
+
+        self.resources_tab = ResourcesTab(self)
 
         self.bug_tracker_tab = BugTrackerTab(self)
 

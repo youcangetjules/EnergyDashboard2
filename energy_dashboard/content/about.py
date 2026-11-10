@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.14", "2026-11-10", [
+        "New Resources tab in Controls — shows memory (RSS/VMS), CPU usage, and PID for every PowerModel process (dashboard, collector daemon, and any related background workers). Reads from /proc and the PowerModel lock files.",
+    ]),
     ("2.10.13", "2026-11-08", [
         "All tabs are refreshed once at startup (after a short delay for connections to settle) and then automatically every 15 minutes.",
     ]),
