@@ -157,7 +157,10 @@ class ResourcesTab(QWidget):
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.verticalHeader().setVisible(False)
-        _apply_dark_log_view(self._table)
+        self._table.setAlternatingRowColors(True)
+        self._table.setStyleSheet(
+            "QTableWidget { alternate-background-color: #252536; }"
+        )
         layout.addWidget(self._table, 1)
 
         self._summary = QLabel("")
