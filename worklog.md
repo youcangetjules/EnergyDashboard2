@@ -12,6 +12,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-11-10
+
+- **2.10.14 – Resources tab.** New tab in the Controls group showing memory (RSS/VMS), CPU %, and PID for every PowerModel process. Finds the dashboard and collector daemon via their lock files in `/tmp`, then scans `/proc` for any other related processes. Shows "(not running)" for inactive services and a total RSS summary.
+
 ## 2026-11-08
 
 - **2.10.10 – Combined Dashboard cleanup.** Thinned vertical grid lines on the right chart, added layered power bars (live solid, 1h faded, 24h very faded) to the left chart, and added a date range combo for the trends chart.
