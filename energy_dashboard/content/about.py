@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.16", "2026-11-16", [
+        "Tasmota Devices: Poll every (s) stays editable while MQTT is on, so you can set the interval without leaving live telemetry.",
+    ]),
     ("2.10.15", "2026-11-16", [
         "Battery Analysis Power Flows shows Tot kWh consumed, imported, and generated in the top-left of every London day in the window — not only the last three days. Today is still marked running.",
     ]),

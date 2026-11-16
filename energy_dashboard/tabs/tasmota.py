@@ -591,7 +591,8 @@ class TasmotaTab(QWidget):
         self.sp_poll_interval.setRange(5, 600)
         self.sp_poll_interval.setValue(30)
         self.sp_poll_interval.setToolTip(
-            "Seconds between automatic polls (LAN devices or broker /snapshot)."
+            "Seconds between automatic polls (LAN devices or broker /snapshot). "
+            "Always editable — used when Auto poll is on, including after leaving MQTT."
         )
         apply_spin_field_motif(self.sp_poll_interval, width=_TASMOTA_CTRL_SPIN_W)
         broker_row.addWidget(self.sp_poll_interval)
@@ -1684,7 +1685,9 @@ class TasmotaTab(QWidget):
         broker_on = self.cb_powermon_broker.isChecked()
         mqtt_on = self.cb_use_mqtt.isChecked()
         self.ed_powermon_broker_url.setEnabled(broker_on)
-        self.sp_poll_interval.setEnabled(not mqtt_on)
+        # Poll every stays available in MQTT mode so the interval can be set
+        # for Save / when Auto poll or HTTP polling is used again.
+        self.sp_poll_interval.setEnabled(True)
         self.cb_auto_poll.setEnabled(not mqtt_on)
         self.cb_powermon_broker.setEnabled(not mqtt_on)
         self.cb_use_mqtt.setEnabled(not broker_on)
@@ -1699,8 +1702,6 @@ class TasmotaTab(QWidget):
             self.test_mqtt_btn,
         ):
             w.setEnabled(mqtt_editable)
-        self.sp_poll_interval.setEnabled(not mqtt_on)
-        self.cb_auto_poll.setEnabled(not mqtt_on)
         if mqtt_on:
             self.poll_btn.setToolTip("Request one HTTP Status 8 read per device (MQTT stays active)")
         else:

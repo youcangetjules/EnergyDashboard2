@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-11-16
 
+### 09:02
+
+- On Tasmota Devices, Poll every (s) stays editable while MQTT is listening. You can set the interval without turning MQTT off; Auto poll is still only for HTTP or broker snapshot.
+
 ### 08:28
 
 - Battery Analysis Power Flows now puts Tot kWh consumed, imported, and generated in the top-left of every London day on the chart, not only the last three. Today still says running.

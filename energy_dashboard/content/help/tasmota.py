@@ -11,7 +11,9 @@ Polls every Tasmota device on the configured IP range (<code>TASMOTA_IP_START</c
 <p>
 <b>Subscribe via MQTT</b> listens on <code>tele/+/SENSOR</code>, <code>tele/+/STATUS8</code>, <code>stat/+/POWER</code>, and <code>tele/+/STATE</code> instead of HTTP polling each device. Use <b>Test connection</b> to verify the broker, then <b>Save MQTT</b>. Devices are matched by <code>IPAddress</code> in the payload when present.</p>
 <p>
-<b>Poll every (s)</b> and <b>Auto poll</b> apply to HTTP LAN poll or broker <code>/snapshot</code> only (not MQTT). Click <b>Save</b> to apply.</p>
+<b>Poll every (s)</b> is always available — set the seconds and click <b>Save</b>.
+It is used for HTTP LAN poll or broker <code>/snapshot</code> when <b>Auto poll</b>
+is on. Auto poll itself is off while MQTT is the live feed.</p>
 <p>
 Per-row <b>Probe</b> re-polls one IP; <b>Web UI</b> opens the device; <b>Diagnose</b> (right of Web UI) explains blank or bad rows: live HTTP checks (Status 0/3/4/8/11, Power), briefly enables <code>WebLog 4</code> for verbose HW/socket errors, plus logging levels, heap/flash (Status 4), connectivity, WiFi RSSI, reboots, MQTT, and scheduler <code>LoadAvg</code>; <b>Toggle</b> sends <code>Power Toggle</code> after confirmation.</p>
 <p>
