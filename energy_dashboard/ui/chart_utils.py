@@ -628,10 +628,11 @@ def _octopus_live_draw_cumulative_day_labels(
 
 
 def _battery_power_draw_daily_totals(ax, df, london=None):
-    """Annotate the previous two days and today's running energy totals.
+    """Annotate each London day on Battery Analysis Power Flows.
 
-    Values are shown beneath each London day-date label on Battery Analysis
-    Power Flows. Today's values are explicitly marked as a running tally.
+    Top-left of each day column: Tot kWh consumed, imported, and generated.
+    Today's values are marked as a running tally. Days are skipped when the
+    column is too narrow to read.
     """
     import matplotlib.dates as mdates
     import pytz
@@ -650,7 +651,6 @@ def _battery_power_draw_daily_totals(ax, df, london=None):
         return
 
     today = datetime.now(london).date()
-    wanted_days = [today - timedelta(days=2), today - timedelta(days=1), today]
     interval_h = 5.0 / 60.0
     # `_draw_day_date_labels` uses top_offset_px=10 and ~11px text; stack below it.
     base_y = 10 + 11 + 2
@@ -662,6 +662,7 @@ def _battery_power_draw_daily_totals(ax, df, london=None):
     else:
         ts_london = ts.dt.tz_convert(london)
     day_keys = ts_london.dt.date
+    wanted_days = sorted({d for d in day_keys.tolist() if d is not None})
     for day in wanted_days:
         day_df = df[day_keys == day]
         if day_df.empty:

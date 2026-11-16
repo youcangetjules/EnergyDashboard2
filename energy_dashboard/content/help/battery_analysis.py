@@ -27,7 +27,7 @@ The SOC chart has <b>Battery SOC (%)</b> on the left axis and, when <b>SOC chang
 <p>
 <b>Live alarms</b> (Setup → Live alarms): logging database unreachable or no new Growatt/Tasmota rows while devices are live; Grott feed lost; inverter reported offline; Tasmota MQTT down or named plugs silent; SOC below threshold for the hold time; <b>spare PV not charging</b>; and <b>load consuming all PV</b>. Click the banner alarm text for detail.</p>
 <p>
-On the Power Flows chart, the previous two <b>London calendar days</b> and today are annotated with <b>Tot kWh consumed</b> (house load from <code>sysOut</code>), <b>Tot kWh imported</b>, and <b>Tot kWh generated</b> (PV). Today's values are marked <b>running</b> because they are incomplete.</p>
+On the Power Flows chart, each <b>London calendar day</b> in the window is annotated in the top-left of that day with <b>Tot kWh consumed</b> (house load from <code>sysOut</code>), <b>Tot kWh imported</b>, and <b>Tot kWh generated</b> (PV). Today's values are marked <b>running</b> because they are incomplete. When the day columns are too narrow to read, the labels are left off.</p>
 <p>
 <b>Use it for:</b> validating the simulator's assumptions, spotting calendar-aging or capacity-fade trends.</p>
 """

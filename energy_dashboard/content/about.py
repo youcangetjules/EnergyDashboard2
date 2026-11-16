@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.15", "2026-11-16", [
+        "Battery Analysis Power Flows shows Tot kWh consumed, imported, and generated in the top-left of every London day in the window — not only the last three days. Today is still marked running.",
+    ]),
     ("2.10.14", "2026-11-10", [
         "New Resources tab in Controls — shows memory (RSS/VMS), CPU usage, and PID for every PowerModel process (dashboard, collector daemon, and any related background workers). Reads from /proc and the PowerModel lock files.",
     ]),

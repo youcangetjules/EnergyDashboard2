@@ -12,6 +12,12 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-11-16
+
+### 08:28
+
+- Battery Analysis Power Flows now puts Tot kWh consumed, imported, and generated in the top-left of every London day on the chart, not only the last three. Today still says running.
+
 ## 2026-11-10
 
 - **2.10.14 – Resources tab.** New tab in the Controls group showing memory (RSS/VMS), CPU %, and PID for every PowerModel process. Finds the dashboard and collector daemon via their lock files in `/tmp`, then scans `/proc` for any other related processes. Shows "(not running)" for inactive services and a total RSS summary.
