@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.19", "2026-11-25", [
+        "Setup & Info → Solar installation: the Tilt and Azimuth boxes are the same width as Latitude and Longitude above them.",
+    ]),
     ("2.10.18", "2026-11-25", [
         "Setup & Info → Background collector: a new Database line shows which PostgreSQL database the collector stores readings in, and warns when it differs from Database → PostgreSQL on the same page. Apply database copies the page's host, port, database, user and password to the collector and restarts it — no file to edit by hand when the database moves.",
     ]),

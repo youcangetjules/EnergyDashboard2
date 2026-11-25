@@ -974,9 +974,9 @@ class ParametersTab(QWidget):
         self.ed_kwp = QLineEdit(self.p.solar_kwp)
         self.ed_kwp.setFixedWidth(60)
         self.ed_tilt = QLineEdit(self.p.solar_tilt)
-        self.ed_tilt.setFixedWidth(60)
+        self.ed_tilt.setFixedWidth(100)
         self.ed_azimuth = QLineEdit(self.p.solar_azimuth)
-        self.ed_azimuth.setFixedWidth(60)
+        self.ed_azimuth.setFixedWidth(100)
         save_solar_btn = QPushButton("Save")
         save_solar_btn.setToolTip(
             "Save location and PV geometry to disk and sync the Forecasts tab solar fields"

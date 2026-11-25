@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-11-25
 
+### 10:46
+
+- Setup & Info, Solar installation: the Tilt and Azimuth boxes were narrower than Latitude and Longitude above them. They are now the same width, so the two rows line up.
+
 ### 09:20
 
 - The collector's database can now be set from the screen. Setup & Info, Background collector, has a new Database line. It shows which PostgreSQL database the collector is set to and where that is kept. It turns orange when that differs from Database → PostgreSQL on the same page, and says which part differs (host, port, database name, user, or password).
