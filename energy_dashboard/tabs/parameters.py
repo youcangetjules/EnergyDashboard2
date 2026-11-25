@@ -3647,10 +3647,18 @@ class ParametersTab(QWidget):
             self._set_growatt_modbus_status(False, "Local Modbus check is disabled.")
 
     def _save_growatt_lan(self):
-        # EMQX row is the shared local broker — sync into Grott before persist so
-        # Save never stores an empty grott_mqtt_host while EMQX host is set.
+        # The EMQX row is the shared local broker. It only fills in what the
+        # GROTT MQTT fields leave blank, so Save never stores an empty
+        # grott_mqtt_host — and never replaces a login typed into those fields.
+        # Copying the EMQX row over Grott and Tasmota belongs to the EMQX row's
+        # own Save / Apply.
         host, port, user, password = self._emqx_form_broker()
-        self._push_broker_to_grott_tasmota(host, port, user, password)
+        if not self.ed_grott_host.text().strip():
+            self.ed_grott_host.setText(host)
+            self.sp_grott_port.setValue(port)
+        if not self.ed_grott_user.text().strip():
+            self.ed_grott_user.setText(user)
+            self.ed_grott_pass.setText(password)
         self._read_growatt_form_into_params()
         s = self._settings()
         self._write_growatt_params_to_settings(s)
@@ -3661,8 +3669,12 @@ class ParametersTab(QWidget):
         s.sync()
         lan = self.p.growatt_lan_ip or "—"
         wifi = self.p.growatt_wifi_ip or "—"
+        grott_login = (
+            f" as {self.p.grott_mqtt_user}" if self.p.grott_mqtt_user else ""
+        )
         source = (
             f"Source GROTT MQTT {self.p.grott_mqtt_host}:{self.p.grott_mqtt_port}"
+            f"{grott_login}"
             if self.p.grott_mqtt_enabled and self.p.grott_mqtt_host
             else "Source Growatt API"
         )

@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.17", "2026-11-25", [
+        "Setup & Info → Telemetry source: Save source keeps the MQTT username and password you type. It used to put the EMQX row's login back over them, so a new username snapped back to the old one. The EMQX row now only fills in a host or login you leave blank.",
+    ]),
     ("2.10.16", "2026-11-16", [
         "Tasmota Devices: Poll every (s) stays editable while MQTT is on, so you can set the interval without leaving live telemetry.",
     ]),

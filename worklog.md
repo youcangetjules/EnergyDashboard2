@@ -12,6 +12,13 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ---
 
+## 2026-11-25
+
+### 09:11
+
+- On Setup & Info, Telemetry source, typing a new MQTT username and password and pressing Save source put the old ones straight back. Save source was copying the EMQX row's login over those boxes before it saved. It now saves what is typed there. The EMQX row only fills in a host or a login that is left blank. The EMQX row's own Save and Apply still copy its login to Grott and Tasmota, as before.
+- The energy collector could not reach its database. Its settings file (`~/.config/energy-collector.env`) still held an old PostgreSQL address, 222.20.20.239, while the dashboard used 222.20.20.229. The file was corrected by hand and the collector restarted; it reports healthy with 13 Tasmota devices. Setting that address from the screen is still to do.
+
 ## 2026-11-16
 
 ### 09:02
