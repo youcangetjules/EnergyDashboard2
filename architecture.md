@@ -107,6 +107,12 @@ Out of day-to-day scope: `legacy/`, `growatt2mqtt/`, one-off split tooling, virt
 
 Newest first. Keep each entry short: context → decision → consequence.
 
+### 2026-11-25 — The collector's database is set from Setup, not by hand
+
+- **Context:** The collector reads its PostgreSQL address from its own settings file (`POWERMON_PG_*`). That file was only written when an install script ran. When the database moved to a new address, Setup → Database was changed but the collector kept the old address and stopped storing readings. The only fix was to edit the file by hand.
+- **Decision:** Setup → Background collector shows a Database line: what the collector is set to, and whether that matches the PostgreSQL settings on the page. **Apply database** copies the page's host, port, database, user, and password into the collector's settings file and restarts the collector if it is running. The file is the one named by the unit's own `EnvironmentFile=` (`systemctl show`). Only the five `POWERMON_PG_*` lines change. The file stays owner-only. `services/systemd_status.py` holds the read, compare, and write.
+- **Consequence:** Do not write a database address into the program or the unit. Do not rewrite the whole settings file from the dashboard; other lines (Tasmota range, Growatt login) belong to the installer. The boot service's file is root-only, so the dashboard says to run the install script instead of asking for a root password. Never show or log the database password; it is compared, not displayed.
+
 ### 2026-10-18 — Imara-RDC uses its own PostgreSQL database
 
 - **Context:** Imara-RDC needs a community inventory for a place (first: Chinnor). The plant log already uses PostgreSQL database `powermon`. That login must not create tables, and community sites are not this house’s inverter readings.

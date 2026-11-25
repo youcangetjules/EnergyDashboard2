@@ -10,8 +10,10 @@ from energy_dashboard.db.connect_probe import (
     probe_engine_stages,
 )
 from energy_dashboard.services.systemd_status import (
+    apply_collector_database,
     broker_unreachable_hint,
     collect_collector_service_status,
+    collector_database_state,
     control_collector_service,
     format_updated_at,
     is_boot_enabled,
@@ -594,6 +596,13 @@ class ParametersTab(QWidget):
         self.lbl_svc_http.setMinimumWidth(0)
         self.lbl_svc_http.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         svc_row.addWidget(self.lbl_svc_http, 1, 1)
+        svc_row.addWidget(QLabel("Database:"), 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.lbl_svc_db = QLabel("checking…")
+        self.lbl_svc_db.setWordWrap(True)
+        self.lbl_svc_db.setTextFormat(Qt.RichText)
+        self.lbl_svc_db.setMinimumWidth(0)
+        self.lbl_svc_db.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        svc_row.addWidget(self.lbl_svc_db, 2, 1)
         self.btn_svc_refresh = QPushButton("Refresh")
         self.btn_svc_refresh.setStyleSheet(_SUBTLE_BTN_QSS)
         self.btn_svc_refresh.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -629,6 +638,17 @@ class ParametersTab(QWidget):
         )
         self.btn_svc_boot.clicked.connect(self._svc_toggle_boot)
         svc_ctrl.addWidget(self.btn_svc_boot)
+        self.btn_svc_db = QPushButton("Apply database")
+        self.btn_svc_db.setStyleSheet(_SUBTLE_BTN_QSS)
+        self.btn_svc_db.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.btn_svc_db.setFixedWidth(130)
+        self.btn_svc_db.setToolTip(
+            "Point the collector at the PostgreSQL host, port, database, user "
+            "and password typed under Database on this page, then restart it. "
+            "Use this after the database moves to a new address."
+        )
+        self.btn_svc_db.clicked.connect(self._svc_apply_database)
+        svc_ctrl.addWidget(self.btn_svc_db)
         svc_ctrl.addWidget(self.btn_svc_refresh)
         svc_ctrl.addStretch(1)
         g_svc.addLayout(svc_ctrl)
@@ -2042,59 +2062,81 @@ class ParametersTab(QWidget):
         )
         self._probe_service_async()
 
-    def _postgres_host_setting_note(self, http: dict | None, field: str | None = None) -> str:
-        """Where the collector's database host is set, and the values in use.
+    def _collector_db_wanted(self) -> dict:
+        """The PostgreSQL settings typed under Database on this page."""
+        if getattr(self, "ed_pg_host", None) is None:
+            return {}
+        return {
+            "host": self.ed_pg_host.text().strip(),
+            "port": str(self.ed_pg_port.value()),
+            "name": self.ed_pg_db.text().strip(),
+            "user": self.ed_pg_user.text().strip(),
+            "password": self.ed_pg_pass.text(),
+        }
 
-        The address is never written into the program. It is read from the
-        collector environment and from the PostgreSQL Host field on this page.
+    @staticmethod
+    def _db_target_text(src: dict) -> str:
+        """``host:port/database as user`` for a status line. Never the password."""
+        host = str(src.get("host") or "").strip()
+        if not host:
+            return ""
+        text = host
+        if str(src.get("port") or "").strip():
+            text += f":{src['port']}"
+        if str(src.get("name") or "").strip():
+            text += f"/{src['name']}"
+        if str(src.get("user") or "").strip():
+            text += f" as {src['user']}"
+        return text
+
+    def _collector_database_note(self, state: dict | None, wanted: dict | None = None) -> str:
+        """Plain-text note: the collector's database, where it is set, and
+        whether it matches the PostgreSQL settings on this page.
+
+        Nothing here is written into the program. The collector reads its
+        settings file; Apply database copies this page's settings into it.
         """
-        http = http or {}
-        db = http.get("database") if isinstance(http.get("database"), dict) else {}
-        host = str(db.get("host") or "").strip()
-        port = db.get("port")
-        name = str(db.get("name") or "").strip()
-        host_from = str(db.get("host_from") or "POWERMON_PG_HOST")
-        if field is None:
-            field = ""
-            edit = getattr(self, "ed_pg_host", None)
-            if edit is not None:
-                field = edit.text().strip()
-        lines = [
-            "PostgreSQL host is not hard-coded.",
-            "Setup & Info → Database → PostgreSQL → Host saves it as db/pg_host.",
-            "sudo ./services/install-energy-collector.sh copies that into "
-            f"{host_from} in /etc/default/energy-collector. "
-            "The running collector uses that environment value.",
-        ]
-        if host:
-            target = host
-            if port not in (None, ""):
-                target = f"{host}:{port}"
-            if name:
-                target = f"{target}/{name}"
-            lines.append(f"Collector is using {host_from} = {target}.")
-        else:
+        state = state or {}
+        wanted = wanted or {}
+        target = self._db_target_text(state)
+        lines = []
+        if not target:
             lines.append(
-                "This broker did not report its database host "
-                "(restart energy-collector to include it)."
+                "The collector's database could not be read "
+                "(the collector is not answering and its settings file is not readable)."
             )
-        if field:
-            lines.append(f"This screen's PostgreSQL Host is currently {field}.")
-            if host and field != host:
+        elif state.get("source") == "file":
+            lines.append(f"Collector database: {target}")
+            lines.append(f"Set in {state.get('path')}.")
+            if state.get("running_differs"):
                 lines.append(
-                    "Those two differ. Edit the Host field, Save the database "
-                    "settings, then re-run the install script (or edit "
-                    "/etc/default/energy-collector) and restart energy-collector."
+                    "The running collector is still on its old database. "
+                    "Press Start/Restart to pick this up."
                 )
         else:
-            lines.append("This screen's PostgreSQL Host field is empty.")
+            lines.append(f"Collector database: {target}")
+            lines.append(
+                f"Set in {state.get('path')}, which only an administrator can read."
+            )
+        mine = self._db_target_text(wanted)
+        if not mine:
+            lines.append("This page's PostgreSQL Host is empty.")
+        elif target and not state.get("differs"):
+            lines.append("That matches the PostgreSQL settings on this page.")
+        elif target:
+            lines.append(
+                f"This page's PostgreSQL settings are {mine}. "
+                f"Different: {', '.join(state.get('differs') or [])}."
+            )
+            lines.append(
+                "Press Apply database under Background collector to copy this "
+                "page's settings to the collector."
+            )
         return "\n".join(lines)
 
     def _test_broker_url(self):
         broker = self._broker_url_for_probe()
-        pg_field = ""
-        if getattr(self, "ed_pg_host", None) is not None:
-            pg_field = self.ed_pg_host.text().strip()
+        wanted = self._collector_db_wanted()
         self.btn_broker_test.setEnabled(False)
 
         def _worker():
@@ -2102,7 +2144,9 @@ class ParametersTab(QWidget):
                 status = collect_collector_service_status(broker)
                 http = status.get("http") or {}
                 url = http.get("url") or broker
-                db_note = self._postgres_host_setting_note(http, field=pg_field)
+                db_note = self._collector_database_note(
+                    collector_database_state(status, wanted), wanted
+                )
                 if http.get("reachable"):
                     if http.get("ok"):
                         msg = f"Broker healthy at {url}"
@@ -2145,6 +2189,7 @@ class ParametersTab(QWidget):
             self.btn_svc_start,
             self.btn_svc_stop,
             self.btn_svc_boot,
+            self.btn_svc_db,
             self.btn_svc_refresh,
         ):
             btn.setEnabled(enabled)
@@ -2170,14 +2215,88 @@ class ParametersTab(QWidget):
         self.lbl_svc_system.setStyleSheet(f"color: {_UI_BLUE}; font-size: 11px;")
         self.lbl_svc_http.setText("checking…")
         self.lbl_svc_http.setStyleSheet(f"color: {_UI_BLUE}; font-size: 11px;")
+        self.lbl_svc_db.setText("checking…")
+        self.lbl_svc_db.setStyleSheet(f"color: {_UI_BLUE}; font-size: 11px;")
         self._set_svc_controls_enabled(False)
         broker = self._broker_url_for_probe()
+        wanted = self._collector_db_wanted()
 
         def _worker():
             status = collect_collector_service_status(broker)
+            # Compared here, off the UI thread; the password never leaves this call.
+            status["collector_db"] = collector_database_state(status, wanted)
+            status["collector_db_wanted"] = {
+                k: v for k, v in wanted.items() if k != "password"
+            }
             self._inv.invoke(lambda s=status: self._apply_service_status(s))
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _svc_apply_database(self):
+        """Copy this page's PostgreSQL settings to the collector."""
+        if self._service_control_busy:
+            return
+        status = self._service_status
+        if not status:
+            self._probe_service_async()
+            return
+        wanted = self._collector_db_wanted()
+        if not wanted.get("host"):
+            QMessageBox.information(
+                self,
+                "Collector database",
+                "Fill in the PostgreSQL Host under Database on this page first.",
+            )
+            return
+        _, unit, _ = pick_control_scope(status, for_control=True)
+        if not unit.get("installed"):
+            QMessageBox.information(
+                self,
+                "Collector database",
+                "The collector service is not installed. Run:\n"
+                "sudo ./services/install-energy-collector.sh",
+            )
+            return
+        after = (
+            "The collector will restart to use it."
+            if unit.get("active_state") == "active"
+            else "The collector is stopped. It will use this when you start it."
+        )
+        answer = QMessageBox.question(
+            self,
+            "Collector database",
+            "Point the background collector at this PostgreSQL database?\n\n"
+            f"    {self._db_target_text(wanted)}\n\n"
+            "This uses the host, port, database, user and password typed under "
+            f"Database on this page.\n{after}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self._service_control_busy = True
+        self._set_svc_controls_enabled(False)
+        self.lbl_svc_detail.setText("Updating the collector's database settings…")
+
+        def _worker():
+            try:
+                ok, msg = apply_collector_database(status, **wanted)
+            except Exception as exc:
+                ok, msg = False, f"Could not update the collector: {exc}"
+            self._inv.invoke(lambda o=ok, m=msg: self._svc_apply_database_done(o, m))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _svc_apply_database_done(self, ok: bool, msg: str):
+        self._service_control_busy = False
+        self._set_svc_controls_enabled(True)
+        if ok:
+            self.dash.set_status(msg)
+            # A restarted collector needs a few seconds before it answers again.
+            QTimer.singleShot(4000, self._probe_service_async)
+        else:
+            QMessageBox.warning(self, "Collector database", msg)
+        self._probe_service_async()
 
     def _svc_run_control(self, action: str):
         if self._service_control_busy:
@@ -2340,6 +2459,65 @@ class ParametersTab(QWidget):
             )
         return notes
 
+    def _show_collector_database(self, state: dict | None, wanted: dict | None):
+        """Fill the Database line: what the collector uses and whether it
+        matches the PostgreSQL settings on this page."""
+        state = state or {}
+        wanted = wanted or {}
+        target = self._db_target_text(state)
+        grey = "color:#6c7086;"
+        self.lbl_svc_db.setStyleSheet("font-size: 11px;")
+        self.lbl_svc_db.setToolTip(
+            self._collector_database_note(state, wanted) if state else ""
+        )
+        if not state.get("installed"):
+            self.lbl_svc_db.setText(f"<span style='{grey}'>—</span>")
+            return
+        if not target:
+            self.lbl_svc_db.setText(
+                "<span style='color:#fab387; font-weight:bold;'>unknown</span>"
+                f"<span style='{grey}'> · the collector is not answering and "
+                f"{_params_soft_wrap_html(state.get('path'))} is not readable</span>"
+            )
+            return
+        target_html = _params_soft_wrap_html(target)
+        where = _params_soft_wrap_html(state.get("path"))
+        differs = state.get("differs") or []
+        if differs:
+            mine = _params_soft_wrap_html(self._db_target_text(wanted))
+            fix = (
+                "press <b>Apply database</b>"
+                if state.get("writable")
+                else "save the PostgreSQL settings, then run "
+                "<code>sudo ./services/install-energy-collector.sh</code>"
+            )
+            self.lbl_svc_db.setText(
+                "<span style='color:#fab387; font-weight:bold;'>"
+                "differs from this page</span>"
+                f"<span style='{grey}'> · collector uses {target_html} · "
+                f"PostgreSQL settings here are {mine} "
+                f"({html.escape(', '.join(differs))}) — {fix}</span>"
+            )
+            return
+        if state.get("running_differs"):
+            self.lbl_svc_db.setText(
+                "<span style='color:#fab387; font-weight:bold;'>restart needed</span>"
+                f"<span style='{grey}'> · set to {target_html}, but the running "
+                "collector is still on its old database — press "
+                "<b>Start/Restart</b></span>"
+            )
+            return
+        if not self._db_target_text(wanted):
+            match = "PostgreSQL Host on this page is empty"
+        elif state.get("password_checked"):
+            match = "same as the PostgreSQL settings on this page"
+        else:
+            match = "same address as the PostgreSQL settings on this page"
+        self.lbl_svc_db.setText(
+            f"<span style='color:#a6e3a1;'>{target_html}</span>"
+            f"<span style='{grey}'> · {match} · set in {where}</span>"
+        )
+
     def _apply_service_status(self, status: dict):
         self._service_status = status
         system = status.get("system_unit") or {}
@@ -2352,7 +2530,11 @@ class ParametersTab(QWidget):
             self.btn_svc_start.setEnabled(installed)
             self.btn_svc_stop.setEnabled(installed)
             self.btn_svc_boot.setEnabled(installed)
+            self.btn_svc_db.setEnabled(installed)
         self._update_svc_boot_button(status)
+        self._show_collector_database(
+            status.get("collector_db"), status.get("collector_db_wanted")
+        )
 
         self.lbl_svc_system.setTextFormat(Qt.RichText)
         self.lbl_svc_system.setText(
@@ -2412,11 +2594,6 @@ class ParametersTab(QWidget):
             detail_parts.append(f"Growatt poll error: {growatt_err}")
         if poll_err:
             detail_parts.append(f"Collector error: {html.escape(str(poll_err))}")
-        detail_parts.append(
-            "<span style='color:#cdd6f4;'>"
-            + html.escape(self._postgres_host_setting_note(http)).replace("\n", "<br>")
-            + "</span>"
-        )
         if not http.get("reachable"):
             hint = broker_unreachable_hint(url, primary, http)
             if hint:
@@ -4180,6 +4357,8 @@ class ParametersTab(QWidget):
         s.setValue("db/pg_pass", self.ed_pg_pass.text())
         self._push_db_config_to_logger()
         self._probe_db_seen_async(backend)
+        # Background collector → Database shows at once if it no longer matches.
+        self._probe_service_async()
         name = self._db_backend_display_name(backend)
         if name:
             self.dash.set_status(f"{name} database config saved and logger reconfigured.")

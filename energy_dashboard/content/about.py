@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.18", "2026-11-25", [
+        "Setup & Info → Background collector: a new Database line shows which PostgreSQL database the collector stores readings in, and warns when it differs from Database → PostgreSQL on the same page. Apply database copies the page's host, port, database, user and password to the collector and restarts it — no file to edit by hand when the database moves.",
+    ]),
     ("2.10.17", "2026-11-25", [
         "Setup & Info → Telemetry source: Save source keeps the MQTT username and password you type. It used to put the EMQX row's login back over them, so a new username snapped back to the old one. The EMQX row now only fills in a host or login you leave blank.",
     ]),

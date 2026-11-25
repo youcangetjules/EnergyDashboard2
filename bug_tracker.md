@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-11-25 | 1 | 1 | 3 |
+| 2026-11-25 | 2 | 2 | 3 |
 | 2026-10-25 | 1 | 1 | 3 |
 | 2026-10-18 | 4 | 4 | 3 |
 | 2026-10-02 | 1 | 1 | 3 |
@@ -124,6 +124,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-091-20261125-02 — Collector keeps the old database address after the database moves</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-11-25 09:00 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Setup & Info → Background collector (`services/systemd_status.py`) |
+| **Version found** | 2.10.16 |
+| **Version fixed** | 2.10.18 |
+
+**Symptom:** Broker URL → Test said "Reachable but degraded". The collector could not reach PostgreSQL and stored no readings. Database → PostgreSQL on the same page already held the new address and tested fine. The advice on screen named `/etc/default/energy-collector`, which is not the file the running user session copy reads.
+
+**Cause:** The collector reads its database address from its own settings file. That file was only written when an install script ran, so changing the PostgreSQL settings on screen never reached it. Nothing on screen could change it.
+
+**Resolution:** Background collector has a Database line that shows the collector's database and warns when it differs from the PostgreSQL settings on the page. Apply database copies those settings into the settings file the unit itself names, changes only the five database lines, and restarts the collector if it is running. The misleading note was removed.
 
 ### <span style="color:green">BUG-090-20261125-01 — Save source puts the old MQTT username back</span>
 

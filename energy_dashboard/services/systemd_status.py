@@ -365,6 +365,290 @@ def _is_privilege_failure(msg: str) -> bool:
     )
 
 
+# --- Collector database settings (the POWERMON_PG_* lines of its settings file) ---
+
+COLLECTOR_DB_KEYS = {
+    "host": "POWERMON_PG_HOST",
+    "port": "POWERMON_PG_PORT",
+    "name": "POWERMON_PG_DB",
+    "user": "POWERMON_PG_USER",
+    "password": "POWERMON_PG_PASSWORD",
+}
+_COLLECTOR_DB_LABELS = {
+    "host": "host",
+    "port": "port",
+    "name": "database name",
+    "user": "user",
+    "password": "password",
+}
+_ENV_BARE_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:/@%+=,-"
+)
+
+
+def collector_env_file(user: bool) -> Path:
+    """The settings file systemd loads for the collector unit.
+
+    Asked from the unit itself (``EnvironmentFile=``), so a unit that points
+    somewhere else is followed. Falls back to the path each installer writes.
+    """
+    rc, out, _ = _run_systemctl(
+        ["show", SERVICE_NAME, "--property=EnvironmentFiles"], user=user
+    )
+    found = None
+    if rc == 0:
+        for line in out.splitlines():
+            key, _, val = line.partition("=")
+            if key != "EnvironmentFiles":
+                continue
+            # "/path/to/file (ignore_errors=no)" — later files override earlier ones.
+            path = val.strip().rsplit(" (", 1)[0].strip()
+            if path.startswith("/"):
+                found = Path(path)
+    if found is not None:
+        return found
+    if user:
+        return Path.home() / ".config" / "energy-collector.env"
+    return Path("/etc/default/energy-collector")
+
+
+def _env_unquote(raw: str) -> str:
+    """Read one value the way systemd reads an EnvironmentFile line."""
+    raw = raw.strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] == "'":
+        return raw[1:-1]
+    quoted = len(raw) >= 2 and raw[0] == raw[-1] == '"'
+    if quoted:
+        raw = raw[1:-1]
+    out = []
+    i = 0
+    while i < len(raw):
+        ch = raw[i]
+        if ch == "\\" and i + 1 < len(raw):
+            nxt = raw[i + 1]
+            if not quoted or nxt in '"\\`$':
+                out.append(nxt)
+                i += 2
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _env_quote(value: str) -> str:
+    """Write one value so systemd reads back exactly ``value``."""
+    if all(ch in _ENV_BARE_CHARS for ch in value):
+        return value
+    if "'" not in value:
+        return f"'{value}'"
+    escaped = "".join(f"\\{ch}" if ch in '"\\`$' else ch for ch in value)
+    return f'"{escaped}"'
+
+
+def _read_env_values(path: Path, keys) -> dict:
+    """Return ``{key: value}`` for the wanted keys (last assignment wins)."""
+    wanted = set(keys)
+    found: dict = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line[0] in "#;" or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        if key in wanted:
+            found[key] = _env_unquote(val)
+    return found
+
+
+def _write_env_values(path: Path, values: dict) -> None:
+    """Set ``KEY=value`` lines in an env file and leave every other line alone.
+
+    The new file is written beside the old one and swapped in, so a failure
+    half way never leaves a broken file. It stays readable by its owner only,
+    because it holds passwords.
+    """
+    import os
+    import stat
+    import tempfile
+
+    try:
+        old = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        old, mode = [], 0o600
+    pending = dict(values)
+    lines = []
+    for line in old:
+        key = line.strip().partition("=")[0].strip()
+        if "=" in line and key in values:
+            if key in pending:
+                lines.append(f"{key}={_env_quote(str(pending.pop(key)))}")
+            continue  # a repeat of a key already written above
+        lines.append(line)
+    for key, val in pending.items():
+        lines.append(f"{key}={_env_quote(str(val))}")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _can_write_env_file(path: Path) -> bool:
+    import os
+
+    if path.exists():
+        return os.access(path, os.R_OK | os.W_OK) and os.access(path.parent, os.W_OK)
+    parent = path.parent
+    while not parent.exists() and parent != parent.parent:
+        parent = parent.parent
+    return os.access(parent, os.W_OK)
+
+
+def collector_database_state(status: dict, wanted: dict | None = None) -> dict:
+    """Which database the collector is set to use, and whether ``wanted`` matches.
+
+    ``wanted`` holds the PostgreSQL settings typed on screen (``host``,
+    ``port``, ``name``, ``user``, ``password``). The password is only compared;
+    it is never put in the result.
+    """
+    user_scope, unit, label = pick_control_scope(status or {}, for_control=True)
+    state = {
+        "installed": bool(unit.get("installed")),
+        "scope": label,
+        "running": unit.get("active_state") == "active",
+        "path": None,
+        "readable": False,
+        "writable": False,
+        "host": "",
+        "port": "",
+        "name": "",
+        "user": "",
+        "source": None,  # "file" or "health"
+        "running_differs": False,
+        "differs": [],
+        "password_checked": False,
+    }
+    saved: dict = {}
+    if state["installed"]:
+        path = collector_env_file(user_scope)
+        state["path"] = str(path)
+        state["writable"] = _can_write_env_file(path)
+        try:
+            saved = _read_env_values(path, COLLECTOR_DB_KEYS.values())
+            state["readable"] = True
+        except OSError:
+            saved = {}
+
+    http_db = (status or {}).get("http", {}).get("database")
+    http_db = http_db if isinstance(http_db, dict) else {}
+    if state["readable"]:
+        state["source"] = "file"
+        for field in ("host", "port", "name", "user"):
+            state[field] = str(saved.get(COLLECTOR_DB_KEYS[field], "")).strip()
+        # The file is what the next start uses; say so if the running copy is behind.
+        for field in ("host", "port", "name"):
+            running = str(http_db.get(field) or "").strip()
+            if running and state[field] and running != state[field]:
+                state["running_differs"] = True
+    elif http_db.get("host"):
+        state["source"] = "health"
+        for field in ("host", "port", "name"):
+            state[field] = str(http_db.get(field) or "").strip()
+
+    if wanted and state["source"]:
+        fields = ["host", "port", "name"]
+        if state["source"] == "file":
+            fields.append("user")
+        for field in fields:
+            if str(wanted.get(field, "")).strip() != state[field]:
+                state["differs"].append(_COLLECTOR_DB_LABELS[field])
+        if state["source"] == "file":
+            state["password_checked"] = True
+            if str(wanted.get("password", "")) != saved.get(
+                COLLECTOR_DB_KEYS["password"], ""
+            ):
+                state["differs"].append(_COLLECTOR_DB_LABELS["password"])
+    return state
+
+
+def apply_collector_database(
+    status: dict,
+    *,
+    host: str,
+    port,
+    name: str,
+    user: str,
+    password: str,
+) -> tuple[bool, str]:
+    """Point the collector at a PostgreSQL database and restart it if running.
+
+    Only the five ``POWERMON_PG_*`` lines of the collector's settings file are
+    changed. A stopped collector is left stopped; it uses the new settings the
+    next time it starts.
+    """
+    values = {
+        "host": str(host or "").strip(),
+        "port": str(port or "").strip(),
+        "name": str(name or "").strip(),
+        "user": str(user or "").strip(),
+        "password": str(password or ""),
+    }
+    if not values["host"]:
+        return False, "PostgreSQL Host is empty. Fill it in under Database first."
+    if not values["port"].isdigit():
+        return False, "PostgreSQL Port must be a number."
+    for field, val in values.items():
+        if any(ch in val for ch in "\n\r\0"):
+            return False, (
+                f"The PostgreSQL {_COLLECTOR_DB_LABELS[field]} contains a line "
+                "break, which the collector's settings file cannot hold."
+            )
+
+    user_scope, unit, _label = pick_control_scope(status or {}, for_control=True)
+    if not unit.get("installed"):
+        return False, "Collector service is not installed."
+    path = collector_env_file(user_scope)
+    if not _can_write_env_file(path):
+        return False, (
+            f"The collector's settings are in {path}, which only an "
+            "administrator can change.\n\n"
+            "Save the PostgreSQL settings on this page, then run in a terminal:\n"
+            "  sudo ./services/install-energy-collector.sh\n\n"
+            "That copies the saved PostgreSQL settings to the collector and "
+            "restarts it."
+        )
+    try:
+        _write_env_values(
+            path, {COLLECTOR_DB_KEYS[field]: val for field, val in values.items()}
+        )
+    except OSError as exc:
+        return False, f"Could not write {path}: {exc.strerror or exc}"
+
+    target = f"{values['host']}:{values['port']}/{values['name']}"
+    if unit.get("active_state") != "active":
+        return True, (
+            f"Collector database set to {target}. The collector is stopped; "
+            "it will use this when it starts."
+        )
+    ok, msg = control_collector_service("restart", status)
+    if not ok:
+        return False, (
+            f"The new database settings are saved in {path}, but the collector "
+            f"did not restart:\n{msg}"
+        )
+    return True, f"Collector database set to {target} and the collector restarted."
+
+
 def control_collector_service(action: str, status: dict) -> tuple[bool, str]:
     """Start/stop/restart/enable/disable the installed collector unit.
 

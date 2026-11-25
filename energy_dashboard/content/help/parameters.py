@@ -11,7 +11,7 @@ One-stop config: API credentials, tariff parameters, battery defaults, solar ins
 <p>
 Use <b>Apply to all tabs</b> to push battery / solar / Agile settings into the simulator, Forecasts and Smart Advisor tabs in one click.</p>
 <p>
-<b>Broker URL → Test</b> checks the collector, then says where PostgreSQL’s host is set and what it is set to. The address is not written into the program. <b>Database → PostgreSQL → Host</b> is saved as <code>db/pg_host</code>. Installing the collector copies that into <code>POWERMON_PG_HOST</code> in <code>/etc/default/energy-collector</code>. The test shows both the Host box on this page and the host the running collector is actually using.</p>
+<b>Background collector → Database</b> shows which PostgreSQL database the collector stores readings in, and whether that matches <b>Database → PostgreSQL</b> on this page. The address is not written into the program. The collector keeps its own copy in its settings file (<code>~/.config/energy-collector.env</code> for the user session copy, <code>/etc/default/energy-collector</code> for the boot service). If the database moves, change <b>Database → PostgreSQL</b>, press its <b>Save</b>, then press <b>Apply database</b>. That copies the host, port, database, user and password to the collector and restarts it. The boot service’s file belongs to the administrator, so for that copy the page tells you to run <code>sudo ./services/install-energy-collector.sh</code> instead. <b>Broker URL → Test</b> checks the collector and repeats the same comparison.</p>
 <p>
 <b>Main window — tab bar</b> lets you hide tabs you rarely use; Growatt, Octopus Energy Data, and this Setup tab always stay visible.</p>
 <p>

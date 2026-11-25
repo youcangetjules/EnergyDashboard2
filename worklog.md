@@ -14,6 +14,13 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-11-25
 
+### 09:20
+
+- The collector's database can now be set from the screen. Setup & Info, Background collector, has a new Database line. It shows which PostgreSQL database the collector is set to and where that is kept. It turns orange when that differs from Database → PostgreSQL on the same page, and says which part differs (host, port, database name, user, or password).
+- A new Apply database button copies the page's PostgreSQL host, port, database, user, and password into the collector's settings file and restarts the collector if it is running. Only those five lines of the file change. The password is never shown.
+- The boot service's settings file can only be changed by an administrator. For that copy the page says to save the PostgreSQL settings and run `sudo ./services/install-energy-collector.sh`.
+- Saving the PostgreSQL settings re-checks the collector at once, so a mismatch shows straight away. The long note about `/etc/default/energy-collector` under the collector status is gone; it named the wrong file for the user session copy. Broker URL → Test gives the new comparison.
+
 ### 09:11
 
 - On Setup & Info, Telemetry source, typing a new MQTT username and password and pressing Save source put the old ones straight back. Save source was copying the EMQX row's login over those boxes before it saved. It now saves what is typed there. The EMQX row only fills in a host or a login that is left blank. The EMQX row's own Save and Apply still copy its login to Grott and Tasmota, as before.
