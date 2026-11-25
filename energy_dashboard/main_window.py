@@ -197,6 +197,56 @@ class EnergyDashboard(QMainWindow):
         except Exception:
             pass
         QTimer.singleShot(100, self._auto_start_all)
+        QTimer.singleShot(500, self._resume_collector_after_close)
+
+    def _resume_collector_after_close(self):
+        """Start the collector again if Close App stopped it last time.
+
+        A Stop pressed in Setup or the tray is left alone: only a stop made by
+        Close App is recorded, so only that one is undone.
+        """
+        s = QSettings("PowerModel", "EnergyDashboard2")
+        if str(s.value("collector/stopped_by_close", "false")).lower() != "true":
+            return
+        url = self.parameters_tab.ed_broker_url.text().strip()
+        self.set_status("Starting the energy-collector daemon that Close App stopped…")
+
+        def work():
+            from energy_dashboard.services.systemd_status import (
+                collect_collector_service_status,
+                control_collector_service,
+            )
+            try:
+                status = collect_collector_service_status(url or None)
+                running = any(
+                    (status.get(key) or {}).get("active_state") == "active"
+                    for key in ("system_unit", "user_unit")
+                )
+                if running:
+                    ok, msg = True, ""
+                else:
+                    ok, msg = control_collector_service("start", status)
+            except Exception as exc:
+                ok, msg = False, str(exc)
+            self._tray_inv.invoke(lambda o=ok, m=msg: self._resume_collector_done(o, m))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _resume_collector_done(self, ok: bool, msg: str):
+        if ok:
+            s = QSettings("PowerModel", "EnergyDashboard2")
+            s.setValue("collector/stopped_by_close", False)
+            s.sync()
+            self.set_status(msg or "Energy-collector daemon is running.")
+        else:
+            self.set_status(f"Could not start the energy-collector daemon: {msg}")
+        # Setup and the tray show the new state instead of the stopped one.
+        self._tray_probe_busy = False
+        self._tray_probe_broker()
+        try:
+            self.parameters_tab._probe_service_async()
+        except Exception:
+            pass
 
     def minimumSizeHint(self):
         """Never ask the window manager for a size wider than this monitor."""
@@ -1967,6 +2017,10 @@ class EnergyDashboard(QMainWindow):
             )
             return
         if action == "stop":
+            if not missing:
+                s = QSettings("PowerModel", "EnergyDashboard2")
+                s.setValue("collector/stopped_by_close", True)
+                s.sync()
             self._tray_quit_app()
             return
         if missing:

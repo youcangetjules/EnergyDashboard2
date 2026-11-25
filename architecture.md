@@ -142,6 +142,7 @@ Newest first. Keep each entry short: context → decision → consequence.
 - **Context:** The bottom-right Close button hid the window and left the energy-collector daemon running. There was no choice on that button to restart both, or to stop the daemon as well.
 - **Decision:** Close opens three choices. Minimise hides the window and leaves the daemon running. Restart restarts the energy-collector daemon, then starts this app again. Close App stops that daemon and quits. The window’s own close control still hides to the tray. A daemon command that fails leaves the app open.
 - **Consequence:** Do not make Close quit on the first click. Do not stop the daemon when the choice is minimise. Do not quit the app after a failed stop or restart of the daemon.
+- **Update 2026-11-25:** Close App records `collector/stopped_by_close` when it stops the daemon. The next app start starts the daemon again and clears that flag, so opening the app puts the collector back as it was. A Stop pressed in Setup or the tray is not recorded and stays stopped.
 
 ### 2026-10-18 — The MCS certificate is the installed plant, not a voltage scale
 

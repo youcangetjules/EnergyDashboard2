@@ -14,6 +14,10 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-11-25
 
+### 10:52
+
+- After closing and reopening the app, Background collector showed the collector stopped and the HTTP broker not healthy. Close App stops the collector on purpose, and nothing started it again on the next launch. Close App now records that it stopped the collector. The next app start starts it again and refreshes Setup and the tray. A Stop pressed in Setup or the tray is left alone. (BUG-092)
+
 ### 10:50
 
 - Setup & Info, Database Export: the SQLite row has less on its left than MySQL and PostgreSQL, so its create-all SQL box started further left and came out wider. A gap before the SQLite status is now sized after layout so the SQLite status and SQL box start at the MySQL row's left edge. All three boxes are the same width at any window size.

@@ -46,7 +46,7 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 
 | Day | Opened | Fixed | Still open |
 |-----|--------|-------|------------|
-| 2026-11-25 | 2 | 2 | 3 |
+| 2026-11-25 | 3 | 3 | 3 |
 | 2026-10-25 | 1 | 1 | 3 |
 | 2026-10-18 | 4 | 4 | 3 |
 | 2026-10-02 | 1 | 1 | 3 |
@@ -124,6 +124,22 @@ Opened is the day the bug was logged. Fixed is the day that fix shipped (the Abo
 ---
 
 ## <span style="color:green">Fixed</span>
+
+### <span style="color:green">BUG-092-20261125-03 — Collector stays off after the app is reopened</span>
+
+| Field | Value |
+|-------|--------|
+| **Opened** | 2026-11-25 10:51 (Europe/London) |
+| **Status** | fixed |
+| **Area** | Main window → Close → Close App; Setup & Info → Background collector |
+| **Version found** | 2.10.20 |
+| **Version fixed** | 2.10.21 |
+
+**Symptom:** After closing and reopening the app, Background collector showed the collector stopped and the HTTP broker not healthy. It only came back after pressing Start/Restart. Boot Start was green, so it looked as if it should have been running.
+
+**Cause:** Close App stops the energy-collector daemon on purpose. Nothing started it again when the app was next opened. Boot Start only starts it when you log in, not when the app opens.
+
+**Resolution:** Close App now records that it stopped the daemon. The next app start starts it again, clears the record, and refreshes Setup and the tray. A Stop pressed in Setup or the tray is not recorded, so it is left stopped.
 
 ### <span style="color:green">BUG-091-20261125-02 — Collector keeps the old database address after the database moves</span>
 

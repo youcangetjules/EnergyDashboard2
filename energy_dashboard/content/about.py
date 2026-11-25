@@ -53,6 +53,9 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.21", "2026-11-25", [
+        "Opening the app starts the energy-collector again if Close App stopped it last time, so Setup no longer shows Collector stopped and HTTP broker unreachable after a restart. A Stop you press yourself is left alone.",
+    ]),
     ("2.10.20", "2026-11-25", [
         "Setup & Info → Database Export: the SQLite create-all SQL box is the same width as the MySQL and PostgreSQL boxes, and lines up with them.",
         "Setup & Info → Wonderwatt: the Share URL box is twice as wide.",
