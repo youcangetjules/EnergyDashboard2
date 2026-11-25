@@ -14,6 +14,11 @@ Do not replace the in-app About changelog; that stays the versioned product hist
 
 ## 2026-11-25
 
+### 10:50
+
+- Setup & Info, Database Export: the SQLite row has less on its left than MySQL and PostgreSQL, so its create-all SQL box started further left and came out wider. A gap before the SQLite status is now sized after layout so the SQLite status and SQL box start at the MySQL row's left edge. All three boxes are the same width at any window size.
+- Setup & Info, Wonderwatt: the Share URL box is twice as wide (392 px instead of 196 px).
+
 ### 10:46
 
 - Setup & Info, Solar installation: the Tilt and Azimuth boxes were narrower than Latitude and Longitude above them. They are now the same width, so the two rows line up.

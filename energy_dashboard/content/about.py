@@ -53,6 +53,10 @@ _APP_ABOUT_TEXT = (
 # new entry every time APP_VERSION_PATCH is bumped so the in-app history
 # stays in lock-step with the code.
 _APP_CHANGELOG = (
+    ("2.10.20", "2026-11-25", [
+        "Setup & Info → Database Export: the SQLite create-all SQL box is the same width as the MySQL and PostgreSQL boxes, and lines up with them.",
+        "Setup & Info → Wonderwatt: the Share URL box is twice as wide.",
+    ]),
     ("2.10.19", "2026-11-25", [
         "Setup & Info → Solar installation: the Tilt and Azimuth boxes are the same width as Latitude and Longitude above them.",
     ]),

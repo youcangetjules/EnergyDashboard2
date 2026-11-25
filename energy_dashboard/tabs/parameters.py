@@ -1627,7 +1627,7 @@ class ParametersTab(QWidget):
         )
         from energy_dashboard.fetch.wonderwatt import load_wonderwatt_share_url
         self.ed_wonderwatt_share = QLineEdit(load_wonderwatt_share_url())
-        self.ed_wonderwatt_share.setMinimumWidth(_SETUP_INFO_SPIN_W * 2)
+        self.ed_wonderwatt_share.setMinimumWidth(_SETUP_INFO_SPIN_W * 4)
         self.ed_wonderwatt_share.setPlaceholderText(
             "https://app.wonderwatt.com/?wattid=…&sig=…&time=…"
         )
@@ -1769,6 +1769,10 @@ class ParametersTab(QWidget):
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self._browse_sqlite)
         rd_sq.addWidget(browse_btn, 0, vcenter)
+        # Widened in _align_db_sqlite_row so status and SQL line up with MySQL / PostgreSQL.
+        self._db_sqlite_pad = QWidget()
+        self._db_sqlite_pad.setFixedWidth(0)
+        rd_sq.addWidget(self._db_sqlite_pad, 0)
         rd_sq.addWidget(
             self._db_sqlite_status,
             0,
@@ -1899,6 +1903,18 @@ class ParametersTab(QWidget):
         self._load_broker_url_from_settings()
         self._probe_db_seen_async()
         self._probe_service_async()
+        QTimer.singleShot(0, self._align_db_sqlite_row)
+
+    def _align_db_sqlite_row(self):
+        """Start the SQLite status and SQL box at the MySQL row's left edge."""
+        pad = getattr(self, "_db_sqlite_pad", None)
+        if pad is None:
+            return
+        target = self._db_mysql_status.mapTo(self, self._db_mysql_status.rect().topLeft()).x()
+        here = self._db_sqlite_status.mapTo(self, self._db_sqlite_status.rect().topLeft()).x()
+        width = max(0, pad.width() + target - here)
+        if width != pad.width():
+            pad.setFixedWidth(width)
 
     def _align_setup_info_spins(self, root: QWidget):
         """Uniform spin size; title columns anchored to the widest title; gap before
